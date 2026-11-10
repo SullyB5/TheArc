@@ -18,5 +18,6 @@ outland forest cells stream in around the player (`updTerrain` / `updForest` in 
 
 HUD: health (bottom-left), toolbar 1–5 (bottom), gun + ammo (bottom-right), minimap (top-right, tap for the full map), bag (inventory).
 
-Controls — PC: WASD, mouse, click fire, right-click aim, R reload, 1–5 toolbar (Q / wheel swap guns, 3 eats a ration), E use, Space jump/swim, I inventory, M map, N sound.
+Controls — PC: WASD, mouse, click fire, right-click aim, R reload, 1–5 toolbar (Q / wheel swap guns, 3 eats a ration), E use, Space jump/swim, I inventory, M map, F fly (Space up, C down, Shift fast), N sound.
+Phone: double-tap the bag to fly; hold JUMP to climb. Title screen "Controls" button (or `?controls=pc|phone`) forces a control scheme.
 Phone: left thumb move, right thumb look, crosshair button fires, AIM; tap toolbar slots, the minimap, or the bag.

@@ -12,7 +12,12 @@ import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
 
 const $ = id => document.getElementById(id);
-const isTouch = matchMedia('(pointer:coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+/* controls: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops.
+   The title screen has a switch that overrides this (saved in localStorage as 'arc-controls'). */
+const CTRL_PREF = (() => { try { return new URLSearchParams(location.search).get('controls') || localStorage.getItem('arc-controls'); } catch (e) { return null; } })();
+const isTouch = CTRL_PREF === 'pc' ? false : CTRL_PREF === 'phone' ? true
+  : /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    || (matchMedia('(pointer:coarse)').matches && !matchMedia('(any-pointer:fine)').matches);
 const LOW = isTouch;                       // phones: fewer trees/grass, smaller textures, cheaper post
 const SFX = LOW ? 'phone' : 'pc';
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;

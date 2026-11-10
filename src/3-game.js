@@ -535,6 +535,12 @@ function reload() {
   P.reload = P.slot ? 2.2 : 1.7; P.reloadMax = P.reload; sfx('reload');
 }
 function finishReload() { const R = gunStats(), id = gunId(), k = resOf(), n = Math.min(R.mag - INV.mags[id], INV[k]); INV.mags[id] += n; INV[k] -= n; }
+let touchUp = false;
+function toggleFly(v = !P.fly) {
+  if (G.mode !== 'play' || cine || P.dead) return;
+  P.fly = v; P.vy = 0; toast(v ? (isTouch ? 'Flying · look where you want to go · hold JUMP to climb · tap the bag twice fast to land' : 'Flying · WASD + look · Space up · C down · Shift fast · F to land') : 'Landed', 3.5);
+}
+window.fly = toggleFly;
 function swapGun() {
   if (!G.flags.hunter || P.reload > 0) return;
   P.slot = 1 - P.slot; P.swapT = .45; selectGunView(gunId()); sfx('reload'); toast(WEAPONS[gunId()].name, 1.2);
@@ -545,29 +551,40 @@ function updPlayer(dt) {
   // look (slower while aiming)
   const lk = 1 / (1 + (WEAPONS[gunId()].scope - 1) * P.ads * .8);
   P.yaw -= input.look[0] * lk; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
-  // move
-  let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
-  const wl = waterAt(P.x, P.z), depth = wl - P.y;
-  P.swim = depth > 1.25;
-  const sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
-  const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
-  const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
-  const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
-  P.x += vx * dt; P.z += vz * dt;
-  collide(P, .42, true);
-  let gy = heightAt(P.x, P.z);
-  const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
-  if (P.swim) gy = Math.max(gy, wl - 1.3);
-  if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
-  input.jump = false;
-  P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
-  if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
-  else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
-  const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
-  P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
-  STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
-  P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); if (moving && depth > -.05) sfx('splash'); }
-  input.sprint = sprint;
+  // move (or fly: F toggles it — no gravity, no collisions, go where you look)
+  let sprint = false;
+  if (P.fly) {
+    let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+    const fast = input.sprint || ml > .96, spd = fast ? 90 : 28, cp = Math.cos(P.pitch);
+    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp, rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
+    const up = (keys.Space || touchUp ? 1 : 0) - (keys.KeyC || keys.ControlLeft ? 1 : 0);
+    P.x += (fx * my + rx * mx) * spd * dt; P.z += (fz * my + rz * mx) * spd * dt; P.y += (fy * my * spd + up * spd * .7) * dt;
+    const d = Math.hypot(P.x, P.z); if (d > WORLD) { P.x *= WORLD / d; P.z *= WORLD / d; }
+    P.y = clamp(P.y, heightAt(P.x, P.z), 600); P.vy = 0; P.onGround = false; P.swim = false; input.jump = false; input.sprint = false;
+  } else {
+    let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+    const wl = waterAt(P.x, P.z), depth = wl - P.y;
+    P.swim = depth > 1.25;
+    sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
+    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
+    const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
+    P.x += vx * dt; P.z += vz * dt;
+    collide(P, .42, true);
+    let gy = heightAt(P.x, P.z);
+    const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
+    if (P.swim) gy = Math.max(gy, wl - 1.3);
+    if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
+    input.jump = false;
+    P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
+    if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
+    else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
+    const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
+    P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
+    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
+    P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); if (moving && depth > -.05) sfx('splash'); }
+    input.sprint = sprint;
+  }
   // survival
   P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1));
   if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
@@ -774,6 +791,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') swapGun();
+  if (e.code === 'KeyF') toggleFly();
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
   if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
@@ -809,12 +827,12 @@ function tStart(e) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
     if (el && (el.closest('.tile') || el.closest('#shopx') || el.closest('#arcade-home'))) continue;
     if (el && el.closest('.slot')) { e.preventDefault(); useSlot(+el.closest('.slot').dataset.i); continue; }
-    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else toggleInv(); continue; }
+    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else { const now = performance.now(); if (now - (window.__bagT || 0) < 350) { toggleInv(false); toggleFly(); } else toggleInv(); window.__bagT = now; } continue; }
     const btn = el && el.closest('.btn');
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
-      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') input.jump = true; if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
+      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
         if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
       continue;
     }
@@ -843,7 +861,7 @@ function tEnd(e) {
     const s = touches.get(t.identifier); if (!s) continue;
     if (s.kind === 'stick') { input.mx = input.my = 0; stick.style.display = 'none'; }
     if (s.kind === 'fire') input.fire = false;
-    if (s.btn) s.btn.classList.remove('on');
+    if (s.btn) { s.btn.classList.remove('on'); if (s.btn.id === 'bJump') touchUp = false; }
     touches.delete(t.identifier);
   }
 }
@@ -1054,10 +1072,11 @@ function startGame(fresh) {
 }
 function menu() {
   const s = load();
-  $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
+  $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button><button class="sec" id="bCtrl">Controls: ${isTouch ? 'Phone' : 'Computer'}</button>`;
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · F fly · N sound';
   $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
+  $('bCtrl').onclick = () => { try { localStorage.setItem('arc-controls', isTouch ? 'pc' : 'phone'); } catch (e) {} location.reload(); };
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
 }
 let newArmed = false;
