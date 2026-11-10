@@ -229,7 +229,7 @@ function baseGuards() {
   for (let i = 0; i < 16; i++) { const a = rnd() * 6.28, r = rr(10, F.R - 8); spawnClan(i % 5 === 4 ? 'brute' : 'gunner', F.x + Math.cos(a) * r, F.z + Math.sin(a) * r, 'guard', 'iron'); }
   for (let i = 0; i < 22; i++) { const a = rnd() * 6.28, r = rr(F.R + 30, CITY.R - 20); spawnClan(pick(['gunner', 'gunner', 'warrior']), CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r, 'guard', 'iron'); }
   for (const B of BASES) {
-    if (B.fac === 'arc') { for (let i = 0; i < 6; i++) spawnNPC('extra', B.x + rr(-20, 20), B.z + rr(-20, 20), { wander: true }); const t = spawnNPC('trader', TRADER.x, TRADER.z, { model: 'civilian', tint: 0x6a8aa0, h: 1.72 }); t.trader = 1; named.trader = t; continue; }
+    if (B.fac === 'arc') { for (let i = 0; i < 6; i++) spawnNPC('extra', B.x + rr(-20, 20), B.z + rr(-20, 20), { wander: true }); const t = spawnNPC('trader', TRADER.x, TRADER.z, { model: 'civilian', tint: 0x6a8aa0, h: 1.72 }); t.trader = 1; t.shop = 'mara'; t.shopName = 'Mara'; named.trader = t; continue; }
     const n = B.fac === 'grey' ? 11 : 8;
     for (let i = 0; i < n; i++) { const a = rnd() * 6.28, r = rr(6, B.R - 6); spawnClan(B.fac === 'grey' ? 'soldier' : i % 4 === 3 ? 'brute' : 'gunner', B.x + Math.cos(a) * r, B.z + Math.sin(a) * r, 'guard', B.fac); }
   }
@@ -247,15 +247,38 @@ function valueOf(id) {
   if (I.c === 'story') return id === 'id_chip' ? 45 : 30;
   return Math.max(1, Math.round(({ ren: 1, craft: 2, salv: 3 }[I.src] || 1) * (1 + (I.t - 1) * 1.6) * (I.c === 'rare' ? 4 : I.c === 'elec' ? 2 : 1)));
 }
-const TRADE_LOT = { ammo_9: 15, ammo_556: 20, ammo_762: 6, ammo_12: 8, arrows: 10, nails: 10, screws: 8, bolts: 5 };
+const TRADE_LOT = { ammo_9: 15, ammo_45: 12, ammo_556: 20, ammo_762: 6, ammo_12: 8, arrows: 10, bolts_xb: 8, ammo_flare: 2, nails: 10, screws: 8, bolts: 5, fiber: 10, stick: 8, stone: 6 };
+/* Kestrel's shops (and Mara out at Farlight): each keeper stocks their own trade; settlers barter what they've gathered */
+const SHOP_STOCK = {
+  mara: { pool: TRADE_POOL, k: 14, mark: 1.25, blurb: 'Mara trades in scrap.' },
+  cook: { k: 12, mark: 1.15, tiered: 1, blurb: 'Bram feeds Kestrel. Hot food, clean water, seed stock.', pool: ['ration', 'cooked_fish', 'dried_meat', 'roast', 'smoked_fish', 'canned', 'arc_pack', 'stew', 'veg_soup', 'fish_soup', 'bread', 'water_boiled', 'water_filtered', 'salt', 'flour', 'oil', 'honey', 'potato', 'corn', 'beans', 'carrot', 'meat', 'fat', 'seed_corn', 'seed_potato', 'seed_wheat', 'seed_bean', 'seed_squash', 'seed_carrot', 'canteen', 'pot'] },
+  craft: { k: 14, mark: 1.25, tiered: 1, blurb: 'Kade sells tools and metal stock.', pool: ['stone_axe', 'stone_pick', 'flint_knife', 'wood_shovel', 'hand_saw', 'fire_starter', 'needle', 'torch_t', 'metal_axe', 'pickaxe', 'hammer', 'crowbar', 'wrench', 'screwdriver', 'bolt_cutters', 'pliers', 'wire_cutters', 'multitool', 'welder', 'flashlight', 'climb_gear', 'lock_bypass', 'rust_detector', 'solar_charger', 'iron', 'steel', 'aluminum', 'copper', 'charcoal', 'pipe', 'gears', 'springs', 'spare_parts', 'tool_kit', 'fasteners', 'bolts', 'screws', 'nails', 'repair_kit'] },
+  trade: { k: 16, mark: 1.3, tiered: 1, blurb: 'Odile buys and sells anything that isn’t nailed down.', pool: ['plank', 'log', 'rope', 'cloth', 'canvas', 'synth', 'leather', 'hide', 'glass', 'rubber', 'wire', 'cu_wiring', 'battery', 'circuit', 'sensor', 'fuse', 'antenna', 'fuel', 'gunpowder', 'clay', 'limestone', 'metal_ore', 'fertilizer', 'map', 'compass', 'binoculars', 'radio', 'fish_rod', 'backpack', 'duffel', 'arc_alloy', 'solar_cell', 'med_parts', 'engine_part', 'cable_spool', 'data_drive', 'purify_tab', 'canned'] },
+  med: { k: 12, mark: 1.2, tiered: 1, blurb: 'Juno’s clinic. She’ll still patch you up for free.', pool: ['bandage', 'herb_bandage', 'splint', 'poultice', 'disinfect', 'painkiller', 'antibiotic', 'sutures', 'alcohol', 'purify_tab', 'medkit', 'surgical_kit', 'iv', 'rust_med', 'inject', 'herb_med', 'med_parts', 'gas_mask', 'med_scanner'] },
+  guns: { k: 14, mark: 1.3, tiered: 1, blurb: 'Rook keeps the guns. Bring scrap, leave armed.', pool: ['ammo_9', 'ammo_45', 'ammo_556', 'ammo_762', 'ammo_12', 'arrows', 'bolts_xb', 'ammo_flare', 'frag', 'smoke_gren', 'molotov', 'throw_spear', 'pistol', 'revolver', 'shotgun', 'smg', 'assault', 'sniper', 'lmg', 'flare_gun', 'shortbow', 'recurve', 'crossbow', 'machete', 'sword', 'war_axe', 'hunting_knife', 'mil_knife', 'stun_baton', 'metal_spear', 'repair_kit', 'gunpowder'] },
+  wear: { k: 12, mark: 1.25, tiered: 1, blurb: 'Wren makes and mends what you wear.', pool: ['hide_coat', 'jacket', 'hunt_outfit', 'rain_cloak', 'leather_armor', 'metal_chest', 'arc_jumpsuit', 'util_vest', 'sec_uniform', 'tac_armor', 'hazmat', 'rust_suit', 'clan_mask', 'gas_mask', 'helmet', 'riot_helmet', 'nvg', 'gloves', 'arm_guards', 'shield', 'riot_shield', 'boots', 'hide_boots', 'backpack', 'duffel', 'canteen', 'thread', 'cloth', 'leather'] },
+};
+const SETTLER_POOL = ['log', 'plank', 'stick', 'stone', 'flint', 'fiber', 'rope', 'hide', 'leather', 'bone', 'sinew', 'fat', 'feather', 'meat', 'fish', 'berries', 'mushroom', 'roots', 'nuts', 'herb', 'herb_med', 'honey', 'clay', 'charcoal', 'metal_ore', 'cloth', 'wire', 'water_boiled', 'dried_meat', 'bandage', 'arrows', 'nails'];
+const SETTLERS = [{ n: 'Tam', tint: 0xa08868 }, { n: 'Ilka', tint: 0x8aa0b0 }, { n: 'Brann', tint: 0x9a8a6a }, { n: 'Sova', tint: 0xb09080 }, { n: 'Pell', tint: 0x7a8a6a }, { n: 'Nico', tint: 0xa0a0b8 }];
+for (let i = 0; i < SETTLERS.length; i++) SHOP_STOCK['settler' + i] = { pool: SETTLER_POOL, k: 4, mark: 1, settler: 1, blurb: `${SETTLERS[i].n} swaps what they gathered for scrap.` };
+let curShopE = null;
+const shopDef = () => SHOP_STOCK[curShopE?.shop] || SHOP_STOCK.mara;
+const itemTier = id => GEAR_DEFS[id]?.t || ITEMS[id]?.t || 1;
+function nearShopNPC() { let b = null, bd = 4.4; for (const e of ents) if (e.type === 'npc' && e.shop && !e.dead) { const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < bd) { bd = d; b = e; } } return b; }
+function openTrade(e) { if (!e) return; curShopE = e; if (e.settler) e.t = 6; invTab = 'trade'; toggleInv(true); }
 function tradeStock() {
-  const T = G.flags.trade || {};
-  if (T.day !== G.day || !T.list) { const L = []; const pool = [...TRADE_POOL]; for (let i = 0; i < 14 && pool.length; i++) { const id = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; L.push([id, GEAR_DEFS[id] ? 1 : TRADE_LOT[id] || (rnd() < .5 ? 1 : 2), GEAR_DEFS[id] ? 1 : 3]); } G.flags.trade = { day: G.day, list: L }; }
-  return G.flags.trade.list;
+  const key = curShopE?.shop || 'mara', D = SHOP_STOCK[key], TT = G.flags.trades = G.flags.trades || {}, T = TT[key] || {};
+  if (T.day !== G.day || !T.list) {
+    const L = [], cap = tierNow() + 1; let pool = D.pool.filter(id => ITEMS[id] || GEAR_DEFS[id]);
+    if (D.tiered) pool = pool.filter(id => itemTier(id) <= cap);
+    for (let i = 0; i < D.k && pool.length; i++) { const id = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; L.push([id, GEAR_DEFS[id] ? 1 : TRADE_LOT[id] || (D.settler ? Math.ceil(rr(1, 4)) : rnd() < .5 ? 1 : 2), GEAR_DEFS[id] ? 1 : D.settler ? 1 : Math.ceil(rr(2, 5))]); }
+    TT[key] = { day: G.day, list: L };
+  }
+  return TT[key].list;
 }
 function buyTrade(i) {
   const L = tradeStock(), [id, n, left] = L[i]; if (left <= 0) return;
-  const price = Math.ceil(valueOf(id) * n * 1.25);
+  const price = Math.ceil(valueOf(id) * n * shopDef().mark);
   if (INV.scrap < price) { sfx('no'); toast(`Needs ${price} scrap`); return; }
   INV.scrap -= price; give(id, n); L[i][2]--; sfx('buy'); toast(`Bought ${n > 1 ? n + ' ' : ''}${nameOf(id).toLowerCase()} for ${price} scrap`); save();
 }
@@ -264,4 +287,4 @@ function sellTrade(id, g) {
   else { const lot = Math.min(cnt(id), TRADE_LOT[id] || 1), v = Math.max(1, Math.floor(valueOf(id) * lot * .5)); take(id, lot); INV.scrap += v; toast(`Sold ${lot > 1 ? lot + ' ' : ''}${nameOf(id).toLowerCase()} · +${v} scrap`); }
   sfx('pickup'); save();
 }
-const nearTrader = () => named.trader && Math.hypot(named.trader.x - P.x, named.trader.z - P.z) < 3.5;
+const nearTrader = () => curShopE && !curShopE.dead && Math.hypot(curShopE.x - P.x, curShopE.z - P.z) < 4.6;

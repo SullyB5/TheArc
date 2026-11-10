@@ -164,6 +164,7 @@ function collide(o, rad, isPlayer) {
     }
   }
   if (!o.climbing) wallCollide(o, rad, isPlayer);
+  hullCollide(o, rad);
   const d = Math.hypot(o.x, o.z); if (d > WORLD) { o.x *= WORLD / d; o.z *= WORLD / d; }
 }
 

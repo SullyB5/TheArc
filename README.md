@@ -5,7 +5,7 @@ Open-world first-person survival / holdout game (Three.js, plain static files â€
 - `game.js` is generated: edit the parts in `src/` and run `./build.sh`
   - `1-world.js` map layout, terrain heightmap, river/lake, renderer + ELYRA finishing pass (bloom + grade), sky, textures, helpers
   - `1b-build.js` terrain chunks, water, forest, grass, mist
-  - `1c-camp.js` Kestrel: the wreck, wall, gate, towers, camp props, nearby sites
+  - `1c-camp.js` Kestrel: the Arc (walk-in main hull: blast doors, catwalk + firing slit, the core), the six buildings inside the wall (Cookhouse, Workshop, Trading Post, Clinic, Gunsmith, Outfitter), wall, gate, towers, nearby sites
   - `1e-city.js` Cinder City (instanced towers, facade shader), the Foundry (Ironjaw's rebuilt district), Farlight traders, Greyhold Station, Ironjaw yards, locked caches, the trader
   - `1d-regions.js` Halvard, the Burn, Ashmere, Lake Ilse, the lookout, the broken span, scout camps, relay, crates
   - `1e-far.js` the far view: coarse whole-map terrain under the streamed chunks, far-forest cones past the real trees, mountain ranges out to ~9 km, smoke columns over the holds, birds
@@ -22,6 +22,8 @@ Open-world first-person survival / holdout game (Three.js, plain static files â€
 World: ~4.4 km across, one forest biome. The Chapter 1 valley sits in the middle inside a ring of ridges; roads leave it through passes
 to the outlands (Varnhold, Sunscar, Elderhollow clan holds, Cinder City, the Watchers, Lake Varr, Mirrorwater). Terrain chunks and
 outland forest cells stream in around the player (`updTerrain` / `updForest` in `1b-build.js`).
+
+Kestrel: the wall is 64 m out. The Arc (the main hull) is walk-in â€” E at its door seals/opens the blast doors; a ramp inside leads to a catwalk with a firing slit over the yard. Raiders who get over the wall go for the Arc: if it's sealed they hammer the doors, if they get in they go for the core. Settlers shelter inside at night. Six shops ring the inside of the wall, each with a keeper (E: trade for scrap, Q: their extra â€” Kade upgrades, Juno patches, Rook daily ammo) and a station at the side (cook, craft + forge, materials, medicine, weapons, clothing). Shop stock refreshes daily and better gear appears as your tier rises. Six named settlers wander the yard and barter what they've gathered.
 
 Open world: no chapters. Tier keys: clan insignia (2), Arc ID chip (3), Greyhold card (4), Dr. Arden's notebook (5), Gate Stone codes (6). Nights bring raids (clans, then Ironjaw from night 6, Greyhold from night 20); night 100 is the big one. Dying drops your bag where you fell.
 

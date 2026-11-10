@@ -62,12 +62,12 @@ const VALLEY = 640;                         // the Chapter 1 valley (Kestrel and
 const WORLD = 2200;                         // walkable radius of the whole map
 const HALF = 2400;                          // half-size of the terrain square
 const IN_HALF = 800;                        // the fine heightmap covers the valley; the outlands use a coarser one
-const CAMP_R = 42;
+const CAMP_R = 64;
 const GATE_HALF = 4.7 / CAMP_R;
 const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14;
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
-  debris: { x: 0, z: 88 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
+  debris: { x: 0, z: 114 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
   lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
@@ -103,12 +103,12 @@ const SHELTERS = [
 const RIV_HW = 11, RIV_Z0 = -HALF, RIV_STEP = 4, RIV_N = Math.round(HALF * 2 / RIV_STEP) + 1;
 const RIVWL = new Float32Array(RIV_N);
 const PATHS = [
-  [[0, 40], [0, 96], [46, 136], [112, 150], [170, 156]],
+  [[0, 62], [0, 104], [46, 140], [112, 150], [170, 156]],
   [[170, 156], [240, 214], [POI.bridge.x - 42, 236], [POI.bridge.x + 42, 236], [400, 262], [480, 300]],
-  [[6, 44], [44, 58], [82, 12], [98, -40], [200, -96], [300, -128], [400, -150]],
-  [[-6, 44], [-60, 42], [-118, -14], [-196, -62], [-300, -40], [-420, -20]],
+  [[6, 66], [56, 80], [88, 14], [98, -40], [200, -96], [300, -128], [400, -150]],
+  [[-6, 66], [-70, 60], [-118, -14], [-196, -62], [-300, -40], [-420, -20]],
   [[-118, -14], [-150, -128], [-184, -196]],
-  [[0, 96], [-60, 160], [-150, 222], [-232, 268]],
+  [[0, 104], [-60, 160], [-150, 222], [-232, 268]],
   [[-60, 160], [-100, 300], [-120, 420]],
   // outland roads, each through a pass in the valley rim
   [[480, 300], [720, 330], [1000, 290], [1480, 260]],
@@ -257,7 +257,7 @@ function waterAt(x, z) {                   // water surface at (x,z), or -1e9 wh
   return w;
 }
 function prepFlats() {
-  addFlat(0, 0, 54, 88);
+  addFlat(0, 0, 80, 118);
   addFlat(POI.village.x, POI.village.z, 22, 40);
   addFlat(POI.pod.x, POI.pod.z, 8, 22);
   addFlat(POI.vault.x, POI.vault.z + 12, 10, 22);
@@ -565,7 +565,7 @@ function floorAt(x, z, footY) {
 
 /* ---------- region names: a title card the first time you walk into each place ---------- */
 const REGIONS = [
-  { id: 'kestrel', name: 'KESTREL', sub: 'What the Arc left us', x: 0, z: 0, r: 60 },
+  { id: 'kestrel', name: 'KESTREL', sub: 'What the Arc left us', x: 0, z: 0, r: 84 },
   { id: 'meadow', name: 'THE EAST MEADOW', sub: 'Deer country', x: POI.meadow.x, z: POI.meadow.z, r: 40 },
   { id: 'pod', name: 'THE POD', sub: 'An escape capsule, still smoking', x: POI.pod.x, z: POI.pod.z, r: 26 },
   { id: 'outpost', name: 'THORN OUTPOST', sub: 'The painted ones keep watch here', x: POI.village.x, z: POI.village.z, r: 42, hostile: true },

@@ -80,23 +80,27 @@ function setStep(n) { G.step = n; save(); }
 function objText() { const st = STEPS[G.step] || STEPS[13]; return typeof st.text === 'function' ? st.text() : st.text; }
 function face(e, x, z) { if (e) e.yaw = Math.atan2(x - e.x, z - e.z); }
 function talk(who) {
-  if (who === 'kade') { say([['Kade', pick(['Bring me scrap and I’ll make the wall taller. The bench is yours too.', 'The clans mark everything they own. Take one of those marks and we can learn how they work leather and bone.', 'There’s a whole dead city to the south-east. Scavengers live in the middle of it, and they don’t share.', 'Night 100. Everyone on the radio says the same number. Be ready.'])]]); openShop(); return true; }
+  if (who === 'kade') { say([['Kade', pick(['Bring me scrap and I’ll make the wall taller. The bench and the forge are yours too.', 'If the wall goes, get in the Arc and seal the doors. The catwalk slit covers the whole yard.', 'The clans mark everything they own. Take one of those marks and we can learn how they work leather and bone.', 'There’s a whole dead city to the south-east. Scavengers live in the middle of it, and they don’t share.', 'Night 100. Everyone on the radio says the same number. Be ready.'])]]); openShop(); return true; }
   if (who === 'juno') { if (P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0) { P.hp = 100; clearInjuries(); say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', pick(["You're in one piece. Keep it that way.", 'Farlight trades medicine. West, past the rim.', 'Boil your water. I’m tired of treating fevers.'])]]); return true; }
   return false;
 }
+// what each keeper does besides trading (Q / hold on the trade prompt)
+const KEEPER_Q = {
+  kade: { l: () => 'upgrades', act: () => talk('kade') },
+  juno: { l: () => P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0 ? 'patch up' : 'talk', act: () => talk('juno') },
+  rook: { l: () => 'draw rifle ammo', act: () => { if (G.flags.armoryDay === G.day) { sfx('no'); toast('Already drew today’s ammo — come back tomorrow'); return; } G.flags.armoryDay = G.day; INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX); sfx('reload'); toast('Ammo restocked (once a day)'); } },
+};
 
 /* ================= interactables ================= */
 const INTERACT = [
-  { id: 'kade', at: () => named.kade, r: 3.2, label: () => 'Kade · workbench upgrades', act: () => talk('kade') },
-  { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => 'Workbench · craft', act: () => openCraft('tool') },
-  { id: 'juno', at: () => named.juno, r: 3, label: () => P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0 ? 'Get patched up' : 'Juno', act: () => talk('juno') },
-  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => 'Cook at the fire', act: () => openCraft('food') },
-  { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Smokehouse · dry meat', act: () => openCraft('food') },
-  { id: 'med', at: () => SPOTS.med, r: 2.6, label: () => 'Med tent · craft medicine', act: () => openCraft('med') },
-  { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock rifle ammo' : null, act: () => { const d = G.flags.armoryDay === G.day; if (d) { sfx('no'); toast('Already drew today’s ammo — come back tomorrow'); return; } G.flags.armoryDay = G.day; INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX); sfx('reload'); toast('Ammo restocked (once a day)'); } },
+  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.stN, act: () => openCraft(D.cat) })),
+  { id: 'forge', at: () => SHOP.craft.forge, r: 2.4, label: () => 'Forge · smelt + metalwork', act: () => openCraft('mat') },
+  { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
+  { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
+  { id: 'hulldoor', at: () => inHull(P.x, P.z) ? ARC_DOOR_IN : ARC_DOOR_OUT, r: 4.2, label: () => hullDoor.hp <= 0 ? (night.active ? 'The Arc’s doors are wrecked' : null) : hullDoor.open ? 'Seal the Arc’s blast doors' : 'Open the Arc’s blast doors', act: () => { if (hullDoor.hp <= 0) return; hullDoor.open = !hullDoor.open; sfx('gate'); toast(hullDoor.open ? 'Blast doors open' : `Blast doors sealed · ${Math.round(hullDoor.hp)} / ${hullDoor.max}`, 2); } },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
-  { id: 'trader', at: () => named.trader, r: 3.5, label: () => 'Trade with Mara', act: () => { invTab = 'trade'; toggleInv(true); } },
+  { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
@@ -111,7 +115,7 @@ function findInteract() {
     const at = it.at(); if (!at) continue;
     const d = Math.hypot(at.x - P.x, at.z - P.z); if (d > it.r || d > bd) continue;
     const l = it.label(); if (!l) continue;
-    best = { it, l }; bd = d;
+    best = { it, l, next: it.next, multi: !!it.next && / {2}· {2}(Q|hold): /.test(l) }; bd = d;
   }
   const pl = nearPlaced(); if (pl) { const d = Math.hypot(pl.x - P.x, pl.z - P.z) - 1; if (d < bd) { const a = placedAction(pl); bd = d; best = { it: { act: a.act }, l: a.l + `  ·  ${isTouch ? 'hold' : 'Q'}: dismantle`, next: () => unplace(pl, true), multi: true }; } }
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
@@ -232,7 +236,7 @@ function startNight() {
   horn(78, 3.2, .26, 4);
   if (night.final) { card('NIGHT 100', 'Everyone is coming', 5); say([['Kade', 'This is it. Every clan, Ironjaw, Greyhold — all of them. Hold the wall!']]); }
   else say([['Kade', G.day < 3 ? 'Horns in the trees. Everyone to the wall!' : pick(['Here they come again. To the wall!', 'Raiders! Close it up!', 'Lights out there — get inside!'])]]);
-  if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4);
+  if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
   nextWave();
 }
 function nextWave() {
@@ -263,7 +267,7 @@ function updNight(dt) {
   if (night.core <= 0) endNight(false);
 }
 function endNight(won) {
-  night.active = false; gate.open = true; gate.hp = gate.max;
+  night.active = false; gate.open = true; gate.hp = gate.max; hullDoor.hp = hullDoor.max; hullDoor.open = true;
   for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
   for (const s of SCRAPS) if (!s.alive && s.tag === 'wild' && rnd() < .5) { s.alive = true; s.g.visible = true; }
@@ -278,7 +282,7 @@ function startRust(scripted) {
   say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get under a roof, NOW." : 'Mast horn — the Rust is coming. Find cover.']]);
 }
 function nearestShelter() { let b = null, bd = 1e9; for (const s of SHELTERS) { const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } if (Math.hypot(P.x, P.z) - CAMP_R < bd) return { x: 0, z: 0, camp: true }; return b; }
-function inShelter() { if (Math.hypot(P.x, P.z) < CAMP_R - 2) return true; return SHELTERS.some(s => Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
+function inShelter() { if (Math.hypot(P.x, P.z) < CAMP_R - 2 || inHull(P.x, P.z)) return true; return SHELTERS.some(s => Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
 function updRust(dt) {
   if (rust.state === 'none') {
     if ((G.chapterDone || G.day > 1) && !night.active && G.tod > .3 && G.tod < .68) { rust.next -= dt; if (rust.next <= 0) { rust.next = rr(220, 360); startRust(false); } }
@@ -294,6 +298,8 @@ function updRust(dt) {
 
 /* ================= actors update ================= */
 function moveEnt(e, tx, tz, speed, dt) {
+  { const ih = inHull(e.x, e.z); if (ih !== inHull(tx, tz)) { const a = ih ? ARC_DOOR_IN : ARC_DOOR_OUT, b = ih ? ARC_DOOR_OUT : ARC_DOOR_IN;
+    if (Math.hypot(e.x - a.x, e.z - a.z) > 1.6 && !(Math.abs(e.x - ARC.x) < ARC.DOOR - .8 && Math.abs(e.z - ARC.z - ARC.W - .3) < 2.4)) { tx = clamp(e.x, a.x - 2, a.x + 2); tz = a.z; } else { tx = b.x; tz = b.z; } } }
   const dx = tx - e.x, dz = tz - e.z, d = Math.hypot(dx, dz); if (d < .05) return 0;
   let want = Math.atan2(dx, dz);
   if (e.side) want += e.side;
@@ -317,13 +323,15 @@ function updClan(e, dt) {
   if (e.blind > 0) e.blind -= dt;
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
-  const walled = insideP !== insideE && gate.hp > 0 && !gate.open;
+  const hullP = inHull(P.x, P.z), hullE = inHull(e.x, e.z);
+  const walled = (insideP !== insideE && gate.hp > 0 && !gate.open) || (hullP !== hullE && hullDoor.hp > 0 && !hullDoor.open);
   let tx = e.x, tz = e.z, spd = 0;
   if (e.atk > 0) { // attack swing in progress
     e.atk -= dt; const wind = e.atk > .25; p.body.rotation.x = wind ? -.12 : .35; p.body.position.z = wind ? -.1 : .35; if (p.weapon) p.weapon.rotation.x = wind ? -1.6 : .6;
     if (e.atk <= .25 && !e.struck) { e.struck = true; sfx('swing');
-      if (e.target === 'gate') { gate.hp -= e.kind === 'brute' ? 34 : 14; sfx('thud'); puff(e.x + Math.sin(e.yaw) * 1.2, e.y + 1.4, e.z + Math.cos(e.yaw) * 1.2, 0x8a7a6a, 3, 2, .1, .4); if (gate.hp <= 0) { gate.hp = 0; toast('The gate is down!', 3); sfx('gate'); } }
-      else if (dp < 2.7 && !P.dead) hurtPlayer(e.kind === 'brute' ? 24 : 13, e.x, e.z); }
+      if (e.target === 'hull') { hullDoor.hp -= e.kind === 'brute' ? 30 : 12; sfx('thud'); puff(e.x + Math.sin(e.yaw) * 1.2, e.y + 1.4, e.z + Math.cos(e.yaw) * 1.2, 0x8a8a8a, 3, 2, .1, .4); if (hullDoor.hp <= 0) { hullDoor.hp = 0; toast('They’ve forced the Arc’s doors!', 3); sfx('gate'); } }
+      else if (e.target === 'gate') { gate.hp -= e.kind === 'brute' ? 34 : 14; sfx('thud'); puff(e.x + Math.sin(e.yaw) * 1.2, e.y + 1.4, e.z + Math.cos(e.yaw) * 1.2, 0x8a7a6a, 3, 2, .1, .4); if (gate.hp <= 0) { gate.hp = 0; toast('The gate is down!', 3); sfx('gate'); } }
+      else if (dp < 2.7 && Math.abs(P.y - e.y) < 2.4 && !P.dead) hurtPlayer(e.kind === 'brute' ? 24 : 13, e.x, e.z); }
     e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return;
   }
   if (e.climbing) {
@@ -350,8 +358,11 @@ function updClan(e, dt) {
         if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'gate'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
       } else { tx = 0; tz = dE > CAMP_R + 4 ? CAMP_R + 3 : CAMP_R - 6; spd = e.speed; }
     } else {
-      tx = -4; tz = -4; spd = e.speed;
-      if (Math.hypot(e.x + 4, e.z + 4) < 9) { night.core -= dt * (e.kind === 'brute' ? 7 : 3.5); if (Math.random() < dt * 3) puff(e.x, e.y + 1, e.z, 0xff8a3a, 2, 1, .12, .5, 2); }
+      if (!hullE && hullDoor.hp > 0 && !hullDoor.open) {   // the Arc is sealed: break the doors
+        tx = clamp(e.x, ARC.x - 3, ARC.x + 3); tz = ARC.z + ARC.W + 1.7; spd = e.speed;
+        if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'hull'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
+      } else { tx = ARC_CORE.x; tz = ARC_CORE.z + 3; spd = e.speed; }
+      if (Math.hypot(e.x - ARC_CORE.x, e.z - ARC_CORE.z) < 7) { night.core -= dt * (e.kind === 'brute' ? 7 : 3.5); if (Math.random() < dt * 3) puff(e.x, e.y + 1, e.z, 0xff8a3a, 2, 1, .12, .5, 2); }
     }
     if ((!walled && dp < 16 || gun && dp < 45) && !P.dead) e.state = 'chase';
     if (e.kind === 'thrower' && dp < 30 && dp > 8 && e.cool <= 0 && !P.dead && Math.abs(P.y - e.y) < 12) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.cool = rr(2.4, 3.6); e.throwT = .6; }
@@ -364,7 +375,7 @@ function updClan(e, dt) {
     tx = P.x; tz = P.z; spd = e.speed * (dp > 6 ? 1.15 : 1) * (e.slow ? .5 : 1); e.slow = 0;
     if (e.kind === 'thrower' && dp > 8 && dp < 28 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.cool = rr(2.2, 3.4); e.throwT = .6; }
     else if (e.kind === 'thrower' && dp < 12) { tx = e.x - dxp; tz = e.z - dzp; }
-    if (dp < 2.1 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.atk = .7; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.1; }
+    if (dp < 2.1 && Math.abs(P.y - e.y) < 2.4 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.atk = .7; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.1; }
   }
   if (e.throwT > 0) { e.throwT -= dt; p.body.rotation.x = -.18; if (p.weapon) p.weapon.rotation.x = -2.2; if (e.throwT <= 0) { throwSpear(e); p.body.rotation.x = .25; if (p.weapon) p.weapon.rotation.x = .3; } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
@@ -412,7 +423,8 @@ function updNPC(e, dt) {
     if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = 1.3; }
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
-  if (night.active && !e.follow && e.name === 'extra' && Math.hypot(e.home.x, e.home.z) < CAMP_R) { tx = e.home.x * .5; tz = -12; spd = spd || 0; }
+  if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
+  if (night.active && !e.follow && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
   e.ph += dt * v * 2.2; poseWalk(p, e.ph, Math.min(1, v / 2.5));
@@ -448,7 +460,7 @@ function die() {
     dropBag();
     $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
     const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
-    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else { P.x = SPOTS.med.x + 2.5; P.z = SPOTS.med.z + 2.5; }
+    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
     P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.pitch = 0; P.slot = slotWeapon(0) ? 0 : P.slot; selectGunView(gunId());
     if (INV.res < 30) INV.res = 30;
     toast(G.flags.bag ? `${sp ? 'You wake up at your bed' : 'Juno patched you up'}. Your bag is where you fell — follow the light.` : sp ? 'You wake up at your bed.' : 'Juno patched you up.', 4);
@@ -786,8 +798,9 @@ function renderInv() {
     body += '</div></div></div>';
   } else if (invTab === 'trade') {
     const L = tradeStock(), groups = bagGroups();
-    body += `<p class="dim">Mara trades in scrap. You have <b>${INV.scrap}</b> scrap. Stock changes every day.</p><h4>Buy</h4><div class="row">`;
-    L.forEach(([id, n, left], i) => { body += itemTile(id, n, `<button data-buy="${i}"${left > 0 && INV.scrap >= Math.ceil(valueOf(id) * n * 1.25) ? '' : ' class="dis"'}>${left > 0 ? Math.ceil(valueOf(id) * n * 1.25) + ' scrap' : 'sold out'}</button>`); });
+    const SD = shopDef(), mk = SD.mark;
+    body += `<p class="dim">${SD.blurb} You have <b>${INV.scrap}</b> scrap. Stock changes every day${SD.tiered ? ' · better gear shows up as you climb the tiers' : ''}.</p><h4>Buy</h4><div class="row">`;
+    L.forEach(([id, n, left], i) => { const pr = Math.ceil(valueOf(id) * n * mk); body += itemTile(id, n, `<button data-buy="${i}"${left > 0 && INV.scrap >= pr ? '' : ' class="dis"'}>${left > 0 ? pr + ' scrap' : 'sold out'}</button>`); });
     body += `</div><h4>Sell</h4><div class="row">`;
     for (const c of BAG_ORDER) for (const [id, n] of groups[c] || []) if (id !== 'scrap' && ITEMS[id]?.c !== 'story') { const lot = Math.min(n, TRADE_LOT[id] || 1); body += itemTile(id, n, `<button data-sell="${id}">+${Math.max(1, Math.floor(valueOf(id) * lot * .5))}${lot > 1 ? ' /' + lot : ''}</button>`); }
     for (const t of INV.tools) if (!busy(t)) body += gearTile(t, `<button data-sellg="${t.u}">+${Math.max(2, Math.round(valueOf(t.id) * .5 * t.d / t.max))}</button>`);
@@ -944,6 +957,7 @@ function frame(now) {
   const gTarget = gate.hp <= 0 ? .3 : gate.open ? 1 : 0;
   gate.ang = lerp(gate.ang, gTarget, dt * 2.5);
   for (const d of gateDoors) { d.pivot.rotation.y = d.s * gate.ang * 1.65; d.door.rotation.z = gate.hp <= 0 ? d.s * .4 : 0; }
+  updHullDoor(dt);
 
   updSmoke(G.t); grassU.uTime.value = G.t; updFar(dt, G.t, camera.position.x, camera.position.z);
   if (G.mode === 'title') {
@@ -1154,9 +1168,9 @@ async function boot() {
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
-  named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
-  named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
-  for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2], [-8, -4], [12, 22]]) spawnNPC('extra', x, z, { wander: true });
+  for (const D of SHOP_DEFS) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.a + Math.PI, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
+  SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   ensureWildlife(); villageGuards();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
@@ -1165,4 +1179,4 @@ async function boot() {
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };

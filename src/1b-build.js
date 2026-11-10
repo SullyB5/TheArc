@@ -140,7 +140,8 @@ function snagGeo() {
   ], .05);
 }
 function treeOK(x, z) {
-  if (Math.hypot(x, z) < 62) return false;
+  if (Math.hypot(x, z) < CAMP_R + 12) return false;
+  if (Math.hypot(x - 80, z + 36) < 18 || Math.hypot(x + 80, z + 24) < 14) return false;   // the fallen side modules
   if (pathDist(x, z) < 5.5) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
@@ -214,7 +215,7 @@ async function buildForest() {
   const ferns = new THREE.InstancedMesh(fern, VCOL, LOW ? 1800 : 4000);
   for (let i = 0; i < ferns.count; i++) {
     const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
-    if (pathDist(x, z) < 3 || Math.hypot(x, z) < 48 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
+    if (pathDist(x, z) < 3 || Math.hypot(x, z) < CAMP_R + 2 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
     ferns.setMatrixAt(i, dummy.matrix); addRes('fern', x, z, s);
   }

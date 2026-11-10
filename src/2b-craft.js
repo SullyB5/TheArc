@@ -83,7 +83,9 @@ function revealAll(id) {
 }
 
 /* ---------- stations ---------- */
-const FIXED_ST = () => ({ fire: [[SPOTS.fire, 4.2]], cook: [[SPOTS.fire, 4.2]], bench: [[SPOTS.bench, 4.2]], rack: [[SPOTS.smoke, 4.6]], lab: [[SPOTS.med, 4]] });
+const FIXED_ST = () => { const st = { fire: [[SPOTS.fire, 4.2]], cook: [[SPOTS.fire, 4.2]], rack: [[SPOTS.smoke, 4.6]], forge: [[SHOP.craft.forge, 3.4]] };
+  for (const D of SHOP_DEFS) for (const k of D.st) (st[k] = st[k] || []).push([D.spot, 3.8]);
+  return st; };
 function nearStation(kind) {
   for (const [p, r] of FIXED_ST()[kind] || []) if (Math.hypot(P.x - p.x, P.z - p.z) < r) return true;
   if (typeof PLACED === 'undefined') return false;
