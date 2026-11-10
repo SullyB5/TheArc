@@ -110,7 +110,7 @@ function talk(who) {
   }
   if (who === 'vos') { say([['Vos', pick(["Keep your rifle clean. It's the only one we've got that shoots straight.", "If the mast horn sounds, get under a roof. Don't stop to ask why.", 'The painted ones test the wall at night. Make it tall.'])]]); return true; }
   if (who === 'wren') { say([['Wren', "I'm fine. I'm right behind you."]]); return true; }
-  if (who === 'juno') { if (P.hp < 100) { P.hp = 100; say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', "You're in one piece. Keep it that way."]]); return true; }
+  if (who === 'juno') { if (P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0) { P.hp = 100; clearInjuries(); say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', "You're in one piece. Keep it that way."]]); return true; }
   return false;
 }
 
@@ -118,9 +118,11 @@ function talk(who) {
 const INTERACT = [
   { id: 'kade', at: () => named.kade, r: 3.2, label: () => G.step === 1 || G.step === 3 ? 'Talk to Kade' : null, act: () => talk('kade') },
   { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => (G.step >= 4 || G.step === 0) && G.step !== 11 ? 'Workbench' : null, act: () => openShop() },
-  { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 ? 'Get patched up' : null, act: () => talk('juno') },
+  { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 ? 'Get patched up' : null, act: () => talk('juno') },
   { id: 'vos', at: () => named.vos, r: 2.8, label: () => G.step > 1 && G.step !== 11 ? 'Talk to Vos' : null, act: () => talk('vos') },
-  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook ${INV.meat} meat into rations` : null, act: () => cook() },
+  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 && G.step <= 7 ? `Cook ${INV.meat} meat into rations` : 'Cook at the fire', act: () => INV.meat > 0 && G.step <= 7 ? cook() : openCraft('food') },
+  { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => G.step > 7 ? 'Smokehouse · dry meat' : null, act: () => openCraft('food') },
+  { id: 'placed', at: () => nearPlacedAny(), r: 3, label: () => nearPlacedAny()?.k === 'campfire' ? 'Cook at the campfire' : 'Use the drying rack', act: () => openCraft('food') },
   { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.resH = G.flags.hunter ? RESH_MAX : INV.resH; sfx('reload'); toast('Ammo restocked'); } },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
@@ -130,6 +132,7 @@ const INTERACT = [
 let curInter = null;
 function findInteract() {
   if (P.dead || cine || shopOpen) return null;
+  if (chan) return wildInteract();
   let best = null, bd = 1e9;
   for (const it of INTERACT) {
     const at = it.at(); if (!at) continue;
@@ -140,13 +143,16 @@ function findInteract() {
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
     const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.type}` }; }
   }
+  if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
 }
 function useInteract() { if (curInter) curInter.it.act(); }
+const nearPlacedAny = () => { let b = null, bd = 3; for (const p of PLACED) { const d = Math.hypot(p.x - P.x, p.z - P.z); if (d < bd) { bd = d; b = p; } } return b; };
 
 function butcher(e) {
-  e.butchered = true; INV.meat += 1; sfx('pickup'); puff(e.x, e.y + .5, e.z, 0x7a2a1a, 5, 1.5, .1, .5);
-  toast('+1 meat');
+  e.butchered = true; sfx('pickup'); puff(e.x, e.y + .5, e.z, 0x7a2a1a, 5, 1.5, .1, .5);
+  const { L, kn } = butcherYield(e); const got = L.filter(([, n]) => n > 0); for (const [id, n] of got) give(id, n);
+  toast(got.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · ') + (kn ? '' : ' · a knife would get hide + sinew'), 2.8);
   e.deadT = Math.max(e.deadT, 20);
   if (G.step === 6 && INV.meat >= 2) { setStep(7); say([['Juno', 'Cook it at the fire pit. First real food most of us have ever had.']]); }
 }
@@ -161,9 +167,7 @@ function cook() {
 }
 function eatRation(quiet) {
   if (!(INV.rations > 0)) { if (!quiet) { sfx('no'); toast('No rations — cook meat at the fire'); } return; }
-  if (P.food >= 99 && !quiet) { toast('Not hungry'); return; }
-  INV.rations--; const [f, h] = RATION();
-  P.food = Math.min(100, P.food + f); P.hp = Math.min(100, P.hp + h); sfx('eat'); toast(`+${f} food`, 1.6);
+  eatItem('ration', quiet);
 }
 function eat() {
   if (G.step === 7) {
@@ -463,13 +467,14 @@ function updTowers(dt) {
 /* ================= player ================= */
 function hurtPlayer(n, fx, fz) {
   if (P.dead || cine) return;
+  n = onHurt(n, fx !== P.x || fz !== P.z);
   P.hp -= n; P.hurtT = .6; P.kick += .05; sfx('hurt'); hud.hurt.style.opacity = Math.min(1, .35 + n / 30);
   if (P.hp <= 0) die();
 }
 function die() {
   P.dead = true; P.hp = 0; $('dead').style.display = 'grid'; if (document.pointerLockElement) document.exitPointerLock();
   setTimeout(() => {
-    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; P.food = Math.max(P.food, 50);
+    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50);
     P.x = SPOTS.med.x + 2.5; P.z = SPOTS.med.z + 2.5; P.pd = Math.hypot(P.x, P.z); P.yaw = Math.atan2(-(0 - P.x), -(10 - P.z)); P.pitch = 0;
     const lost = Math.floor(INV.scrap * .25); INV.scrap -= lost; INV.meat = 0; if (INV.res < 30) INV.res = 30;
     if (G.step === 9 && named.wren) { named.wren.x = P.x + 1; named.wren.z = P.z + 1; }
@@ -485,7 +490,7 @@ function damage(e, n, byPlayer, at) {
   if (e.type === 'boar') e.state = 'charge';
   if (e.hp <= 0) {
     e.dead = true; e.deadT = 0; G.kills++;
-    if (e.type === 'clan') { sfx('grunt'); if (rnd() < .55) { INV.scrap++; if (byPlayer) toast('+1 scrap'); } e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
+    if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
     if (e.type === 'deer' || e.type === 'boar') { e.yaw = e.yaw; if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
   }
 }
@@ -565,8 +570,8 @@ function updPlayer(dt) {
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
     const wl = waterAt(P.x, P.z), depth = wl - P.y;
     P.swim = depth > 1.25;
-    sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
-    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
+    sprint = !(P.frac > 0) && (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
+    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * (P.frac > 0 ? .62 : 1);
     const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
     const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
     P.x += vx * dt; P.z += vz * dt;
@@ -577,7 +582,7 @@ function updPlayer(dt) {
     if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
     input.jump = false;
     P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
-    if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
+    if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) { const fd = Math.round((-P.vy - 17) * 4); hurtPlayer(fd, P.x, P.z); onFall(fd); } } P.y = gy; P.vy = 0; P.onGround = true; }
     else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
     const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
     P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
@@ -623,8 +628,9 @@ function openCrate(c) {
   const msg = [];
   if (c.loot === 'ammo' || c.loot === 'mixed') { const n = 18 + Math.floor(rnd() * 20); INV.res = Math.min(RES_MAX + 30, INV.res + n); msg.push(`+${n} rounds`); if (G.flags.hunter) { INV.resH += 4; msg.push('+4 rifle rounds'); } }
   if (c.loot === 'scrap' || c.loot === 'mixed') { const n = 2 + Math.floor(rnd() * 4); INV.scrap += n; msg.push(`+${n} scrap`); }
-  if (rnd() < .3) { INV.meat++; msg.push('+1 dried meat'); }
-  sfx('pickup'); toast(msg.join(' · '), 2.6);
+  if (rnd() < .3) { give('dried_meat', 1); msg.push('+1 dried meat'); }
+  msg.push(...crateSalvage(c));
+  sfx('pickup'); toast(msg.slice(0, 6).join(' · '), 3.4);
 }
 
 /* ================= wildlife + the clans in the wider valley ================= */
@@ -706,20 +712,23 @@ function slotDefs() {
   return [
     { k: 'gun0', icon: SLOT_ICON.rifle, label: WEAPONS[RIFLE[UP.rifle].id].name, on: P.slot === 0 },
     { k: 'gun1', icon: G.flags.hunter ? SLOT_ICON.hunter : '', label: G.flags.hunter ? 'Hunting rifle' : '', on: P.slot === 1 },
-    { k: 'ration', icon: INV.rations > 0 ? SLOT_ICON.ration : '', label: INV.rations > 0 ? 'Ration' : '', n: INV.rations || 0 },
-    { k: 'e4' }, { k: 'e5' },
+    { k: 'ration', icon: foodCount() > 0 ? icon('ration') : '', label: foodCount() > 0 ? 'Eat (picks what your diet is missing)' : '', n: foodCount() },
+    { k: 'med', icon: medCount() > 0 ? icon('herb_bandage') : '', label: medCount() > 0 ? 'Treat injuries' : '', n: medCount(), warn: P.bleed > 0 || P.frac > 0 || P.sick > 0 },
+    (() => { const t = lastTool && INV.tools.includes(lastTool) ? lastTool : INV.tools.find(x => GEAR_DEFS[x.id].kind !== 'wear'); return t ? { k: 'tool', icon: icon(t.id), label: `${QUAL[t.q].n} ${GEAR_DEFS[t.id].n} · ${t.d}/${t.max}`, dur: t.d / t.max } : { k: 'tool' }; })(),
   ];
 }
 function renderTool() {
-  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, !!x.icon, x.on, x.n]));
+  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, x.icon, x.on, x.n, x.warn, x.dur && Math.round(x.dur * 20)]));
   if (sig === toolSig) return; toolSig = sig;
-  hud.tool.innerHTML = d.map((x, i) => `<div class="slot${x.on ? ' on' : ''}${x.icon ? '' : ' empty'}" data-i="${i}" title="${x.label || ''}"><em>${i + 1}</em>${x.icon || ''}${x.n ? `<b>${x.n}</b>` : ''}</div>`).join('');
+  hud.tool.innerHTML = d.map((x, i) => `<div class="slot${x.on ? ' on' : ''}${x.icon ? '' : ' empty'}${x.warn ? ' warn' : ''}" data-i="${i}" title="${x.label || ''}"><em>${i + 1}</em>${x.icon || ''}${x.n ? `<b>${x.n}</b>` : ''}${x.dur != null ? `<u style="width:${Math.round(x.dur * 100)}%;background:${x.dur < .25 ? '#e0573d' : '#7fc4b8'}"></u>` : ''}</div>`).join('');
 }
 function useSlot(i) {
   if (G.mode !== 'play' || cine || P.dead) return;
   if (i === 0 && P.slot !== 0) swapGun();
   else if (i === 1 && P.slot !== 1 && G.flags.hunter) swapGun();
-  else if (i === 2) eatRation();
+  else if (i === 2) eatBest();
+  else if (i === 3) healBest();
+  else if (i === 4) { toggleInv(true); }
 }
 hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
@@ -734,14 +743,18 @@ function updHUD(dt) {
   else if (rust.state === 'active' && !P.safe) alert = 'Red fog — get under a roof!';
   else if (night.active) alert = `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
+  else if (P.bleed > 0) alert = 'Bleeding — bandage it (4)';
+  else if (P.sick > 0 && P.sick > 50) alert = 'Sick — a poultice will help (4)';
   hud.alert.textContent = alert; hud.alert.classList.toggle('on', !!alert); hud.alert.classList.toggle('rust', rust.state === 'warn' || rust.state === 'active');
   miniT -= dt; if (miniT <= 0) { miniT = .1; drawMini(); }
-  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; renderInv(); } }
+  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; updInvBars(); } }
+  updChan(dt); updStatus(dt);
   // interact prompt
   curInter = findInteract();
   if (curInter) {
-    if (isTouch) { hud.use.style.display = 'grid'; hud.use.textContent = curInter.l; hud.prompt.style.display = 'none'; }
-    else { hud.prompt.style.display = 'block'; hud.prompt.innerHTML = `<kbd>E</kbd>${curInter.l}`; }
+    const bar = curInter.prog != null ? `<i class="pg"><i style="width:${Math.round(curInter.prog * 100)}%"></i></i>` : '';
+    if (isTouch) { hud.use.style.display = 'grid'; hud.use.innerHTML = curInter.l.replace('  ·  hold: next', '') + (curInter.multi ? ' <small>(hold: next)</small>' : '') + bar; hud.prompt.style.display = 'none'; }
+    else { hud.prompt.style.display = 'block'; hud.prompt.innerHTML = (curInter.prog != null ? '' : '<kbd>E</kbd>') + curInter.l + bar; }
   } else { hud.prompt.style.display = 'none'; hud.use.style.display = 'none'; }
   hud.hurt.style.opacity = Math.max(0, (+hud.hurt.style.opacity || 0) - dt * 1.2);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) hud.toast.classList.remove('on'); }
@@ -760,20 +773,62 @@ function objectiveNow() {
   if (night.active && G.step !== 11) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   return objText();
 }
+let invTab = 'bag', craftCat = 'surv';
 function renderInv() {
-  const it = (ic, n, l) => `<div class="it">${ic}<b>${n}</b><span>${l}</span></div>`;
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  $('invb').innerHTML = `
-    <div class="row">${it(ICO.scrap, INV.scrap, 'Scrap')}${it(ICO.meat, INV.meat, 'Raw meat')}${it(SLOT_ICON.ration, INV.rations || 0, 'Rations')}${it(ICO.ammo, INV.res, 'Rifle ammo')}${G.flags.hunter ? it(ICO.ammo, INV.resH, 'Hunting ammo') : ''}</div>
-    <div class="stat"><span>Health</span><div class="bar"><i style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i style="width:${P.food}%;background:#e0a040"></i></div></div>
-    <p class="obj">◆ ${objectiveNow() || 'Explore'}</p>
-    <p class="day">Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% of the land explored</p>`;
+  const tabs = `<div class="tabs"><button data-tab="bag" class="${invTab === 'bag' ? 'on' : ''}">Bag</button><button data-tab="craft" class="${invTab === 'craft' ? 'on' : ''}">Craft</button><button class="xb" data-x="1">✕</button></div>`;
+  const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
+  const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
+  let body = '';
+  if (invTab === 'bag') {
+    const groups = {};
+    const it = (id, n, extra = '') => `<div class="it" title="${nameOf(id)} · ${SRC_N[ITEMS[id]?.src] || ''}">${icon(id)}<b>${n}</b><span>${nameOf(id)}</span>${extra}</div>`;
+    const all = { scrap: INV.scrap, meat: INV.meat, ration: INV.rations || 0, ...INV.items };
+    for (const [id, n] of Object.entries(all)) { if (!(n > 0)) continue; const c = ITEMS[id]?.c || (PLACEABLE[id] ? 'build' : 'indus'); (groups[c] ||= []).push([id, n]); }
+    const act = id => FOOD[id] ? `<button data-eat="${id}">${FOOD[id].k === 'water' ? 'Drink' : 'Eat'}</button>` : MEDS[id] ? `<button data-med="${id}">Use</button>` : PLACEABLE[id] ? `<button data-place="${id}">Place</button>` : '';
+    const order = ['food', 'water', 'med', 'build', 'wood', 'stone', 'fiber', 'animal', 'textile', 'metal', 'indus', 'elec', 'rare', 'story'];
+    body += `<div class="row"><div class="it">${icon("ammo_rifle")}<b>${INV.res}</b><span>Rifle ammo</span></div>${G.flags.hunter ? `<div class="it">${icon("ammo_hunt")}<b>${INV.resH}</b><span>Hunting ammo</span></div>` : ''}</div>`;
+    for (const c of order) if (groups[c]) body += `<h4>${c === 'build' ? 'To place' : CAT_N[c]}</h4><div class="row">${groups[c].map(([id, n]) => it(id, n, act(id))).join('')}</div>`;
+    if (INV.tools.length) body += `<h4>Tools & gear</h4><div class="row">${INV.tools.map((t, i) => { const D = GEAR_DEFS[t.id], f = t.d / t.max;
+      return `<div class="it gear${t.on ? ' on' : ''}" title="${D.salv ? 'Salvaged' : 'Hand-made'}">${icon(t.id)}<span>${QUAL[t.q].n}</span><span class="nm">${D.n}</span><div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f < .25 ? '#e0573d' : '#7fc4b8'}"></i></div><small>${t.d}/${t.max}${D.prot ? ` · ${Math.round(D.prot * 100)}% armor` : ''}</small>${D.kind === 'wear' ? `<button data-wear="${i}">${t.on ? 'Take off' : 'Wear'}</button>` : ''}</div>`; }).join('')}</div>`;
+    if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
+    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% of the land explored</p>`;
+  } else {
+    body += `<div class="ctabs">${RCATS.map(([k, n]) => `<button data-cat="${k}" class="${craftCat === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+    const near = ['fire', 'bench', 'rack'].filter(nearStation).map(k => STATION_N[k]);
+    body += `<p class="dim">${near.length ? `At: ${near.join(', ')}` : 'Not at a station — fire, workbench and drying-rack recipes need you standing at one.'}</p><div class="recs">`;
+    const list = RECIPES.filter(r => r.cat === craftCat).sort((a, b) => (a.soon || 0) - (b.soon || 0) || a.t - b.t);
+    for (const r of list) {
+      const st = recipeState(r), locked = !st.open;
+      const ing = st.ins.map(([k, n]) => `<span class="${cnt(k) >= n ? 'ok' : 'no'}">${k === 'veg' ? 'vegetables' : nameOf(k).toLowerCase()} ${Math.min(cnt(k), n)}/${n}</span>`).join('');
+      const req = [r.at && `<span class="${st.stOK ? 'ok' : 'no'}">@ ${STATION_N[r.at].toLowerCase()}</span>`, r.tool && `<span class="${st.toolOK ? 'ok' : 'no'}">needs ${r.tool}</span>`].filter(Boolean).join('');
+      const D = GEAR_DEFS[r.o], what = D ? (D.prot ? `${Math.round(D.prot * 100)}% armor` : `${D.dur} uses`) : PLACEABLE[r.o] ? 'placeable' : '';
+      body += `<div class="rec${st.ok ? ' can' : ''}${locked ? ' lock' : ''}">${icon(r.o)}<div class="rt"><b>${nameOf(r.o)}${r.n > 1 ? ` ×${r.n}` : ''}</b>${what ? `<em>${what}</em>` : ''}<div class="ing">${ing}${req}</div></div>${locked ? `<small>${r.soon ? 'coming soon' : `Tier ${r.t} · ${TIERS[r.t]}`}</small>` : `<button data-craft="${RECIPES.indexOf(r)}"${st.ok ? '' : ' class="dis"'}>Craft</button>`}</div>`;
+    }
+    body += '</div>';
+  }
+  $('invb').innerHTML = tabs + head + body;
 }
+function updInvBars() { const a = $('ivhp'), b = $('ivfd'); if (a) a.style.width = Math.max(0, P.hp) + '%'; if (b) b.style.width = P.food + '%'; }
+function openCraft(cat) { invTab = 'craft'; if (cat) craftCat = cat; toggleInv(true); }
 function toggleInv(v = !invOpen) {
   if (v && mapOpen) toggleMap();
   invOpen = v; $('inv').classList.toggle('on', v); if (v) { renderInv(); if (document.pointerLockElement) document.exitPointerLock(); }
 }
-$('inv').addEventListener('click', () => toggleInv(false));
+$('inv').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) { if (!e.target.closest('#invp')) toggleInv(false); return; }
+  e.stopPropagation(); const d = b.dataset;
+  if (d.x) return toggleInv(false);
+  if (d.tab) invTab = d.tab;
+  else if (d.cat) craftCat = d.cat;
+  else if (d.craft) return craft(RECIPES[+d.craft]);
+  else if (d.eat) eatItem(d.eat);
+  else if (d.med) useMed(d.med);
+  else if (d.place) { toggleInv(false); placeKit(d.place); return; }
+  else if (d.wear) { const t = INV.tools[+d.wear]; const was = t.on; for (const x of INV.tools) x.on = false; t.on = !was; save(); }
+  renderInv();
+});
 $('bInv').addEventListener('click', e => { e.stopPropagation(); toggleInv(); });
 $('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 if (isTouch) document.body.classList.add('touch');
@@ -790,7 +845,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyN') setMute(!muted);
   if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
-  if (e.code === 'KeyQ') swapGun();
+  if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
   if (e.code === 'KeyF') toggleFly();
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
   if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
@@ -832,7 +887,7 @@ function tStart(e) {
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
-      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
+      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') { if (curInter && curInter.multi) touches.get(t.identifier).useT = performance.now(); else useInteract(); }
         if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
       continue;
     }
@@ -861,12 +916,12 @@ function tEnd(e) {
     const s = touches.get(t.identifier); if (!s) continue;
     if (s.kind === 'stick') { input.mx = input.my = 0; stick.style.display = 'none'; }
     if (s.kind === 'fire') input.fire = false;
-    if (s.btn) { s.btn.classList.remove('on'); if (s.btn.id === 'bJump') touchUp = false; }
+    if (s.btn) { s.btn.classList.remove('on'); if (s.btn.id === 'bJump') touchUp = false; if (s.useT) { if (performance.now() - s.useT > 450) curInter?.next?.(); else useInteract(); } }
     touches.delete(t.identifier);
   }
 }
 for (const el of [canvas, $('touch')]) { el.addEventListener('touchstart', tStart, { passive: false }); el.addEventListener('touchmove', tMove, { passive: false }); el.addEventListener('touchend', tEnd); el.addEventListener('touchcancel', tEnd); }
-document.addEventListener('touchmove', e => { if (G.mode === 'play' && !e.target.closest('#shop')) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => { if (G.mode === 'play' && !e.target.closest('#shop') && !e.target.closest('#invp')) e.preventDefault(); }, { passive: false });
 for (const id of ['inv', 'map']) $(id).addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
 
 /* ================= save ================= */
@@ -917,7 +972,8 @@ function frame(now) {
     updRust(dt); updTime(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
-      s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup'); toast('+1 scrap', 1.2);
+      s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
+      { const x = rnd() < .2 ? pick(['nails', 'screws', 'wire', 'nails']) : null; if (x) give(x, 1 + Math.floor(rnd() * 2)); toast(x ? `+1 scrap · +${nameOf(x).toLowerCase()}` : '+1 scrap', 1.3); }
       if (G.step === 2 && s.tag === 'field') { G.flags.fieldScrap = (G.flags.fieldScrap || 0) + 1; if (G.flags.fieldScrap >= 5) { setStep(3); say([['Radio', "Kade here — that's enough. Bring it to the bench."]]); } }
     }
     saveT += dt; if (saveT > 15) { saveT = 0; save(); }
@@ -1044,7 +1100,8 @@ function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOp
 function startGame(fresh) {
   initAudio();
   const s = !fresh && load();
-  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
+  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: { cloth: 3 }, tools: [] });
+  clearInjuries(); P.diet = []; P.fed = 0; chan = null; lastTool = null; RDEPL.clear();
   G.step = 0; G.day = 1; G.tod = .34; G.chapterDone = false; G.flags = {};
   if (s) {
     Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.chapterDone = s.chapterDone; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
@@ -1056,6 +1113,7 @@ function startGame(fresh) {
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
   }
   G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
+  invInit(); restorePlaced(); gHinted = !!G.flags.craftHint;
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; selectGunView(RIFLE[UP.rifle].id);
   applyUpgrades();
@@ -1110,4 +1168,4 @@ async function boot() {
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__T = { ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };

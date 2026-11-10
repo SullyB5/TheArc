@@ -163,7 +163,7 @@ async function buildForest() {
       dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set(rr(-.04, .04), rnd() * 6, rr(-.04, .04)); dummy.scale.set(s, sy, s); dummy.updateMatrix();
       const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB;
       (K.list[b] ||= []).push([dummy.matrix.clone(), tint.setHSL(rr(.27, .36), rr(.1, .3), rr(.75, 1.05)).clone()]);
-      addCol(x, z, (K === kinds[0] ? .45 : .3) * s);
+      addCol(x, z, (K === kinds[0] ? .45 : .3) * s); addRes(['fir', 'alder', 'snag'][kinds.indexOf(K)], x, z, s);
       n++;
     }
     for (const b in K.list) {
@@ -184,6 +184,7 @@ async function buildForest() {
     dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3); dummy.scale.set(s * rr(1, 1.6), s * rr(.6, 1), s); dummy.updateMatrix();
     rocks.setMatrixAt(i, dummy.matrix);
     if (s > 1) addCol(x, z, s * 1.1);
+    addRes(s > 1 ? 'boulder' : 'stone', x, z, s);
   }
   world.add(rocks);
   // cliff outcrops (ELYRA's cliff model) on the steep faces: mountainsides and the gorge
@@ -206,7 +207,7 @@ async function buildForest() {
     const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
     if (pathDist(x, z) < 3 || Math.hypot(x, z) < 48 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
-    ferns.setMatrixAt(i, dummy.matrix);
+    ferns.setMatrixAt(i, dummy.matrix); addRes('fern', x, z, s);
   }
   ferns.receiveShadow = true; world.add(ferns);
 }
@@ -233,7 +234,7 @@ function growCell(ci, cj) {
       const s = ki === 0 ? lerp(.85, 1.3, R()) : lerp(.8, 1.2, R()), sy = ki === 0 ? lerp(1.2, 2.1, R()) : lerp(.9, 1.3, R());
       dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set((R() - .5) * .08, R() * 6, (R() - .5) * .08); dummy.scale.set(s, sy, s); dummy.updateMatrix();
       L.push([dummy.matrix.clone(), tint.setHSL(lerp(.27, .36, R()), lerp(.1, .3, R()), lerp(.75, 1.05, R())).clone()]);
-      if (cols) addCol(x, z, (ki === 0 ? .45 : .3) * s);
+      if (cols) { addCol(x, z, (ki === 0 ? .45 : .3) * s); addRes(['fir', 'alder', 'snag'][ki], x, z, s); }
     }
     if (!L.length) return;
     const im = new THREE.InstancedMesh(OGEO[ki], TREEMAT, L.length);
@@ -245,11 +246,11 @@ function growCell(ci, cj) {
     const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 4 || waterAt(x, z) > heightAt(x, z) - .4) continue;
     const s = R() < .12 ? lerp(2, 4.5, R()) : lerp(.4, 1.4, R());
     dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(R() * 3, R() * 3, R() * 3); dummy.scale.set(s * lerp(1, 1.6, R()), s * lerp(.6, 1, R()), s); dummy.updateMatrix();
-    rocks.push(dummy.matrix.clone()); if (cols && s > 1) addCol(x, z, s * 1.1);
+    rocks.push(dummy.matrix.clone()); if (cols && s > 1) addCol(x, z, s * 1.1); if (cols) addRes(s > 1 ? 'boulder' : 'stone', x, z, s);
   }
   for (let t = 0; t < (LOW ? 40 : 90); t++) {
     const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 3 || waterAt(x, z) > heightAt(x, z) - .4) continue;
-    const s = lerp(.6, 1.5, R()); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, R() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix(); ferns.push(dummy.matrix.clone());
+    const s = lerp(.6, 1.5, R()); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, R() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix(); ferns.push(dummy.matrix.clone()); if (cols) addRes('fern', x, z, s);
   }
   for (const [L, geo, mat, sh] of [[rocks, null, null, true], [ferns, fernGeoO, VCOL, false]]) {
     if (!L.length) continue;
