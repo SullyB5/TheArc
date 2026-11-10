@@ -41,8 +41,10 @@ function fbm(x, z) { let s = 0, a = 1, f = 1, n = 0; for (let i = 0; i < 4; i++)
    East: the Coldwater river in its gorge, the old-world town of Halvard past the broken span, and the Burn where the Arc's
    lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. South-west: Lake Ilse. South: the fire
    lookout. North-west: the grey mountain and the sealed door of Greyhold. */
-const WORLD = 640;
-const HALF = 800;
+const VALLEY = 640;                         // the Chapter 1 valley (Kestrel and everything around it)
+const WORLD = 2200;                         // walkable radius of the whole map
+const HALF = 2400;                          // half-size of the terrain square
+const IN_HALF = 800;                        // the fine heightmap covers the valley; the outlands use a coarser one
 const CAMP_R = 42;
 const GATE_HALF = 4.7 / CAMP_R;
 const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14;
@@ -50,9 +52,20 @@ const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 88 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
   lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  // the outlands, past the valley rim
+  varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
+  cinder: { x: 1120, z: -520 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
 };
+const HOLDS = [
+  { id: 'varnhold', name: 'VARNHOLD', sub: 'Hold of the Hollow Pines clan', ...POI.varnhold, R: 40 },
+  { id: 'sunscar', name: 'SUNSCAR', sub: 'Hold of the Ridge Runners', ...POI.sunscar, R: 36 },
+  { id: 'elderhollow', name: 'ELDERHOLLOW', sub: 'Hold of the Rootkin', ...POI.elderhollow, R: 44 },
+];
+const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
-const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 }];
+const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
+const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 },
+  { x: 900, z: 120 }, { x: -820, z: -360 }, { x: 420, z: 980 }, { x: -260, z: -980 }, { x: 1300, z: -300 }, { x: -1000, z: 1000 }, { x: 760, z: -1450 }, { x: -1600, z: -900 }];
 const SHELTERS = [
   { x: 44, z: 150, kind: 'bus' }, { x: 128, z: 96, kind: 'hut' }, { x: -84, z: 92, kind: 'cave' },
   { x: -146, z: -18, kind: 'bus' }, { x: 118, z: -64, kind: 'cave' }, { x: 206, z: 128, kind: 'hut' },
@@ -70,7 +83,36 @@ const PATHS = [
   [[-118, -14], [-150, -128], [-184, -196]],
   [[0, 96], [-60, 160], [-150, 222], [-232, 268]],
   [[-60, 160], [-100, 300], [-120, 420]],
+  // outland roads, each through a pass in the valley rim
+  [[480, 300], [720, 330], [1000, 290], [1480, 260]],
+  [[1000, 290], [1080, -100], [1120, -520]],
+  [[-184, -196], [-150, -420], [-60, -700], [60, -950], [120, -1180]],
+  [[-120, 420], [-90, 700], [40, 1000], [160, 1360]],
+  [[-90, 700], [-420, 960], [-560, 1030]],
+  [[-420, -20], [-700, 40], [-1000, 180], [-1340, 360]],
+  [[-1000, 180], [-1250, -120], [-1300, -280]],
 ];
+/* passes: wherever a road crosses the rim ring, the ridge is cut down */
+const RIM_R = 690;
+const PASSES = [];
+for (const p of PATHS) for (let i = 0; i < p.length - 1; i++) {
+  const [ax, az] = p[i], [bx, bz] = p[i + 1], da = Math.hypot(ax, az), db = Math.hypot(bx, bz);
+  if ((da - RIM_R) * (db - RIM_R) < 0) { const t = (RIM_R - da) / (db - da); PASSES.push(Math.atan2(lerp(az, bz, t), lerp(ax, bx, t))); }
+}
+PASSES.push(Math.atan2(-660, riverX(-660)), Math.atan2(660, riverX(660)));   // the river gorges
+/* road shelters in the outlands: somewhere to get under a roof when the red fog rolls in (one every ~230m of road) */
+for (const p of PATHS.slice(7)) {
+  let next = 120, run = 0;
+  for (let i = 0; i < p.length - 1; i++) {
+    const [ax, az] = p[i], [bx, bz] = p[i + 1], L = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / L, nz = (bx - ax) / L;
+    while (next < run + L) {
+      const k = (next - run) / L, sd = SHELTERS.length % 2 ? 16 : -16, x = lerp(ax, bx, k) + nx * sd, z = lerp(az, bz, k) + nz * sd;
+      if (Math.hypot(x, z) > RIM_R + 60 && Math.abs(x - riverX(z)) > 50) SHELTERS.push({ x, z, kind: ['hut', 'cave', 'bus'][SHELTERS.length % 3] });
+      next += 230;
+    }
+    run += L;
+  }
+}
 function segDist(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, l = dx * dx + dz * dz;
   const t = l ? clamp(((px - ax) * dx + (pz - az) * dz) / l, 0, 1) : 0;
@@ -85,8 +127,22 @@ function pathDist(x, z) {
 /* ---------- terrain: noise → carve water and craters → flatten building sites → cached heightmap ---------- */
 function rawH(x, z) {
   let h = (fbm(x * .0062 + 3, z * .0062 + 7) - .5) * 38 + (fbm(x * .028, z * .028) - .5) * 5;
-  const d = Math.hypot(x, z), e = Math.max(0, d - 560);
-  h += e * e * .01 + e * .4 * fbm(x * .02 + 9, z * .02);
+  const d = Math.hypot(x, z);
+  // the valley rim: a ring of ridges, broken by passes where the roads and the river go through
+  const ring = Math.exp(-(((d - RIM_R) / 70) ** 2));
+  if (ring > .002) {
+    const ang = Math.atan2(z, x); let cut = 1;
+    for (const pa of PASSES) { const t = angWrap(ang - pa) * d / 55; cut *= 1 - Math.exp(-t * t); }
+    h += ring * (55 + 70 * fbm(ang * 4 + 20, d * .01)) * (.12 + .88 * cut);
+  }
+  // the outlands: the same forest, broader hills and a few big mountains
+  const o = smooth(620, 900, d);
+  if (o > 0) {
+    let oh = (fbm(x * .0032 + 11, z * .0032 - 4) - .5) * 90 + (fbm(x * .017 + 3, z * .017 + 8) - .5) * 10;
+    const r = 1 - Math.abs(fbm(x * .0045 + 30, z * .0045) * 2 - 1); oh += smooth(.55, .9, fbm(x * .0021 - 9, z * .0021 + 5)) * 210 * r;
+    h += o * oh;
+  }
+  const e = Math.max(0, d - 2080); h += e * e * .012 + e * .5 * fbm(x * .02 + 9, z * .02);   // the world's edge
   const gd = Math.hypot(x + 300, z + 320);
   h += 150 * Math.exp(-(gd * gd) / (2 * 95 * 95));                                   // the grey mountain (Greyhold)
   const mx = (x - 10) / 120, mz = (z + 178) / 62;
@@ -98,13 +154,18 @@ function rawH(x, z) {
   return h;
 }
 let LAKE_L = 0;
+function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * .4); }
 function riverWL(z) { const f = clamp((z - RIV_Z0) / RIV_STEP, 0, RIV_N - 1.001), i = Math.floor(f); return lerp(RIVWL[i], RIVWL[i + 1], f - i); }
 function carved(x, z) {
   let h = rawH(x, z);
   const dr = Math.abs(x - riverX(z));
-  if (dr < 150) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = hc; }
-  const L = POI.lake, ld = Math.hypot(x - L.x, z - L.z);
-  if (ld < 220) { const a = Math.atan2(z - L.z, x - L.x), Rw = 74 * (1 + (vnoise(Math.cos(a) * 2 + 5, Math.sin(a) * 2) - .5) * .4); const hc = ld < Rw ? LAKE_L - .5 - 5 * (1 - (ld / Rw) ** 2) : LAKE_L - .5 + (ld - Rw) * .45; if (hc < h) h = hc; }
+  // inside the valley the gorge stops 150m out (as built); out past the rim it cuts a full valley through the hills
+  const cap = 150 + 600 * smooth(560, 780, Math.hypot(x, z));
+  if (dr < cap) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = dr < 150 ? hc : lerp(h, hc, 1 - smooth(cap * .8, cap, dr)); }
+  for (const L of LAKES) {
+    const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
+    const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
+  }
   const B = POI.burn, bd = Math.hypot(x - B.x, z - B.z);
   if (bd < 70) h += -9 * Math.exp(-((bd / 26) ** 2)) + 3 * Math.exp(-(((bd - 32) / 7) ** 2));
   return h;
@@ -113,8 +174,8 @@ function prepWater() {
   for (let k = 0; k < RIV_N; k++) { const z = RIV_Z0 + k * RIV_STEP, rx = riverX(z); let m = 1e9; for (let dx = -40; dx <= 40; dx += 8) m = Math.min(m, rawH(rx + dx, z)); RIVWL[k] = m - 1.4; }
   for (let pass = 0; pass < 4; pass++) { const c = RIVWL.slice(); for (let k = 2; k < RIV_N - 2; k++) RIVWL[k] = (c[k - 2] + c[k - 1] + c[k] + c[k + 1] + c[k + 2]) / 5; }
   for (let k = 1; k < RIV_N; k++) RIVWL[k] = Math.min(RIVWL[k], RIVWL[k - 1]);        // flows downhill, north to south
-  let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(POI.lake.x + Math.cos(a) * 92, POI.lake.z + Math.sin(a) * 92)); }
-  LAKE_L = m - 1.6;
+  for (const L of LAKES) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
+  LAKE_L = LAKES[0].L;
 }
 const FLATS = [];
 /* a level site for a building: its height is the average of the centre and the surrounding ground, and the blend out to
@@ -131,28 +192,38 @@ function fullH(x, z) {
   for (const f of FLATS) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r1) h = f.h + (h - f.h) * smooth(f.r0, f.r1, d); }
   return h;
 }
-const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(HALF * 2 / HM_STEP) + 1;
-let HM = null;
+const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(IN_HALF * 2 / HM_STEP) + 1;        // fine: the valley
+const HO_STEP = LOW ? 5 : 4, HO_N = Math.round(HALF * 2 / HO_STEP) + 1;              // coarse: the whole map
+let HM = null, HO = null;
+function hmSample(A, N, step, half, x, z) {
+  let fx = (x + half) / step, fz = (z + half) / step;
+  fx = clamp(fx, 0, N - 1.001); fz = clamp(fz, 0, N - 1.001);
+  const i = fx | 0, j = fz | 0, u = fx - i, v = fz - j, o = j * N + i;
+  return (A[o] * (1 - u) + A[o + 1] * u) * (1 - v) + (A[o + N] * (1 - u) + A[o + N + 1] * u) * v;
+}
 function heightAt(x, z) {
   if (!HM) return fullH(x, z);
-  let fx = (x + HALF) / HM_STEP, fz = (z + HALF) / HM_STEP;
-  fx = clamp(fx, 0, HM_N - 1.001); fz = clamp(fz, 0, HM_N - 1.001);
-  const i = fx | 0, j = fz | 0, u = fx - i, v = fz - j, o = j * HM_N + i;
-  return (HM[o] * (1 - u) + HM[o + 1] * u) * (1 - v) + (HM[o + HM_N] * (1 - u) + HM[o + HM_N + 1] * u) * v;
+  if (x > -IN_HALF && x < IN_HALF && z > -IN_HALF && z < IN_HALF) return hmSample(HM, HM_N, HM_STEP, IN_HALF, x, z);
+  return hmSample(HO, HO_N, HO_STEP, HALF, x, z);
 }
 async function buildHeightmap() {
-  HM = null; const A = new Float32Array(HM_N * HM_N);
+  HM = null; const A = new Float32Array(HM_N * HM_N), B = new Float32Array(HO_N * HO_N), tot = HM_N + HO_N;
   for (let j = 0; j < HM_N; j++) {
-    const z = -HALF + j * HM_STEP;
-    for (let i = 0; i < HM_N; i++) A[j * HM_N + i] = fullH(-HALF + i * HM_STEP, z);
-    if (j % 60 === 0) { setLoad(`SHAPING THE VALLEY ${Math.round(j / HM_N * 100)}%`); await nextFrame(); }
+    const z = -IN_HALF + j * HM_STEP;
+    for (let i = 0; i < HM_N; i++) A[j * HM_N + i] = fullH(-IN_HALF + i * HM_STEP, z);
+    if (j % 60 === 0) { setLoad(`SHAPING THE VALLEY ${Math.round(j / tot * 100)}%`); await nextFrame(); }
   }
-  HM = A;
+  for (let j = 0; j < HO_N; j++) {
+    const z = -HALF + j * HO_STEP;
+    for (let i = 0; i < HO_N; i++) { const x = -HALF + i * HO_STEP; B[j * HO_N + i] = Math.abs(x) <= IN_HALF && Math.abs(z) <= IN_HALF ? hmSample(A, HM_N, HM_STEP, IN_HALF, x, z) : fullH(x, z); }
+    if (j % 60 === 0) { setLoad(`SHAPING THE OUTLANDS ${Math.round((HM_N + j) / tot * 100)}%`); await nextFrame(); }
+  }
+  HM = A; HO = B;
 }
 function waterAt(x, z) {                   // water surface at (x,z), or -1e9 when dry
   let w = -1e9;
   if (Math.abs(x - riverX(z)) < RIV_HW + 3) w = riverWL(z) - .4;
-  if (Math.hypot(x - POI.lake.x, z - POI.lake.z) < 100) w = Math.max(w, LAKE_L - .5);
+  for (const L of LAKES) if (Math.hypot(x - L.x, z - L.z) < L.R * 1.35) w = Math.max(w, L.L - .5);
   return w;
 }
 function prepFlats() {
@@ -165,6 +236,9 @@ function prepFlats() {
   addFlat(POI.lookout.x, POI.lookout.z, 8, 20);
   for (const s of SHELTERS) addFlat(s.x, s.z, 6, 14);
   for (const s of SCOUTS) addFlat(s.x, s.z, 8, 18);
+  for (const H of HOLDS) addFlat(H.x, H.z, H.R + 8, H.R + 40);
+  addFlat(POI.cinder.x, POI.cinder.z, 70, 110);
+  addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
 }
 
 /* ---------- renderer / scene / post ---------- */
@@ -446,15 +520,22 @@ const REGIONS = [
   { id: 'kestrel', name: 'KESTREL', sub: 'What the Arc left us', x: 0, z: 0, r: 60 },
   { id: 'meadow', name: 'THE EAST MEADOW', sub: 'Deer country', x: POI.meadow.x, z: POI.meadow.z, r: 40 },
   { id: 'pod', name: 'THE POD', sub: 'An escape capsule, still smoking', x: POI.pod.x, z: POI.pod.z, r: 26 },
-  { id: 'outpost', name: 'THORN OUTPOST', sub: 'The painted ones keep watch here', x: POI.village.x, z: POI.village.z, r: 42 },
+  { id: 'outpost', name: 'THORN OUTPOST', sub: 'The painted ones keep watch here', x: POI.village.x, z: POI.village.z, r: 42, hostile: true },
   { id: 'river', name: 'THE COLDWATER', sub: 'River gorge', river: true },
   { id: 'bridge', name: 'THE BROKEN SPAN', sub: 'An old-world highway', x: POI.bridge.x, z: POI.bridge.z, r: 45 },
   { id: 'halvard', name: 'HALVARD', sub: 'A town from before the fire', x: POI.halvard.x, z: POI.halvard.z, r: 95 },
   { id: 'burn', name: 'THE BURN', sub: 'Where the lander Tern came down', x: POI.burn.x, z: POI.burn.z, r: 70 },
-  { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80 },
+  { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80, hostile: true },
   { id: 'lake', name: 'LAKE ILSE', sub: 'Still water', x: POI.lake.x, z: POI.lake.z, r: 100 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
+  // past the rim
+  { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },
+  ...HOLDS.map(H => ({ id: H.id, name: H.name, sub: H.sub, x: H.x, z: H.z, r: H.R + 70, hostile: true })),
+  { id: 'cinder', name: 'CINDER CITY', sub: 'Towers from before the fire', x: POI.cinder.x, z: POI.cinder.z, r: 120 },
+  { id: 'watchers', name: 'THE WATCHERS', sub: 'Thirteen stones in a ring', x: POI.watchers.x, z: POI.watchers.z, r: 50 },
+  { id: 'varr', name: 'LAKE VARR', sub: 'Deep and cold', x: POI.varr.x, z: POI.varr.z, r: 200 },
+  { id: 'mirror', name: 'MIRRORWATER', sub: 'Not a ripple on it', x: POI.mirror.x, z: POI.mirror.z, r: 150 },
 ];
 
 /* ---------- models (from the ELYRA kit) ---------- */
@@ -498,30 +579,65 @@ function terrainColor(x, z, h, sl, out) {
   return out;
 }
 const slopeAt = (x, z) => { const h = heightAt(x, z); return Math.hypot(heightAt(x + 1.5, z) - h, heightAt(x, z + 1.5) - h) / 1.5; };
-async function buildTerrain() {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.detailSoil, normalMap: TX.soilN, normalScale: new THREE.Vector2(.6, .6) });
-  const CH = 160, NCH = Math.ceil(HALF * 2 / CH), SEG = LOW ? 40 : 64, c = new THREE.Color();
-  let done = 0;
-  for (let cj = 0; cj < NCH; cj++) for (let ci = 0; ci < NCH; ci++) {
-    const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH;
-    if (Math.hypot(x0 + CH / 2, z0 + CH / 2) > HALF + 120) continue;
-    const n = (SEG + 1) * (SEG + 1), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2);
-    for (let j = 0; j <= SEG; j++) for (let i = 0; i <= SEG; i++) {
-      const k = j * (SEG + 1) + i, x = x0 + i * CH / SEG, z = z0 + j * CH / SEG, h = heightAt(x, z);
+/* streamed: only the chunks near you exist; new ones are built a few rows per frame so walking never hitches */
+const CH = 160, NCH = Math.ceil(HALF * 2 / CH), TSEG = LOW ? 40 : 64;
+let terrMat = null, terrIdx = null, chunkJob = null;
+const CHUNKS = new Map();
+const T_LOAD = 470, T_DROP = 700;
+const chunkRectD = (ci, cj, px, pz) => { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(Math.max(x0 - px, 0, px - x0 - CH), Math.max(z0 - pz, 0, pz - z0 - CH)); };
+function chunkExists(ci, cj) { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(x0 + CH / 2, z0 + CH / 2) <= HALF + 120; }
+function startChunk(ci, cj) {
+  const n = (TSEG + 1) * (TSEG + 1);
+  return { ci, cj, row: 0, x0: -HALF + ci * CH, z0: -HALF + cj * CH, pos: new Float32Array(n * 3), nor: new Float32Array(n * 3), col: new Float32Array(n * 3), uv: new Float32Array(n * 2) };
+}
+const _tc = new THREE.Color();
+function stepChunk(J, ms) {
+  const t0 = performance.now(), { pos, nor, col, uv } = J;
+  while (J.row <= TSEG) {
+    const j = J.row;
+    for (let i = 0; i <= TSEG; i++) {
+      const k = j * (TSEG + 1) + i, x = J.x0 + i * CH / TSEG, z = J.z0 + j * CH / TSEG, h = heightAt(x, z);
       pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
       const hx = heightAt(x + 1, z) - heightAt(x - 1, z), hz = heightAt(x, z + 1) - heightAt(x, z - 1);
       const l = Math.hypot(hx, 2, hz); nor[k * 3] = -hx / l; nor[k * 3 + 1] = 2 / l; nor[k * 3 + 2] = -hz / l;
-      terrainColor(x, z, h, Math.hypot(hx, hz) / 2, c); col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      terrainColor(x, z, h, Math.hypot(hx, hz) / 2, _tc); col[k * 3] = _tc.r; col[k * 3 + 1] = _tc.g; col[k * 3 + 2] = _tc.b;
       uv[k * 2] = x / 7; uv[k * 2 + 1] = z / 7;
     }
-    const idx = [];
-    for (let j = 0; j < SEG; j++) for (let i = 0; i < SEG; i++) { const a = j * (SEG + 1) + i, b = a + 1, d = a + SEG + 1, e = d + 1; idx.push(a, d, b, b, d, e); }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
-    g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; world.add(m);
-    if (++done % 6 === 0) { setLoad(`LAYING THE GROUND ${Math.round(done / (NCH * NCH) * 100)}%`); await nextFrame(); }
+    J.row++;
+    if (ms && performance.now() - t0 > ms) return false;
+  }
+  if (!terrIdx) { const idx = []; for (let j = 0; j < TSEG; j++) for (let i = 0; i < TSEG; i++) { const a = j * (TSEG + 1) + i, b = a + 1, d = a + TSEG + 1, e = d + 1; idx.push(a, d, b, b, d, e); } terrIdx = new THREE.Uint32BufferAttribute(idx, 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(terrIdx);
+  g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, terrMat); m.receiveShadow = true; world.add(m);
+  CHUNKS.set(J.ci * 1000 + J.cj, m);
+  return true;
+}
+function nearestMissingChunk(px, pz) {
+  let best = null, bd = T_LOAD;
+  const c0 = Math.floor((px + HALF) / CH), c1 = Math.floor((pz + HALF) / CH), rad = Math.ceil(T_LOAD / CH) + 1;
+  for (let cj = c1 - rad; cj <= c1 + rad; cj++) for (let ci = c0 - rad; ci <= c0 + rad; ci++) {
+    if (ci < 0 || cj < 0 || ci >= NCH || cj >= NCH || CHUNKS.has(ci * 1000 + cj) || !chunkExists(ci, cj)) continue;
+    const d = chunkRectD(ci, cj, px, pz); if (d < bd) { bd = d; best = [ci, cj]; }
+  }
+  return best;
+}
+function updTerrain(px, pz, ms = 3.5) {
+  for (const [k, m] of CHUNKS) if (chunkRectD(Math.floor(k / 1000), k % 1000, px, pz) > T_DROP) { world.remove(m); m.geometry.dispose(); CHUNKS.delete(k); }
+  if (chunkJob && chunkRectD(chunkJob.ci, chunkJob.cj, px, pz) > T_LOAD + 60) chunkJob = null;
+  // after a teleport (respawn at camp) the ground under you is built immediately, the rest streams in
+  for (let k = 0; k < 4; k++) { const n = nearestMissingChunk(px, pz); if (!n || chunkRectD(n[0], n[1], px, pz) > 140) break; if (chunkJob && chunkJob.ci === n[0] && chunkJob.cj === n[1]) chunkJob = null; stepChunk(startChunk(n[0], n[1]), 0); }
+  if (!chunkJob) { const n = nearestMissingChunk(px, pz); if (n) chunkJob = startChunk(n[0], n[1]); }
+  if (chunkJob && stepChunk(chunkJob, ms)) chunkJob = null;
+}
+async function buildTerrain(px = 0, pz = 0) {
+  terrMat ||= new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.detailSoil, normalMap: TX.soilN, normalScale: new THREE.Vector2(.6, .6) });
+  let done = 0, n;
+  while ((n = nearestMissingChunk(px, pz))) {
+    stepChunk(startChunk(n[0], n[1]), 0);
+    if (++done % 4 === 0) { setLoad(`LAYING THE GROUND ${done}`); await nextFrame(); }
   }
 }
 
@@ -540,9 +656,11 @@ function buildWater() {
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
   const river = new THREE.Mesh(g, waterMat); river.renderOrder = 1; world.add(river);
-  const lg = new THREE.CircleGeometry(98, 64); lg.rotateX(-Math.PI / 2);
-  const luv = lg.attributes.uv, lp = lg.attributes.position; for (let i = 0; i < luv.count; i++) luv.setXY(i, lp.getX(i) + POI.lake.x, lp.getZ(i) + POI.lake.z);
-  const lake = new THREE.Mesh(lg, waterMat); lake.position.set(POI.lake.x, LAKE_L - .5, POI.lake.z); lake.renderOrder = 1; world.add(lake);
+  for (const L of LAKES) {
+    const lg = new THREE.CircleGeometry(L.R * 1.33, 64); lg.rotateX(-Math.PI / 2);
+    const luv = lg.attributes.uv, lp = lg.attributes.position; for (let i = 0; i < luv.count; i++) luv.setXY(i, lp.getX(i) + L.x, lp.getZ(i) + L.z);
+    const lake = new THREE.Mesh(lg, waterMat); lake.position.set(L.x, L.L - .5, L.z); lake.renderOrder = 1; world.add(lake);
+  }
 }
 
 /* ================= forest: firs, alders, snags, rocks, cliffs — instanced in map tiles so the camera culls them ================= */
@@ -576,7 +694,9 @@ function snagGeo() {
 function treeOK(x, z) {
   if (Math.hypot(x, z) < 62) return false;
   if (pathDist(x, z) < 5.5) return false;
-  if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30)) return false;
+  if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
+  if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
+  for (const p of [[POI.cinder, 110], [POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   if (Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 24) return false;
   if (SHELTERS.some(s => Math.hypot(x - s.x, z - s.z) < 12) || SCOUTS.some(s => Math.hypot(x - s.x, z - s.z) < 16)) return false;
@@ -593,11 +713,11 @@ async function buildForest() {
   for (const K of kinds) {
     let n = 0, guard = 0;
     while (n < K.n && guard++ < K.n * 25) {
-      const x = rr(-WORLD - 120, WORLD + 120), z = rr(-WORLD - 120, WORLD + 120);
-      if (Math.hypot(x, z) > WORLD + 140) continue;
+      const x = rr(-VALLEY - 120, VALLEY + 120), z = rr(-VALLEY - 120, VALLEY + 120);
+      if (Math.hypot(x, z) > VALLEY + 140) continue;
       const dens = fbm(x * .018 + 5, z * .018 + 11);
       if (K === kinds[1] ? (dens > .55 || rnd() > .5) : rnd() > smooth(.3, .6, dens) + .14) continue;
-      if (K === kinds[1] && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && Math.hypot(x - POI.lake.x, z - POI.lake.z) > 130 && rnd() < .7) continue;
+      if (K === kinds[1] && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && LAKES.every(L => Math.hypot(x - L.x, z - L.z) > L.R + 56) && rnd() < .7) continue;
       if (!treeOK(x, z)) continue;
       const s = K === kinds[0] ? rr(.85, 1.3) : rr(.8, 1.2), sy = K === kinds[0] ? rr(1.2, 2.1) : rr(.9, 1.3);
       dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set(rr(-.04, .04), rnd() * 6, rr(-.04, .04)); dummy.scale.set(s, sy, s); dummy.updateMatrix();
@@ -609,7 +729,7 @@ async function buildForest() {
     for (const b in K.list) {
       const L = K.list[b], im = new THREE.InstancedMesh(K.geo, TREEMAT, L.length);
       L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im);
+      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
     }
     await nextFrame();
   }
@@ -618,7 +738,7 @@ async function buildForest() {
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), rockMat, 900);
   rocks.castShadow = rocks.receiveShadow = true;
   for (let i = 0; i < 900; i++) {
-    const a = rnd() * Math.PI * 2, r = 60 + Math.sqrt(rnd()) * (WORLD + 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const a = rnd() * Math.PI * 2, r = 60 + Math.sqrt(rnd()) * (VALLEY + 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (pathDist(x, z) < 4 || Math.hypot(x - POI.halvard.x, z - POI.halvard.z) < 80) { i--; continue; }
     const s = rnd() < .1 ? rr(2, 4.5) : rr(.4, 1.4);
     dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3); dummy.scale.set(s * rr(1, 1.6), s * rr(.6, 1), s); dummy.updateMatrix();
@@ -630,7 +750,7 @@ async function buildForest() {
   if (MODELS.cliff) {
     let placed = 0, guard = 0;
     while (placed < (LOW ? 40 : 70) && guard++ < 6000) {
-      const x = rr(-WORLD, WORLD), z = rr(-WORLD, WORLD);
+      const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
       const sl = slopeAt(x, z); if (sl < 1 || Math.hypot(x, z) < 90 || pathDist(x, z) < 22 || heightAt(x, z) < 20) continue;
       if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25) || SCOUTS.some(q => Math.hypot(x - q.x, z - q.z) < 40)) continue;
       const s = rr(10, 26), c = modelCopy('cliff', s);
@@ -643,12 +763,87 @@ async function buildForest() {
   const fern = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1);
   const ferns = new THREE.InstancedMesh(fern, VCOL, LOW ? 1800 : 4000);
   for (let i = 0; i < ferns.count; i++) {
-    const x = rr(-WORLD, WORLD), z = rr(-WORLD, WORLD);
+    const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
     if (pathDist(x, z) < 3 || Math.hypot(x, z) < 48 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
     ferns.setMatrixAt(i, dummy.matrix);
   }
   ferns.receiveShadow = true; world.add(ferns);
+}
+
+/* ================= the outlands forest: 200m cells grown as you approach, from a seed per cell, so they're the same every visit ================= */
+const FAR_HIDE = [];                          // valley tree buckets: hidden once you're far from them
+const CELL_T = 200, NCT = Math.ceil(HALF * 2 / CELL_T), OCELLS = new Map(), OCOLS = new Set();
+let OGEO = null, rockMatO = null, fernGeoO = null;
+function cellRng(ci, cj) { let a = (ci * 73856093) ^ (cj * 19349663) ^ 0x5bd1e995; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function growCell(ci, cj) {
+  if (!OGEO) { OGEO = [firGeo(), alderGeo(), snagGeo()]; rockMatO = new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x9a968e, flatShading: true });
+    fernGeoO = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1); }
+  const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
+  const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
+  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
+  const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
+  K.forEach(([tries, L], ki) => {
+    for (let t = 0; t < tries; t++) {
+      const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z)) continue;
+      const dens = fbm(x * .018 + 5, z * .018 + 11);
+      if (ki === 1 ? (dens > .55 || R() > .5) : R() > smooth(.3, .6, dens) + .14) continue;
+      if (ki === 1 && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && LAKES.every(L => Math.hypot(x - L.x, z - L.z) > L.R + 56) && R() < .7) continue;
+      if (!treeOK(x, z)) continue;
+      const s = ki === 0 ? lerp(.85, 1.3, R()) : lerp(.8, 1.2, R()), sy = ki === 0 ? lerp(1.2, 2.1, R()) : lerp(.9, 1.3, R());
+      dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set((R() - .5) * .08, R() * 6, (R() - .5) * .08); dummy.scale.set(s, sy, s); dummy.updateMatrix();
+      L.push([dummy.matrix.clone(), tint.setHSL(lerp(.27, .36, R()), lerp(.1, .3, R()), lerp(.75, 1.05, R())).clone()]);
+      if (cols) addCol(x, z, (ki === 0 ? .45 : .3) * s);
+    }
+    if (!L.length) return;
+    const im = new THREE.InstancedMesh(OGEO[ki], TREEMAT, L.length);
+    L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
+    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+  });
+  const rocks = [], ferns = [];
+  for (let t = 0; t < 20; t++) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 4 || waterAt(x, z) > heightAt(x, z) - .4) continue;
+    const s = R() < .12 ? lerp(2, 4.5, R()) : lerp(.4, 1.4, R());
+    dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(R() * 3, R() * 3, R() * 3); dummy.scale.set(s * lerp(1, 1.6, R()), s * lerp(.6, 1, R()), s); dummy.updateMatrix();
+    rocks.push(dummy.matrix.clone()); if (cols && s > 1) addCol(x, z, s * 1.1);
+  }
+  for (let t = 0; t < (LOW ? 40 : 90); t++) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 3 || waterAt(x, z) > heightAt(x, z) - .4) continue;
+    const s = lerp(.6, 1.5, R()); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, R() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix(); ferns.push(dummy.matrix.clone());
+  }
+  for (const [L, geo, mat, sh] of [[rocks, null, null, true], [ferns, fernGeoO, VCOL, false]]) {
+    if (!L.length) continue;
+    const im = new THREE.InstancedMesh(geo || new THREE.DodecahedronGeometry(1, 0), mat || rockMatO, L.length);
+    L.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = sh; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+  }
+  if (MODELS.cliff && R() < .5) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T;
+    if (!inner(x, z) && slopeAt(x, z) > 1 && pathDist(x, z) > 22 && !FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25)) {
+      const s = lerp(10, 26, R()), c = modelCopy('cliff', s); c.position.set(x, heightAt(x, z) - s * .25, z); c.rotation.y = R() * 6; g.add(c);
+      if (cols) addCol(x, z, s * .38);
+    }
+  }
+  OCOLS.add(key); world.add(g); OCELLS.set(key, g);
+}
+const FOR_SHOW = 430, FOR_DROP = 900;
+let farT = 0;
+function updForest(px, pz, dt) {
+  farT -= dt; if (farT > 0) return; farT = .25;
+  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
+  for (const [k, g] of OCELLS) {
+    const ci = Math.floor(k / 1000), cj = k % 1000, d = Math.hypot(-HALF + (ci + .5) * CELL_T - px, -HALF + (cj + .5) * CELL_T - pz);
+    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); } else g.visible = d < FOR_SHOW;
+  }
+  if (Math.hypot(px, pz) < VALLEY - 120) return;
+  // grow the nearest missing cell (one per tick)
+  let best = null, bd = FOR_SHOW - 60; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
+  for (let cj = c1 - 3; cj <= c1 + 3; cj++) for (let ci = c0 - 3; ci <= c0 + 3; ci++) {
+    if (ci < 0 || cj < 0 || ci >= NCT || cj >= NCT || OCELLS.has(ci * 1000 + cj)) continue;
+    const cx = -HALF + (ci + .5) * CELL_T, cz = -HALF + (cj + .5) * CELL_T, d = Math.hypot(cx - px, cz - pz);
+    if (Math.hypot(cx, cz) < VALLEY - 40 || Math.hypot(cx, cz) > WORLD + 200) continue;
+    if (d < bd) { bd = d; best = [ci, cj]; }
+  }
+  if (best) { growCell(best[0], best[1]); farT = .05; }
 }
 
 /* ================= grass: a patch of blades that follows you, swaying in the wind ================= */
@@ -1063,7 +1258,7 @@ function spawnScrap(x, z, tag) {
 }
 function seedScraps() {
   for (let i = 0; i < 9; i++) spawnScrap(rr(-34, 34), rr(56, 124), 'field');
-  for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(70, WORLD - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
+  for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(70, VALLEY - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
 }
 
 /* ================= the wider valley ================= */
@@ -1306,7 +1501,97 @@ function buildRelay() {
 }
 
 function seedCrates() {
-  for (let i = 0; i < 16; i++) { const a = rnd() * Math.PI * 2, r = rr(90, WORLD - 40), x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z); }
+  for (let i = 0; i < 16; i++) { const a = rnd() * Math.PI * 2, r = rr(90, VALLEY - 40), x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z); }
+}
+
+/* ================= the outlands ================= */
+// a clan hold: palisade ring with a gate facing the road, gate towers, longhouse, hide tents, totems, a big fire
+function buildHold(H) {
+  const R = H.R, y0 = heightAt(H.x, H.z), gateA = Math.atan2(-H.z, -H.x);
+  const wood = new THREE.MeshLambertMaterial({ map: texWood, color: 0x8a6e52 });
+  const posts = [], dummy = new THREE.Object3D();
+  for (let i = 0; i < 110; i++) {
+    const a = i / 110 * Math.PI * 2; if (Math.abs(angWrap(a - gateA)) < .09) continue;
+    const x = H.x + Math.cos(a) * R, z = H.z + Math.sin(a) * R, s = rr(.9, 1.2);
+    dummy.position.set(x, heightAt(x, z) + 2.6 * s, z); dummy.rotation.set(Math.sin(a) * .08, 0, -Math.cos(a) * .08); dummy.scale.set(1, s, 1); dummy.updateMatrix(); posts.push(dummy.matrix.clone());
+    addCol(x, z, .45);
+  }
+  const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(.05, .32, 5.6, 6), wood, posts.length); posts.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = true; world.add(im);
+  for (const s of [-1, 1]) {
+    const a = gateA + s * .11, x = H.x + Math.cos(a) * (R + 1), z = H.z + Math.sin(a) * (R + 1), g = new THREE.Group();
+    g.add(mesh(lattice(3, 8, 0x5a4430, 2.4), VCOL)); mesh(new THREE.BoxGeometry(4, .3, 4), M(0x5a4430), 0, 8, 0, g);
+    for (let k = 0; k < 6; k++) { const sp = mesh(new THREE.ConeGeometry(.08, 1.2, 4), M(0xd8d0bc), rr(-1.8, 1.8), 8.6, rr(-1.8, 1.8), g); sp.rotation.z = rr(-.4, .4); }
+    place(g, x, z, -a); addCol(x, z, 2);
+  }
+  { const g = new THREE.Group();
+    mesh(new THREE.BoxGeometry(9, 4, 20), wood, 0, 2, 0, g);
+    const roof = mesh(new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-5.8, 0), new THREE.Vector2(5.8, 0), new THREE.Vector2(0, 5)]), { depth: 22, bevelEnabled: false }), M(0x4a3a2a), 0, 4, -11, g);
+    mesh(new THREE.BoxGeometry(2.6, 3, .2), M(0x120e0a), 0, 1.5, 10.05, g);
+    const ox = H.x - Math.cos(gateA) * R * .45, oz = H.z - Math.sin(gateA) * R * .45, yaw = Math.PI / 2 + gateA;
+    place(g, ox, oz, -gateA + Math.PI / 2);
+    const [a1, b1] = rotXZ(0, 9.5, -gateA + Math.PI / 2), [a2, b2] = rotXZ(0, -9.5, -gateA + Math.PI / 2); addColLine(ox + a1, oz + b1, ox + a2, oz + b2, 4.8);
+  }
+  const hide = [0x7a5a3e, 0x6a4a32, 0x8a6a48, 0x5a4434];
+  for (let i = 0; i < 12; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(14, R - 8), x = H.x + Math.cos(a) * r, z = H.z + Math.sin(a) * r;
+    if (Math.abs(angWrap(a - gateA)) < .35 || Math.abs(angWrap(a - gateA - Math.PI)) < .35) continue;
+    mesh(new THREE.ConeGeometry(rr(2.2, 3), rr(3.8, 5), 8), M(pick(hide)), x, heightAt(x, z) + 2, z, world); addCol(x, z, 2.2);
+  }
+  for (let i = 0; i < 5; i++) {
+    const a = gateA + (i - 2) * .5, x = H.x + Math.cos(a) * 9, z = H.z + Math.sin(a) * 9, g = new THREE.Group();
+    for (let k = 0; k < 4; k++) { mesh(new THREE.BoxGeometry(.9, 1.1, .9), M(pick([0x5a4030, 0x6a4a36, 0x4a3426])), 0, .55 + k * 1.1, 0, g); mesh(new THREE.BoxGeometry(.55, .14, .05), M(0x101010), 0, .75 + k * 1.1, .46, g); }
+    mesh(new THREE.BoxGeometry(2, .14, .14), M(0xd9d0bd), 0, 4.6, 0, g);
+    place(g, x, z, -a + Math.PI / 2); addCol(x, z, .7);
+  }
+  const fl = new THREE.Mesh(new THREE.ConeGeometry(1.4, 3.4, 8), new THREE.MeshBasicMaterial({ color: 0xff7a2a })); fl.position.set(H.x, y0 + 1.7, H.z); world.add(fl);
+  DECOR_ANIM.push(t => { fl.scale.y = 1 + Math.sin(t * 12 + H.x) * .2; });
+  for (let i = 0; i < 3; i++) supplyCrate(H.x + rr(-R * .5, R * .5), H.z + rr(-R * .5, R * .5), pick(['ammo', 'mixed']));
+}
+
+// Cinder City: an old-world town gone to rust and creeper — broken towers, burnt-out cars, streets in a grid
+function buildCinder() {
+  const C = POI.cinder;
+  for (let gx = -3; gx <= 3; gx++) for (let gz = -3; gz <= 3; gz++) {
+    const x = C.x + gx * 26 + rr(-3, 3), z = C.z + gz * 26 + rr(-3, 3);
+    if (Math.hypot(x - C.x, z - C.z) > 92 || rnd() < .2) continue;
+    if (Math.abs(gx) <= 1 && Math.abs(gz) <= 1 && rnd() < .6) {           // towers in the middle, tops snapped off
+      const w = rr(10, 15), d = rr(10, 15), hgt = rr(16, 42), g = new THREE.Group(), mat = concMat(pick([0xb8b2a6, 0xa49c90, 0x8e8a84]));
+      mesh(new THREE.BoxGeometry(w, hgt, d), mat, 0, hgt / 2, 0, g);
+      for (let k = 2; k < hgt - 2; k += 3.2) for (const sd of [-1, 1]) mesh(new THREE.BoxGeometry(w * .9, 1.1, .1), M(0x141414), 0, k, sd * (d / 2 + .02), g);
+      for (let k = 0; k < 5; k++) { const c = mesh(new THREE.BoxGeometry(rr(2, 5), rr(1, 4), rr(2, 5)), mat, rr(-w / 2, w / 2), hgt + rr(0, 2), rr(-d / 2, d / 2), g); c.rotation.set(rr(-.4, .4), rnd() * 3, rr(-.4, .4)); }
+      const lat = mesh(lattice(1.2, rr(4, 8), 0x6a5a4a, 1.6), VCOL, rr(-w / 3, w / 3), hgt, rr(-d / 3, d / 3), g); lat.rotation.z = rr(-.5, .5);
+      place(g, x, z, rr(-.05, .05)); addColLine(x - w / 2, z, x + w / 2, z, d / 2);
+      SHELTERS.push({ x, z: z + d / 2 + 1.5, kind: 'house', r: 2.5 });
+    } else if (rnd() < .65) house(x, z, (gx + gz) % 2 ? 0 : Math.PI / 2, rr(7, 11), rr(6, 9), rnd() < .4 ? 2 : 1);
+    else car(x + rr(-6, 6), z + rr(-6, 6), rnd() * 6);
+  }
+  for (let i = 0; i < 6; i++) supplyCrate(C.x + rr(-70, 70), C.z + rr(-70, 70), pick(['ammo', 'scrap', 'mixed', 'scrap']));
+}
+
+// the Watchers: a ring of standing stones on the western moor, older than anyone remembers
+function buildWatchers() {
+  const W = POI.watchers;
+  for (let i = 0; i < 13; i++) {
+    const a = i / 13 * Math.PI * 2, x = W.x + Math.cos(a) * 14, z = W.z + Math.sin(a) * 14, hgt = rr(4, 7);
+    const st = mesh(new THREE.BoxGeometry(rr(1.6, 2.2), hgt, rr(.8, 1.2)), new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x8c8a84, flatShading: true }), x, heightAt(x, z) + hgt / 2 - .3, z, world);
+    st.rotation.set(rr(-.06, .06), -a + rr(-.2, .2), rr(-.08, .08)); addCol(x, z, 1);
+  }
+  mesh(new THREE.BoxGeometry(5, 1, 2.6), new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x7a7870 }), W.x, heightAt(W.x, W.z) + .4, W.z, world); addCol(W.x, W.z, 2.4);
+  supplyCrate(W.x + 3, W.z + 4, 'mixed');
+}
+
+function buildOutlands() {
+  for (const H of HOLDS) buildHold(H);
+  buildCinder(); buildWatchers();
+  // supply crates and hull scrap scattered over the outlands (the Arc's ring broke up on the way down)
+  for (let i = 0; i < 46; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(VALLEY + 120, WORLD - 80), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z);
+  }
+  for (let i = 0; i < 160; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(VALLEY + 60, WORLD - 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > 1) { i--; continue; } spawnScrap(x, z, 'wild');
+  }
 }
 
 /* ================= people ================= */
@@ -1696,8 +1981,7 @@ let named = {};
 const gateMaxFor = lv => 260 + lv * 220;
 
 /* ================= UI helpers ================= */
-const hud = { hp: $('hpb').firstElementChild, fd: $('fdb').firstElementChild, scrap: $('scrap'), meat: $('meat'), mag: $('mag'), res: $('res'), clock: $('clock'),
-  obj: $('obj'), objt: $('objt'), objd: $('objd'), arrow: document.querySelector('#obj .arrow'), toast: $('toast'), mark: $('mark'), markd: $('markd'),
+const hud = { hp: $('hpb').firstElementChild, hpw: $('hp'), mag: $('mag'), res: $('res'), gunn: $('gunn'), alert: $('alert'), tool: $('tool'), toast: $('toast'),
   prompt: $('prompt'), hurt: $('hurt'), rustv: $('rustv'), sub: $('sub'), hitm: $('hitm'), use: $('bUse') };
 let toastT = 0;
 function toast(s, dur = 2.6) { hud.toast.textContent = s; hud.toast.classList.add('on'); toastT = dur; }
@@ -1769,7 +2053,8 @@ const STEPS = {
 };
 function nearestScrap(tag) { let b = null, bd = 1e9; for (const s of SCRAPS) if (s.alive && (!tag || s.tag === tag)) { const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } return b; }
 function nearestAnimal(type) { let b = null, bd = 1e9; for (const e of ents) if (e.type === type && !e.dead) { const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < bd) { bd = d; b = e; } } return b; }
-function setStep(n) { G.step = n; save(); }
+function setStep(n) { G.step = n; save(); const st = STEPS[n]; if (st && n > 1 && G.mode === 'play') setTimeout(() => toast('◆ ' + (typeof st.text === 'function' ? st.text() : st.text), 4), 900); }
+function objText() { const st = STEPS[G.step]; return st ? (typeof st.text === 'function' ? st.text() : st.text) : ''; }
 
 function introCine() {
   const g = CAMP_R;
@@ -1808,7 +2093,7 @@ const INTERACT = [
   { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => (G.step >= 4 || G.step === 0) && G.step !== 11 ? 'Workbench' : null, act: () => openShop() },
   { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 ? 'Get patched up' : null, act: () => talk('juno') },
   { id: 'vos', at: () => named.vos, r: 2.8, label: () => G.step > 1 && G.step !== 11 ? 'Talk to Vos' : null, act: () => talk('vos') },
-  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook & eat (${INV.meat} meat)` : null, act: () => eat() },
+  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook ${INV.meat} meat into rations` : null, act: () => cook() },
   { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.resH = G.flags.hunter ? RESH_MAX : INV.resH; sfx('reload'); toast('Ammo restocked'); } },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
@@ -1838,12 +2123,22 @@ function butcher(e) {
   e.deadT = Math.max(e.deadT, 20);
   if (G.step === 6 && INV.meat >= 2) { setStep(7); say([['Juno', 'Cook it at the fire pit. First real food most of us have ever had.']]); }
 }
-function eat() {
+const RATION = () => [[40, 10], [55, 20], [70, 30]][UP.smoke];
+function cook() {
   if (INV.meat <= 0) return;
-  INV.meat--; const lv = UP.smoke;
-  P.food = Math.min(100, P.food + [40, 55, 70][lv]); P.hp = Math.min(100, P.hp + [10, 20, 30][lv]);
+  const n = INV.meat; INV.meat = 0; INV.rations = (INV.rations || 0) + n;
   sfx('eat'); puff(SPOTS.fire.x, H0 + 1.2, SPOTS.fire.z, 0x9a9a9a, 6, .8, .3, 1.4, 1);
-  toast(`+${[40, 55, 70][lv]} food`);
+  toast(`+${n} ration${n > 1 ? 's' : ''} · slot 3 to eat`, 3);
+  if (P.food < 90) eatRation(true);
+  eat();
+}
+function eatRation(quiet) {
+  if (!(INV.rations > 0)) { if (!quiet) { sfx('no'); toast('No rations — cook meat at the fire'); } return; }
+  if (P.food >= 99 && !quiet) { toast('Not hungry'); return; }
+  INV.rations--; const [f, h] = RATION();
+  P.food = Math.min(100, P.food + f); P.hp = Math.min(100, P.hp + h); sfx('eat'); toast(`+${f} food`, 1.6);
+}
+function eat() {
   if (G.step === 7) {
     setStep(8);
     say([['Radio', "Kade here — I've got a pod beacon on the mast."], ['Radio', 'South-east, past the ridge. Somebody else made it down. Go get them.']]);
@@ -1878,8 +2173,8 @@ function renderShop() {
     return `<div class="tile ${max ? 'max' : INV.scrap < cost ? 'no' : ''}" data-id="${u.id}"><img src="${ICONS[u.id]}" alt="${u.id}"><div class="pips">${Array.from({ length: u.max }, (_, i) => `<i class="${i < lv ? 'f' : ''}"></i>`).join('')}</div><div class="cost">${max ? 'MAX' : GEAR + cost}</div></div>`;
   }).join('') + '<button id="shopx" aria-label="Close">✕</button>';
 }
-function openShop() { shopOpen = true; renderShop(); shopEl.classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
-function closeShop() { shopOpen = false; shopEl.classList.remove('on'); }
+function openShop() { document.body.classList.add('shopping'); shopOpen = true; renderShop(); shopEl.classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
+function closeShop() { document.body.classList.remove('shopping'); shopOpen = false; shopEl.classList.remove('on'); }
 shopEl.addEventListener('click', e => {
   if (e.target.closest('#shopx')) { closeShop(); return; }
   const t = e.target.closest('.tile'); if (!t) return;
@@ -1971,7 +2266,7 @@ function updNight(dt) {
       const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
       spawnClan(raiderKind(), Math.sin(a) * r, Math.cos(a) * r, 'raid');
     }
-  } else if (!ents.some(e => e.type === 'clan' && !e.dead)) {
+  } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
     else endNight(true);
   }
@@ -1979,7 +2274,7 @@ function updNight(dt) {
 }
 function endNight(won) {
   night.active = false; gate.open = true; gate.hp = gate.max;
-  for (const e of [...ents]) if (e.type === 'clan') removeEnt(e);
+  for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
   for (const s of SCRAPS) if (!s.alive && s.tag === 'wild' && rnd() < .5) { s.alive = true; s.g.visible = true; }
   ensureWildlife();
@@ -2290,9 +2585,13 @@ function openCrate(c) {
 
 /* ================= wildlife + the clans in the wider valley ================= */
 function ensureWildlife() {
-  const deer = ents.filter(e => e.type === 'deer' && !e.dead).length, boar = ents.filter(e => e.type === 'boar' && !e.dead).length;
+  const inV = e => Math.hypot(e.home ? e.home.x : e.x, e.home ? e.home.z : e.z) < VALLEY;
+  const deer = ents.filter(e => e.type === 'deer' && !e.dead && inV(e)).length, boar = ents.filter(e => e.type === 'boar' && !e.dead && inV(e)).length;
+  const odeer = ents.filter(e => e.type === 'deer' && !e.dead && !inV(e)).length, oboar = ents.filter(e => e.type === 'boar' && !e.dead && !inV(e)).length;
+  for (let i = odeer; i < 30; i++) { const m = OUT_MEADOWS[i % OUT_MEADOWS.length]; spawnDeer(m.x + rr(-22, 22), m.z + rr(-22, 22)); }
+  for (let i = oboar; i < 14; i++) { const a = rnd() * 6.28, r = rr(VALLEY + 140, WORLD - 120); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
   for (let i = deer; i < 26; i++) { const m = MEADOWS[i % MEADOWS.length]; spawnDeer(m.x + rr(-18, 18), m.z + rr(-18, 18)); }
-  for (let i = boar; i < 10; i++) { const a = rnd() * 6.28, r = rr(90, WORLD - 60); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
+  for (let i = boar; i < 10; i++) { const a = rnd() * 6.28, r = rr(90, VALLEY - 60); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
 }
 function clanGroup(c, n, spread, mix) { for (let i = 0; i < n; i++) spawnClan(mix[i % mix.length], c.x + rr(-spread, spread), c.z + rr(-spread, spread), 'guard'); }
 function villageGuards() {
@@ -2300,6 +2599,7 @@ function villageGuards() {
   clanGroup(POI.ashmere, 11, 26, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
   clanGroup(POI.burn, 4, 22, ['warrior', 'thrower']);
   for (const s of SCOUTS) clanGroup(s, 3, 7, ['warrior', 'thrower', 'warrior']);
+  for (const H of HOLDS) clanGroup(H, 9, H.R * .6, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
 }
 
 /* ================= time + atmosphere ================= */
@@ -2351,36 +2651,48 @@ function updTime(dt) {
   if (AC && isNight() && !muted && !night.active) { cricketT -= .016; if (cricketT <= 0) { cricketT = rr(.3, 1.6); for (let i = 0; i < 3; i++) tone(rr(3800, 4600), .03, .025, 'sine', i * .06); } }
 }
 
-/* ================= HUD ================= */
-const _p = new THREE.Vector3();
+/* ================= HUD: health, toolbar, gun + ammo, minimap — that's it ================= */
+const SLOT_ICON = {
+  rifle: '<svg viewBox="0 0 40 16"><path d="M2 7h22l3-2h9v3h-6l-1 2h-6l-2 5h-4l1-5H2z" fill="#d9d2c2" stroke="#000" stroke-width="1"/></svg>',
+  hunter: '<svg viewBox="0 0 40 16"><path d="M1 8h28v-2h10v2l-10 1-2 2h-6l-3 4h-4l1-4H1z" fill="#c9a77a" stroke="#000" stroke-width="1"/><rect x="12" y="3" width="10" height="3" rx="1" fill="#555" stroke="#000" stroke-width=".8"/></svg>',
+  ration: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#a8552e" stroke="#000"/><path d="M5 9c2-1 4-3 5-5" stroke="#e8b070" stroke-width="1.2" fill="none"/></svg>',
+};
+let toolSig = '';
+function slotDefs() {
+  return [
+    { k: 'gun0', icon: SLOT_ICON.rifle, label: WEAPONS[RIFLE[UP.rifle].id].name, on: P.slot === 0 },
+    { k: 'gun1', icon: G.flags.hunter ? SLOT_ICON.hunter : '', label: G.flags.hunter ? 'Hunting rifle' : '', on: P.slot === 1 },
+    { k: 'ration', icon: INV.rations > 0 ? SLOT_ICON.ration : '', label: INV.rations > 0 ? 'Ration' : '', n: INV.rations || 0 },
+    { k: 'e4' }, { k: 'e5' },
+  ];
+}
+function renderTool() {
+  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, !!x.icon, x.on, x.n]));
+  if (sig === toolSig) return; toolSig = sig;
+  hud.tool.innerHTML = d.map((x, i) => `<div class="slot${x.on ? ' on' : ''}${x.icon ? '' : ' empty'}" data-i="${i}" title="${x.label || ''}"><em>${i + 1}</em>${x.icon || ''}${x.n ? `<b>${x.n}</b>` : ''}</div>`).join('');
+}
+function useSlot(i) {
+  if (G.mode !== 'play' || cine || P.dead) return;
+  if (i === 0 && P.slot !== 0) swapGun();
+  else if (i === 1 && P.slot !== 1 && G.flags.hunter) swapGun();
+  else if (i === 2) eatRation();
+}
+hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
-  hud.hp.style.width = Math.max(0, P.hp) + '%'; hud.fd.style.width = P.food + '%';
-  hud.scrap.textContent = INV.scrap; hud.meat.textContent = INV.meat;
+  hud.hp.style.width = Math.max(0, P.hp) + '%';
+  hud.hpw.classList.toggle('hungry', P.food < 22);
   hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
-  const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  hud.clock.textContent = `Day ${G.day} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-  // objective
-  let text, at;
-  if (rust.state === 'warn' || (rust.state === 'active' && !P.safe)) {
-    const s = nearestShelter(); text = rust.state === 'warn' ? `Red fog in ${Math.ceil(rust.t)}s — get to cover` : 'Get under a roof!'; at = s;
-    hud.obj.classList.add('rust');
-  } else {
-    hud.obj.classList.remove('rust');
-    const st = STEPS[G.step];
-    if (night.active && G.step !== 11) { text = `Hold Kestrel · wave ${night.wave}/${night.waves}`; at = { x: 0, z: CAMP_R }; }
-    else if (st) { text = typeof st.text === 'function' ? st.text() : st.text; at = st.at(); }
-  }
-  if (text) { hud.obj.style.display = 'flex'; hud.objt.textContent = text; } else hud.obj.style.display = 'none';
-  if (at && !(rust.state === 'active' && P.safe)) {
-    const dx = at.x - P.x, dz = at.z - P.z, d = Math.hypot(dx, dz);
-    const rel = angWrap(Math.atan2(dx, dz) - (P.yaw + Math.PI));
-    hud.arrow.style.transform = `rotate(${-rel}rad)`; hud.objd.textContent = d > 4 ? Math.round(d) + 'm' : '';
-    hud.arrow.style.display = '';
-    _p.set(at.x, heightAt(at.x, at.z) + 3, at.z).project(camera);
-    if (_p.z < 1 && Math.abs(_p.x) < 1.1 && Math.abs(_p.y) < 1.1 && d > 6) {
-      hud.mark.style.display = 'flex'; hud.mark.style.left = ((_p.x + 1) / 2 * innerWidth) + 'px'; hud.mark.style.top = ((1 - _p.y) / 2 * innerHeight) + 'px'; hud.markd.textContent = Math.round(d) + 'm';
-    } else hud.mark.style.display = 'none';
-  } else { hud.arrow.style.display = 'none'; hud.objd.textContent = ''; hud.mark.style.display = 'none'; }
+  hud.gunn.textContent = WEAPONS[gunId()].name;
+  renderTool();
+  // a short alert only when something is actually trying to kill you
+  let alert = '';
+  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get under a roof`;
+  else if (rust.state === 'active' && !P.safe) alert = 'Red fog — get under a roof!';
+  else if (night.active) alert = `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  else if (P.food <= 0) alert = 'Starving — eat something';
+  hud.alert.textContent = alert; hud.alert.classList.toggle('on', !!alert); hud.alert.classList.toggle('rust', rust.state === 'warn' || rust.state === 'active');
+  miniT -= dt; if (miniT <= 0) { miniT = .1; drawMini(); }
+  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; renderInv(); } }
   // interact prompt
   curInter = findInteract();
   if (curInter) {
@@ -2392,6 +2704,36 @@ function updHUD(dt) {
   if (subT > 0) { subT -= dt; if (subT <= 0) nextLine(); }
 }
 
+/* ---------- inventory ---------- */
+let invOpen = false, invT = 0;
+const ICO = {
+  scrap: '<svg viewBox="0 0 16 16"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#9aa3a8" stroke="#000"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" fill="none"/></svg>',
+  meat: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#c0634a" stroke="#000"/><circle cx="12.5" cy="12.5" r="2" fill="#eee" stroke="#000"/></svg>',
+  ammo: '<svg viewBox="0 0 16 16"><path d="M4 14V6l1.5-4L7 6v8zM9 14V6l1.5-4L12 6v8z" fill="#d8b25a" stroke="#000" stroke-width=".8"/></svg>',
+};
+function objectiveNow() {
+  if (rust.state === 'warn' || rust.state === 'active') return 'Get under a roof until the fog lifts';
+  if (night.active && G.step !== 11) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  return objText();
+}
+function renderInv() {
+  const it = (ic, n, l) => `<div class="it">${ic}<b>${n}</b><span>${l}</span></div>`;
+  const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
+  $('invb').innerHTML = `
+    <div class="row">${it(ICO.scrap, INV.scrap, 'Scrap')}${it(ICO.meat, INV.meat, 'Raw meat')}${it(SLOT_ICON.ration, INV.rations || 0, 'Rations')}${it(ICO.ammo, INV.res, 'Rifle ammo')}${G.flags.hunter ? it(ICO.ammo, INV.resH, 'Hunting ammo') : ''}</div>
+    <div class="stat"><span>Health</span><div class="bar"><i style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i style="width:${P.food}%;background:#e0a040"></i></div></div>
+    <p class="obj">◆ ${objectiveNow() || 'Explore'}</p>
+    <p class="day">Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% of the land explored</p>`;
+}
+function toggleInv(v = !invOpen) {
+  if (v && mapOpen) toggleMap();
+  invOpen = v; $('inv').classList.toggle('on', v); if (v) { renderInv(); if (document.pointerLockElement) document.exitPointerLock(); }
+}
+$('inv').addEventListener('click', () => toggleInv(false));
+$('bInv').addEventListener('click', e => { e.stopPropagation(); toggleInv(); });
+$('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
+if (isTouch) document.body.classList.add('touch');
+
 /* ================= input ================= */
 const keys = {};
 addEventListener('keydown', e => {
@@ -2402,9 +2744,11 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
-  if (e.code === 'KeyM' || e.code === 'Tab') { e.preventDefault(); toggleMap(); }
-  if (e.code === 'KeyQ' || e.code === 'Digit2' || e.code === 'Digit1') swapGun();
-  if (e.code === 'Escape' && shopOpen) closeShop();
+  if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
+  if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
+  if (e.code === 'KeyQ') swapGun();
+  const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
+  if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function keyMove() {
@@ -2422,6 +2766,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) input.fire = true;
   if (e.button === 2) input.ads = true;
 });
+addEventListener('wheel', e => { if (G.mode === 'play' && document.pointerLockElement && G.flags.hunter && Math.abs(e.deltaY) > 4) swapGun(); }, { passive: true });
 addEventListener('contextmenu', e => { if (G.mode === 'play') e.preventDefault(); });
 addEventListener('mouseup', e => { if (e.button === 0 && !isTouch) input.fire = false; if (e.button === 2) input.ads = false; });
 addEventListener('mousemove', e => { if (document.pointerLockElement === canvas && !cine) { input.look[0] += e.movementX * .0022; input.look[1] += e.movementY * .0022; } });
@@ -2436,12 +2781,14 @@ function tStart(e) {
   for (const t of e.changedTouches) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
     if (el && (el.closest('.tile') || el.closest('#shopx') || el.closest('#arcade-home'))) continue;
+    if (el && el.closest('.slot')) { e.preventDefault(); useSlot(+el.closest('.slot').dataset.i); continue; }
+    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else toggleInv(); continue; }
     const btn = el && el.closest('.btn');
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
       else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') input.jump = true; if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
-        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } if (btn.id === 'bSwap') swapGun(); if (btn.id === 'bMap') toggleMap(); }
+        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
       continue;
     }
     if (t.clientX < innerWidth * .42 && ![...touches.values()].some(v => v.kind === 'stick')) {
@@ -2475,6 +2822,7 @@ function tEnd(e) {
 }
 for (const el of [canvas, $('touch')]) { el.addEventListener('touchstart', tStart, { passive: false }); el.addEventListener('touchmove', tMove, { passive: false }); el.addEventListener('touchend', tEnd); el.addEventListener('touchcancel', tEnd); }
 document.addEventListener('touchmove', e => { if (G.mode === 'play' && !e.target.closest('#shop')) e.preventDefault(); }, { passive: false });
+for (const id of ['inv', 'map']) $(id).addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
 
 /* ================= save ================= */
 const SAVE = 'the-arc-save-v2';
@@ -2503,12 +2851,13 @@ function frame(now) {
     vm.visible = false; titleT += dt * .03;
     camera.position.set(Math.sin(titleT) * 80, H0 + 20, Math.cos(titleT) * 80 + 20);
     camera.lookAt(0, H0 + 14, -30);
-    updGrass(camera.position.x, camera.position.z);
+    updGrass(camera.position.x, camera.position.z); updTerrain(camera.position.x, camera.position.z); updForest(camera.position.x, camera.position.z, dt);
     updTime(dt); music.go('dawn');
   } else {
     keyMove();
     if (cine) updCine(dt); else { updPlayer(dt); }
-    updGrass(camera.position.x, camera.position.z);
+    updGrass(camera.position.x, camera.position.z); updTerrain(camera.position.x, camera.position.z); updForest(camera.position.x, camera.position.z, dt);
+    if (!cine) updExplore(dt);
     music.go(cine && G.step === 0 ? 'intro' : night.active ? 'raid' : rust.state === 'active' || rust.state === 'warn' ? 'tense' : isNight() ? 'night' : 'day');
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
     if (mapOpen) drawMap();
@@ -2538,54 +2887,119 @@ function checkRegions() {
   const seen = G.flags.seen = G.flags.seen || {};
   for (const R of REGIONS) {
     if (seen[R.id]) continue;
-    const inside = R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
+    const inside = R.area ? R.area(P.x, P.z) : R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
     if (inside && !cine) { seen[R.id] = 1; card(R.name, R.sub, 3.6); music.sting('sting-drum-hit', .35); save(); return; }
   }
 }
+/* the map covers the whole land; anywhere you haven't walked stays dark (the valley you already know) */
 let mapOpen = false, mapBase = null;
-const MAPPX = 440, MAPR = WORLD + 60;
-function buildMapCanvas() {
-  const c = document.createElement('canvas'); c.width = c.height = MAPPX; const g = c.getContext('2d'), img = g.createImageData(MAPPX, MAPPX), col = new THREE.Color();
-  for (let j = 0; j < MAPPX; j++) for (let i = 0; i < MAPPX; i++) {
-    const x = (i / MAPPX * 2 - 1) * MAPR, z = (j / MAPPX * 2 - 1) * MAPR, h = heightAt(x, z), k = (j * MAPPX + i) * 4;
-    const sl = (heightAt(x - 2, z) - heightAt(x + 2, z)) * .06;
-    terrainColor(x, z, h, slopeAt(x, z), col);
-    let r = col.r, gg = col.g, b = col.b;
-    if (waterAt(x, z) > h) { r = .12; gg = .24; b = .28; }
-    const sh = clamp(1 + sl + (h - 20) * .002, .55, 1.4), edge = Math.hypot(x, z) > WORLD ? .45 : 1;
-    img.data[k] = Math.pow(r * sh * edge, 1 / 2.2) * 255; img.data[k + 1] = Math.pow(gg * sh * edge, 1 / 2.2) * 255; img.data[k + 2] = Math.pow(b * sh * edge, 1 / 2.2) * 255; img.data[k + 3] = 255;
+const MAPPX = LOW ? 768 : 1024, MAPR = WORLD + 100;
+const EXP_N = 120, EXP = new Uint8Array(EXP_N * EXP_N), fogC = document.createElement('canvas');
+fogC.width = fogC.height = EXP_N; const fogG = fogC.getContext('2d'), fogImg = fogG.createImageData(EXP_N, EXP_N);
+for (let k = 0; k < EXP_N * EXP_N; k++) { fogImg.data[k * 4] = 6; fogImg.data[k * 4 + 1] = 9; fogImg.data[k * 4 + 2] = 11; }
+const expIdx = (x, z) => { const i = Math.floor((x / MAPR + 1) / 2 * EXP_N), j = Math.floor((z / MAPR + 1) / 2 * EXP_N); return i < 0 || j < 0 || i >= EXP_N || j >= EXP_N ? -1 : j * EXP_N + i; };
+function fogPix(k) { fogImg.data[k * 4 + 3] = EXP[k] ? 0 : 215; }
+function fogFlush() { fogG.putImageData(fogImg, 0, 0); }
+function exploreAt(x, z, r) {
+  let ch = false; const cs = MAPR * 2 / EXP_N;
+  for (let dz = -r; dz <= r; dz += cs * .5) for (let dx = -r; dx <= r; dx += cs * .5) {
+    if (dx * dx + dz * dz > r * r) continue; const k = expIdx(x + dx, z + dz); if (k >= 0 && !EXP[k]) { EXP[k] = 1; fogPix(k); ch = true; }
+  }
+  if (ch) fogFlush(); return ch;
+}
+function exploredPct() { let n = 0, t = 0; for (let j = 0; j < EXP_N; j++) for (let i = 0; i < EXP_N; i++) { const x = ((i + .5) / EXP_N * 2 - 1) * MAPR, z = ((j + .5) / EXP_N * 2 - 1) * MAPR; if (Math.hypot(x, z) > WORLD) continue; t++; n += EXP[j * EXP_N + i]; } return Math.round(n / t * 100); }
+function packExp() { let s0 = ''; for (let k = 0; k < EXP.length; k += 6) { let v = 0; for (let b = 0; b < 6; b++) v |= (EXP[k + b] || 0) << b; s0 += String.fromCharCode(48 + v); } return s0; }
+function unpackExp(str) { EXP.fill(0); if (str) for (let c = 0; c < str.length; c++) { const v = str.charCodeAt(c) - 48; for (let b = 0; b < 6; b++) if (c * 6 + b < EXP.length) EXP[c * 6 + b] = (v >> b) & 1; } }
+function resetExplore(str) {
+  unpackExp(str);
+  for (let j = 0; j < EXP_N; j++) for (let i = 0; i < EXP_N; i++) { const x = ((i + .5) / EXP_N * 2 - 1) * MAPR, z = ((j + .5) / EXP_N * 2 - 1) * MAPR; if (Math.hypot(x, z) < VALLEY - 40) EXP[j * EXP_N + i] = 1; }
+  for (let k = 0; k < EXP.length; k++) fogPix(k); fogFlush();
+}
+let expT = 0;
+function updExplore(dt) { expT -= dt; if (expT > 0) return; expT = .5; if (exploreAt(P.x, P.z, 150)) G.flags.exp = packExp(); }
+
+async function buildMapCanvas() {
+  const c = document.createElement('canvas'); c.width = c.height = MAPPX; const g = c.getContext('2d'), img = g.createImageData(MAPPX, MAPPX);
+  const cG = [.34, .45, .23], cF = [.2, .27, .17], cR = [.44, .43, .4], cS = [.89, .9, .91];
+  for (let j = 0; j < MAPPX; j++) {
+    const z = (j / MAPPX * 2 - 1) * MAPR;
+    for (let i = 0; i < MAPPX; i++) {
+      const x = (i / MAPPX * 2 - 1) * MAPR, h = heightAt(x, z), k = (j * MAPPX + i) * 4;
+      const hx = heightAt(x + 3, z) - heightAt(x - 3, z), hz = heightAt(x, z + 3) - heightAt(x, z - 3), sl = Math.hypot(hx, hz) / 6;
+      const f = smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8, rk = smooth(.7, 1.3, sl), sn = smooth(122, 150, h);
+      let r = lerp(cG[0], cF[0], f), gg = lerp(cG[1], cF[1], f), b = lerp(cG[2], cF[2], f);
+      r = lerp(r, cR[0], rk); gg = lerp(gg, cR[1], rk); b = lerp(b, cR[2], rk); r = lerp(r, cS[0], sn); gg = lerp(gg, cS[1], sn); b = lerp(b, cS[2], sn);
+      if (waterAt(x, z) > h) { r = .12; gg = .24; b = .28; }
+      const sh = clamp(1 - (hx + hz) * .05 + (h - 20) * .0015, .55, 1.45), edge = Math.hypot(x, z) > WORLD ? .45 : 1;
+      img.data[k] = Math.pow(clamp(r * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 1] = Math.pow(clamp(gg * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 2] = Math.pow(clamp(b * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 3] = 255;
+    }
+    if (j % 48 === 0) { setLoad(`DRAWING THE MAP ${Math.round(j / MAPPX * 100)}%`); await nextFrame(); }
   }
   g.putImageData(img, 0, 0);
+  g.strokeStyle = 'rgba(120,96,66,.85)'; g.lineWidth = MAPPX / 420; g.lineCap = g.lineJoin = 'round';
+  for (const p of PATHS) { g.beginPath(); p.forEach(([x, z], i) => { const X = (x / MAPR + 1) / 2 * MAPPX, Y = (z / MAPR + 1) / 2 * MAPPX; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }
   mapBase = c;
 }
 const toMap = (x, z, S) => [(x / MAPR + 1) / 2 * S, (z / MAPR + 1) / 2 * S];
+function regionColor(R) { return R.id === 'kestrel' ? '#f0a640' : R.hostile ? '#e0573d' : '#efe9dc'; }
 function drawMap() {
-  const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 40, innerWidth - 40, 560) * (devicePixelRatio > 1 ? 2 : 1));
+  const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 70, innerWidth - 40, 760) * (devicePixelRatio > 1 ? 2 : 1));
   if (cv.width !== S) cv.width = cv.height = S;
   const g = cv.getContext('2d');
-  g.drawImage(mapBase, 0, 0, S, S);
-  const k = S / 440, seen = G.flags.seen || {};
-  g.font = `700 ${12 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
+  g.imageSmoothingEnabled = true; g.drawImage(mapBase, 0, 0, S, S); g.drawImage(fogC, 0, 0, S, S);
+  const k = S / 560, seen = G.flags.seen || {};
+  g.font = `700 ${11 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
   for (const R of REGIONS) {
-    if (R.river) continue; const [x, y] = toMap(R.x, R.z, S);
-    if (!seen[R.id]) { g.fillStyle = '#0006'; g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill(); continue; }
-    g.fillStyle = R.id === 'kestrel' ? '#f0a640' : R.id === 'ashmere' || R.id === 'outpost' ? '#e0573d' : '#efe9dc';
-    g.beginPath(); g.arc(x, y, 3.5 * k, 0, 7); g.fill();
+    if (R.river || R.area || !seen[R.id]) continue; const [x, y] = toMap(R.x, R.z, S);
+    g.fillStyle = regionColor(R); g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill();
     g.fillStyle = '#000a'; g.fillText(R.name, x + k, y - 5 * k); g.fillStyle = '#efe9dc'; g.fillText(R.name, x, y - 6 * k);
   }
-  const at = STEPS[G.step]?.at?.(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 7 * k, 0, 7); g.stroke(); }
-  const [px, py] = toMap(P.x, P.z, S); g.save(); g.translate(px, py); g.rotate(-P.yaw + Math.PI);
+  const at = objAt(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 6 * k, 0, 7); g.stroke(); }
+  const [px, py] = toMap(P.x, P.z, S); playerArrow(g, px, py, 1.1 * k);
+  $('mapday').textContent = `Day ${G.day} of 100 · ${exploredPct()}% explored`;
+}
+function playerArrow(g, x, y, k) {
+  g.save(); g.translate(x, y); g.rotate(-P.yaw + Math.PI);
   g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5 * k; g.beginPath(); g.moveTo(0, -8 * k); g.lineTo(5 * k, 6 * k); g.lineTo(0, 3 * k); g.lineTo(-5 * k, 6 * k); g.closePath(); g.fill(); g.stroke(); g.restore();
 }
+function objAt() {
+  if (rust.state === 'warn' || (rust.state === 'active' && !P.safe)) return nearestShelter();
+  if (night.active) return { x: 0, z: CAMP_R };
+  return STEPS[G.step]?.at?.() || null;
+}
+/* minimap: north-up, ~200m around you */
+let miniT = 0;
+const MINI_R = 200;
+function drawMini() {
+  if (!mapBase) return;
+  const cv = $('minic'), css = cv.clientWidth || 130, S = Math.round(css * Math.min(devicePixelRatio || 1, 2));
+  if (cv.width !== S) cv.width = cv.height = S;
+  const g = cv.getContext('2d'), sc = MAPPX / (MAPR * 2), half = MINI_R * sc, cx = (P.x / MAPR + 1) / 2 * MAPPX, cz = (P.z / MAPR + 1) / 2 * MAPPX;
+  g.clearRect(0, 0, S, S); g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2, 0, 7); g.clip();
+  g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, S, S);
+  g.drawImage(mapBase, cx - half, cz - half, half * 2, half * 2, 0, 0, S, S);
+  const fs = EXP_N / (MAPR * 2), fh = MINI_R * fs, fx = (P.x / MAPR + 1) / 2 * EXP_N, fz = (P.z / MAPR + 1) / 2 * EXP_N;
+  g.drawImage(fogC, fx - fh, fz - fh, fh * 2, fh * 2, 0, 0, S, S);
+  const toM = (x, z) => [S / 2 + (x - P.x) / MINI_R * S / 2, S / 2 + (z - P.z) / MINI_R * S / 2], k = S / 130, seen = G.flags.seen || {};
+  for (const R of REGIONS) { if (R.river || R.area || !seen[R.id]) continue; const [x, y] = toM(R.x, R.z); if (Math.hypot(x - S / 2, y - S / 2) > S / 2) continue; g.fillStyle = regionColor(R); g.beginPath(); g.arc(x, y, 2.5 * k, 0, 7); g.fill(); }
+  const at = objAt();
+  if (at) {
+    let [x, y] = toM(at.x, at.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), m = S / 2 - 7 * k;
+    if (d > m) { x = S / 2 + dx / d * m; y = S / 2 + dy / d * m; }
+    g.fillStyle = rust.state === 'warn' || rust.state === 'active' ? '#7fc4b8' : '#f0a640'; g.strokeStyle = '#000'; g.lineWidth = 1.2 * k;
+    g.save(); g.translate(x, y); g.rotate(Math.PI / 4); g.fillRect(-3.5 * k, -3.5 * k, 7 * k, 7 * k); g.strokeRect(-3.5 * k, -3.5 * k, 7 * k, 7 * k); g.restore();
+  }
+  playerArrow(g, S / 2, S / 2, .8 * k);
+  g.restore();
+}
 $('map').addEventListener('click', () => toggleMap());
-$('map').addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
-function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOpen); if (mapOpen) drawMap(); }
+function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOpen); if (mapOpen) { if (invOpen) toggleInv(false); drawMap(); } }
 
 /* ================= start ================= */
 function startGame(fresh) {
   initAudio();
   const s = !fresh && load();
-  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
+  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
   G.step = 0; G.day = 1; G.tod = .34; G.chapterDone = false; G.flags = {};
   if (s) {
     Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.chapterDone = s.chapterDone; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
@@ -2596,7 +3010,8 @@ function startGame(fresh) {
     if (G.step === 6) spawnHerd(POI.meadow, 4);
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
   }
-  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1;
+  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
+  resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; selectGunView(RIFLE[UP.rifle].id);
   applyUpgrades();
   gate.hp = gate.max;
@@ -2613,7 +3028,7 @@ function startGame(fresh) {
 function menu() {
   const s = load();
   $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire and aim · AIM to scope · MAP for the valley.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · Q swap · E use · Space jump/swim · M map · N sound';
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
   $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
@@ -2636,17 +3051,18 @@ async function boot() {
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
+  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
   named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
   named.vos = spawnNPC('vos', SPOTS.vosPost.x, SPOTS.vosPost.z, { model: 'elias', yaw: Math.PI, h: 1.86 });
   for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2], [-8, -4], [12, 22]]) spawnNPC('extra', x, z, { wander: true });
   ensureWildlife(); villageGuards();
-  buildMapCanvas();
+  await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
   requestAnimationFrame(frame);
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE };
+window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };

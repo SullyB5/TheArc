@@ -239,5 +239,95 @@ function buildRelay() {
 }
 
 function seedCrates() {
-  for (let i = 0; i < 16; i++) { const a = rnd() * Math.PI * 2, r = rr(90, WORLD - 40), x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z); }
+  for (let i = 0; i < 16; i++) { const a = rnd() * Math.PI * 2, r = rr(90, VALLEY - 40), x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z); }
+}
+
+/* ================= the outlands ================= */
+// a clan hold: palisade ring with a gate facing the road, gate towers, longhouse, hide tents, totems, a big fire
+function buildHold(H) {
+  const R = H.R, y0 = heightAt(H.x, H.z), gateA = Math.atan2(-H.z, -H.x);
+  const wood = new THREE.MeshLambertMaterial({ map: texWood, color: 0x8a6e52 });
+  const posts = [], dummy = new THREE.Object3D();
+  for (let i = 0; i < 110; i++) {
+    const a = i / 110 * Math.PI * 2; if (Math.abs(angWrap(a - gateA)) < .09) continue;
+    const x = H.x + Math.cos(a) * R, z = H.z + Math.sin(a) * R, s = rr(.9, 1.2);
+    dummy.position.set(x, heightAt(x, z) + 2.6 * s, z); dummy.rotation.set(Math.sin(a) * .08, 0, -Math.cos(a) * .08); dummy.scale.set(1, s, 1); dummy.updateMatrix(); posts.push(dummy.matrix.clone());
+    addCol(x, z, .45);
+  }
+  const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(.05, .32, 5.6, 6), wood, posts.length); posts.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = true; world.add(im);
+  for (const s of [-1, 1]) {
+    const a = gateA + s * .11, x = H.x + Math.cos(a) * (R + 1), z = H.z + Math.sin(a) * (R + 1), g = new THREE.Group();
+    g.add(mesh(lattice(3, 8, 0x5a4430, 2.4), VCOL)); mesh(new THREE.BoxGeometry(4, .3, 4), M(0x5a4430), 0, 8, 0, g);
+    for (let k = 0; k < 6; k++) { const sp = mesh(new THREE.ConeGeometry(.08, 1.2, 4), M(0xd8d0bc), rr(-1.8, 1.8), 8.6, rr(-1.8, 1.8), g); sp.rotation.z = rr(-.4, .4); }
+    place(g, x, z, -a); addCol(x, z, 2);
+  }
+  { const g = new THREE.Group();
+    mesh(new THREE.BoxGeometry(9, 4, 20), wood, 0, 2, 0, g);
+    const roof = mesh(new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-5.8, 0), new THREE.Vector2(5.8, 0), new THREE.Vector2(0, 5)]), { depth: 22, bevelEnabled: false }), M(0x4a3a2a), 0, 4, -11, g);
+    mesh(new THREE.BoxGeometry(2.6, 3, .2), M(0x120e0a), 0, 1.5, 10.05, g);
+    const ox = H.x - Math.cos(gateA) * R * .45, oz = H.z - Math.sin(gateA) * R * .45, yaw = Math.PI / 2 + gateA;
+    place(g, ox, oz, -gateA + Math.PI / 2);
+    const [a1, b1] = rotXZ(0, 9.5, -gateA + Math.PI / 2), [a2, b2] = rotXZ(0, -9.5, -gateA + Math.PI / 2); addColLine(ox + a1, oz + b1, ox + a2, oz + b2, 4.8);
+  }
+  const hide = [0x7a5a3e, 0x6a4a32, 0x8a6a48, 0x5a4434];
+  for (let i = 0; i < 12; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(14, R - 8), x = H.x + Math.cos(a) * r, z = H.z + Math.sin(a) * r;
+    if (Math.abs(angWrap(a - gateA)) < .35 || Math.abs(angWrap(a - gateA - Math.PI)) < .35) continue;
+    mesh(new THREE.ConeGeometry(rr(2.2, 3), rr(3.8, 5), 8), M(pick(hide)), x, heightAt(x, z) + 2, z, world); addCol(x, z, 2.2);
+  }
+  for (let i = 0; i < 5; i++) {
+    const a = gateA + (i - 2) * .5, x = H.x + Math.cos(a) * 9, z = H.z + Math.sin(a) * 9, g = new THREE.Group();
+    for (let k = 0; k < 4; k++) { mesh(new THREE.BoxGeometry(.9, 1.1, .9), M(pick([0x5a4030, 0x6a4a36, 0x4a3426])), 0, .55 + k * 1.1, 0, g); mesh(new THREE.BoxGeometry(.55, .14, .05), M(0x101010), 0, .75 + k * 1.1, .46, g); }
+    mesh(new THREE.BoxGeometry(2, .14, .14), M(0xd9d0bd), 0, 4.6, 0, g);
+    place(g, x, z, -a + Math.PI / 2); addCol(x, z, .7);
+  }
+  const fl = new THREE.Mesh(new THREE.ConeGeometry(1.4, 3.4, 8), new THREE.MeshBasicMaterial({ color: 0xff7a2a })); fl.position.set(H.x, y0 + 1.7, H.z); world.add(fl);
+  DECOR_ANIM.push(t => { fl.scale.y = 1 + Math.sin(t * 12 + H.x) * .2; });
+  for (let i = 0; i < 3; i++) supplyCrate(H.x + rr(-R * .5, R * .5), H.z + rr(-R * .5, R * .5), pick(['ammo', 'mixed']));
+}
+
+// Cinder City: an old-world town gone to rust and creeper — broken towers, burnt-out cars, streets in a grid
+function buildCinder() {
+  const C = POI.cinder;
+  for (let gx = -3; gx <= 3; gx++) for (let gz = -3; gz <= 3; gz++) {
+    const x = C.x + gx * 26 + rr(-3, 3), z = C.z + gz * 26 + rr(-3, 3);
+    if (Math.hypot(x - C.x, z - C.z) > 92 || rnd() < .2) continue;
+    if (Math.abs(gx) <= 1 && Math.abs(gz) <= 1 && rnd() < .6) {           // towers in the middle, tops snapped off
+      const w = rr(10, 15), d = rr(10, 15), hgt = rr(16, 42), g = new THREE.Group(), mat = concMat(pick([0xb8b2a6, 0xa49c90, 0x8e8a84]));
+      mesh(new THREE.BoxGeometry(w, hgt, d), mat, 0, hgt / 2, 0, g);
+      for (let k = 2; k < hgt - 2; k += 3.2) for (const sd of [-1, 1]) mesh(new THREE.BoxGeometry(w * .9, 1.1, .1), M(0x141414), 0, k, sd * (d / 2 + .02), g);
+      for (let k = 0; k < 5; k++) { const c = mesh(new THREE.BoxGeometry(rr(2, 5), rr(1, 4), rr(2, 5)), mat, rr(-w / 2, w / 2), hgt + rr(0, 2), rr(-d / 2, d / 2), g); c.rotation.set(rr(-.4, .4), rnd() * 3, rr(-.4, .4)); }
+      const lat = mesh(lattice(1.2, rr(4, 8), 0x6a5a4a, 1.6), VCOL, rr(-w / 3, w / 3), hgt, rr(-d / 3, d / 3), g); lat.rotation.z = rr(-.5, .5);
+      place(g, x, z, rr(-.05, .05)); addColLine(x - w / 2, z, x + w / 2, z, d / 2);
+      SHELTERS.push({ x, z: z + d / 2 + 1.5, kind: 'house', r: 2.5 });
+    } else if (rnd() < .65) house(x, z, (gx + gz) % 2 ? 0 : Math.PI / 2, rr(7, 11), rr(6, 9), rnd() < .4 ? 2 : 1);
+    else car(x + rr(-6, 6), z + rr(-6, 6), rnd() * 6);
+  }
+  for (let i = 0; i < 6; i++) supplyCrate(C.x + rr(-70, 70), C.z + rr(-70, 70), pick(['ammo', 'scrap', 'mixed', 'scrap']));
+}
+
+// the Watchers: a ring of standing stones on the western moor, older than anyone remembers
+function buildWatchers() {
+  const W = POI.watchers;
+  for (let i = 0; i < 13; i++) {
+    const a = i / 13 * Math.PI * 2, x = W.x + Math.cos(a) * 14, z = W.z + Math.sin(a) * 14, hgt = rr(4, 7);
+    const st = mesh(new THREE.BoxGeometry(rr(1.6, 2.2), hgt, rr(.8, 1.2)), new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x8c8a84, flatShading: true }), x, heightAt(x, z) + hgt / 2 - .3, z, world);
+    st.rotation.set(rr(-.06, .06), -a + rr(-.2, .2), rr(-.08, .08)); addCol(x, z, 1);
+  }
+  mesh(new THREE.BoxGeometry(5, 1, 2.6), new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x7a7870 }), W.x, heightAt(W.x, W.z) + .4, W.z, world); addCol(W.x, W.z, 2.4);
+  supplyCrate(W.x + 3, W.z + 4, 'mixed');
+}
+
+function buildOutlands() {
+  for (const H of HOLDS) buildHold(H);
+  buildCinder(); buildWatchers();
+  // supply crates and hull scrap scattered over the outlands (the Arc's ring broke up on the way down)
+  for (let i = 0; i < 46; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(VALLEY + 120, WORLD - 80), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > .8) { i--; continue; } supplyCrate(x, z);
+  }
+  for (let i = 0; i < 160; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(VALLEY + 60, WORLD - 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > 1) { i--; continue; } spawnScrap(x, z, 'wild');
+  }
 }

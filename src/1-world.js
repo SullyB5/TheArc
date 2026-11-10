@@ -41,8 +41,10 @@ function fbm(x, z) { let s = 0, a = 1, f = 1, n = 0; for (let i = 0; i < 4; i++)
    East: the Coldwater river in its gorge, the old-world town of Halvard past the broken span, and the Burn where the Arc's
    lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. South-west: Lake Ilse. South: the fire
    lookout. North-west: the grey mountain and the sealed door of Greyhold. */
-const WORLD = 640;
-const HALF = 800;
+const VALLEY = 640;                         // the Chapter 1 valley (Kestrel and everything around it)
+const WORLD = 2200;                         // walkable radius of the whole map
+const HALF = 2400;                          // half-size of the terrain square
+const IN_HALF = 800;                        // the fine heightmap covers the valley; the outlands use a coarser one
 const CAMP_R = 42;
 const GATE_HALF = 4.7 / CAMP_R;
 const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14;
@@ -50,9 +52,20 @@ const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 88 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
   lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  // the outlands, past the valley rim
+  varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
+  cinder: { x: 1120, z: -520 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
 };
+const HOLDS = [
+  { id: 'varnhold', name: 'VARNHOLD', sub: 'Hold of the Hollow Pines clan', ...POI.varnhold, R: 40 },
+  { id: 'sunscar', name: 'SUNSCAR', sub: 'Hold of the Ridge Runners', ...POI.sunscar, R: 36 },
+  { id: 'elderhollow', name: 'ELDERHOLLOW', sub: 'Hold of the Rootkin', ...POI.elderhollow, R: 44 },
+];
+const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
-const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 }];
+const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
+const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 },
+  { x: 900, z: 120 }, { x: -820, z: -360 }, { x: 420, z: 980 }, { x: -260, z: -980 }, { x: 1300, z: -300 }, { x: -1000, z: 1000 }, { x: 760, z: -1450 }, { x: -1600, z: -900 }];
 const SHELTERS = [
   { x: 44, z: 150, kind: 'bus' }, { x: 128, z: 96, kind: 'hut' }, { x: -84, z: 92, kind: 'cave' },
   { x: -146, z: -18, kind: 'bus' }, { x: 118, z: -64, kind: 'cave' }, { x: 206, z: 128, kind: 'hut' },
@@ -70,7 +83,36 @@ const PATHS = [
   [[-118, -14], [-150, -128], [-184, -196]],
   [[0, 96], [-60, 160], [-150, 222], [-232, 268]],
   [[-60, 160], [-100, 300], [-120, 420]],
+  // outland roads, each through a pass in the valley rim
+  [[480, 300], [720, 330], [1000, 290], [1480, 260]],
+  [[1000, 290], [1080, -100], [1120, -520]],
+  [[-184, -196], [-150, -420], [-60, -700], [60, -950], [120, -1180]],
+  [[-120, 420], [-90, 700], [40, 1000], [160, 1360]],
+  [[-90, 700], [-420, 960], [-560, 1030]],
+  [[-420, -20], [-700, 40], [-1000, 180], [-1340, 360]],
+  [[-1000, 180], [-1250, -120], [-1300, -280]],
 ];
+/* passes: wherever a road crosses the rim ring, the ridge is cut down */
+const RIM_R = 690;
+const PASSES = [];
+for (const p of PATHS) for (let i = 0; i < p.length - 1; i++) {
+  const [ax, az] = p[i], [bx, bz] = p[i + 1], da = Math.hypot(ax, az), db = Math.hypot(bx, bz);
+  if ((da - RIM_R) * (db - RIM_R) < 0) { const t = (RIM_R - da) / (db - da); PASSES.push(Math.atan2(lerp(az, bz, t), lerp(ax, bx, t))); }
+}
+PASSES.push(Math.atan2(-660, riverX(-660)), Math.atan2(660, riverX(660)));   // the river gorges
+/* road shelters in the outlands: somewhere to get under a roof when the red fog rolls in (one every ~230m of road) */
+for (const p of PATHS.slice(7)) {
+  let next = 120, run = 0;
+  for (let i = 0; i < p.length - 1; i++) {
+    const [ax, az] = p[i], [bx, bz] = p[i + 1], L = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / L, nz = (bx - ax) / L;
+    while (next < run + L) {
+      const k = (next - run) / L, sd = SHELTERS.length % 2 ? 16 : -16, x = lerp(ax, bx, k) + nx * sd, z = lerp(az, bz, k) + nz * sd;
+      if (Math.hypot(x, z) > RIM_R + 60 && Math.abs(x - riverX(z)) > 50) SHELTERS.push({ x, z, kind: ['hut', 'cave', 'bus'][SHELTERS.length % 3] });
+      next += 230;
+    }
+    run += L;
+  }
+}
 function segDist(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, l = dx * dx + dz * dz;
   const t = l ? clamp(((px - ax) * dx + (pz - az) * dz) / l, 0, 1) : 0;
@@ -85,8 +127,22 @@ function pathDist(x, z) {
 /* ---------- terrain: noise → carve water and craters → flatten building sites → cached heightmap ---------- */
 function rawH(x, z) {
   let h = (fbm(x * .0062 + 3, z * .0062 + 7) - .5) * 38 + (fbm(x * .028, z * .028) - .5) * 5;
-  const d = Math.hypot(x, z), e = Math.max(0, d - 560);
-  h += e * e * .01 + e * .4 * fbm(x * .02 + 9, z * .02);
+  const d = Math.hypot(x, z);
+  // the valley rim: a ring of ridges, broken by passes where the roads and the river go through
+  const ring = Math.exp(-(((d - RIM_R) / 70) ** 2));
+  if (ring > .002) {
+    const ang = Math.atan2(z, x); let cut = 1;
+    for (const pa of PASSES) { const t = angWrap(ang - pa) * d / 55; cut *= 1 - Math.exp(-t * t); }
+    h += ring * (55 + 70 * fbm(ang * 4 + 20, d * .01)) * (.12 + .88 * cut);
+  }
+  // the outlands: the same forest, broader hills and a few big mountains
+  const o = smooth(620, 900, d);
+  if (o > 0) {
+    let oh = (fbm(x * .0032 + 11, z * .0032 - 4) - .5) * 90 + (fbm(x * .017 + 3, z * .017 + 8) - .5) * 10;
+    const r = 1 - Math.abs(fbm(x * .0045 + 30, z * .0045) * 2 - 1); oh += smooth(.55, .9, fbm(x * .0021 - 9, z * .0021 + 5)) * 210 * r;
+    h += o * oh;
+  }
+  const e = Math.max(0, d - 2080); h += e * e * .012 + e * .5 * fbm(x * .02 + 9, z * .02);   // the world's edge
   const gd = Math.hypot(x + 300, z + 320);
   h += 150 * Math.exp(-(gd * gd) / (2 * 95 * 95));                                   // the grey mountain (Greyhold)
   const mx = (x - 10) / 120, mz = (z + 178) / 62;
@@ -98,13 +154,18 @@ function rawH(x, z) {
   return h;
 }
 let LAKE_L = 0;
+function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * .4); }
 function riverWL(z) { const f = clamp((z - RIV_Z0) / RIV_STEP, 0, RIV_N - 1.001), i = Math.floor(f); return lerp(RIVWL[i], RIVWL[i + 1], f - i); }
 function carved(x, z) {
   let h = rawH(x, z);
   const dr = Math.abs(x - riverX(z));
-  if (dr < 150) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = hc; }
-  const L = POI.lake, ld = Math.hypot(x - L.x, z - L.z);
-  if (ld < 220) { const a = Math.atan2(z - L.z, x - L.x), Rw = 74 * (1 + (vnoise(Math.cos(a) * 2 + 5, Math.sin(a) * 2) - .5) * .4); const hc = ld < Rw ? LAKE_L - .5 - 5 * (1 - (ld / Rw) ** 2) : LAKE_L - .5 + (ld - Rw) * .45; if (hc < h) h = hc; }
+  // inside the valley the gorge stops 150m out (as built); out past the rim it cuts a full valley through the hills
+  const cap = 150 + 600 * smooth(560, 780, Math.hypot(x, z));
+  if (dr < cap) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = dr < 150 ? hc : lerp(h, hc, 1 - smooth(cap * .8, cap, dr)); }
+  for (const L of LAKES) {
+    const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
+    const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
+  }
   const B = POI.burn, bd = Math.hypot(x - B.x, z - B.z);
   if (bd < 70) h += -9 * Math.exp(-((bd / 26) ** 2)) + 3 * Math.exp(-(((bd - 32) / 7) ** 2));
   return h;
@@ -113,8 +174,8 @@ function prepWater() {
   for (let k = 0; k < RIV_N; k++) { const z = RIV_Z0 + k * RIV_STEP, rx = riverX(z); let m = 1e9; for (let dx = -40; dx <= 40; dx += 8) m = Math.min(m, rawH(rx + dx, z)); RIVWL[k] = m - 1.4; }
   for (let pass = 0; pass < 4; pass++) { const c = RIVWL.slice(); for (let k = 2; k < RIV_N - 2; k++) RIVWL[k] = (c[k - 2] + c[k - 1] + c[k] + c[k + 1] + c[k + 2]) / 5; }
   for (let k = 1; k < RIV_N; k++) RIVWL[k] = Math.min(RIVWL[k], RIVWL[k - 1]);        // flows downhill, north to south
-  let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(POI.lake.x + Math.cos(a) * 92, POI.lake.z + Math.sin(a) * 92)); }
-  LAKE_L = m - 1.6;
+  for (const L of LAKES) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
+  LAKE_L = LAKES[0].L;
 }
 const FLATS = [];
 /* a level site for a building: its height is the average of the centre and the surrounding ground, and the blend out to
@@ -131,28 +192,38 @@ function fullH(x, z) {
   for (const f of FLATS) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r1) h = f.h + (h - f.h) * smooth(f.r0, f.r1, d); }
   return h;
 }
-const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(HALF * 2 / HM_STEP) + 1;
-let HM = null;
+const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(IN_HALF * 2 / HM_STEP) + 1;        // fine: the valley
+const HO_STEP = LOW ? 5 : 4, HO_N = Math.round(HALF * 2 / HO_STEP) + 1;              // coarse: the whole map
+let HM = null, HO = null;
+function hmSample(A, N, step, half, x, z) {
+  let fx = (x + half) / step, fz = (z + half) / step;
+  fx = clamp(fx, 0, N - 1.001); fz = clamp(fz, 0, N - 1.001);
+  const i = fx | 0, j = fz | 0, u = fx - i, v = fz - j, o = j * N + i;
+  return (A[o] * (1 - u) + A[o + 1] * u) * (1 - v) + (A[o + N] * (1 - u) + A[o + N + 1] * u) * v;
+}
 function heightAt(x, z) {
   if (!HM) return fullH(x, z);
-  let fx = (x + HALF) / HM_STEP, fz = (z + HALF) / HM_STEP;
-  fx = clamp(fx, 0, HM_N - 1.001); fz = clamp(fz, 0, HM_N - 1.001);
-  const i = fx | 0, j = fz | 0, u = fx - i, v = fz - j, o = j * HM_N + i;
-  return (HM[o] * (1 - u) + HM[o + 1] * u) * (1 - v) + (HM[o + HM_N] * (1 - u) + HM[o + HM_N + 1] * u) * v;
+  if (x > -IN_HALF && x < IN_HALF && z > -IN_HALF && z < IN_HALF) return hmSample(HM, HM_N, HM_STEP, IN_HALF, x, z);
+  return hmSample(HO, HO_N, HO_STEP, HALF, x, z);
 }
 async function buildHeightmap() {
-  HM = null; const A = new Float32Array(HM_N * HM_N);
+  HM = null; const A = new Float32Array(HM_N * HM_N), B = new Float32Array(HO_N * HO_N), tot = HM_N + HO_N;
   for (let j = 0; j < HM_N; j++) {
-    const z = -HALF + j * HM_STEP;
-    for (let i = 0; i < HM_N; i++) A[j * HM_N + i] = fullH(-HALF + i * HM_STEP, z);
-    if (j % 60 === 0) { setLoad(`SHAPING THE VALLEY ${Math.round(j / HM_N * 100)}%`); await nextFrame(); }
+    const z = -IN_HALF + j * HM_STEP;
+    for (let i = 0; i < HM_N; i++) A[j * HM_N + i] = fullH(-IN_HALF + i * HM_STEP, z);
+    if (j % 60 === 0) { setLoad(`SHAPING THE VALLEY ${Math.round(j / tot * 100)}%`); await nextFrame(); }
   }
-  HM = A;
+  for (let j = 0; j < HO_N; j++) {
+    const z = -HALF + j * HO_STEP;
+    for (let i = 0; i < HO_N; i++) { const x = -HALF + i * HO_STEP; B[j * HO_N + i] = Math.abs(x) <= IN_HALF && Math.abs(z) <= IN_HALF ? hmSample(A, HM_N, HM_STEP, IN_HALF, x, z) : fullH(x, z); }
+    if (j % 60 === 0) { setLoad(`SHAPING THE OUTLANDS ${Math.round((HM_N + j) / tot * 100)}%`); await nextFrame(); }
+  }
+  HM = A; HO = B;
 }
 function waterAt(x, z) {                   // water surface at (x,z), or -1e9 when dry
   let w = -1e9;
   if (Math.abs(x - riverX(z)) < RIV_HW + 3) w = riverWL(z) - .4;
-  if (Math.hypot(x - POI.lake.x, z - POI.lake.z) < 100) w = Math.max(w, LAKE_L - .5);
+  for (const L of LAKES) if (Math.hypot(x - L.x, z - L.z) < L.R * 1.35) w = Math.max(w, L.L - .5);
   return w;
 }
 function prepFlats() {
@@ -165,6 +236,9 @@ function prepFlats() {
   addFlat(POI.lookout.x, POI.lookout.z, 8, 20);
   for (const s of SHELTERS) addFlat(s.x, s.z, 6, 14);
   for (const s of SCOUTS) addFlat(s.x, s.z, 8, 18);
+  for (const H of HOLDS) addFlat(H.x, H.z, H.R + 8, H.R + 40);
+  addFlat(POI.cinder.x, POI.cinder.z, 70, 110);
+  addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
 }
 
 /* ---------- renderer / scene / post ---------- */
@@ -446,15 +520,22 @@ const REGIONS = [
   { id: 'kestrel', name: 'KESTREL', sub: 'What the Arc left us', x: 0, z: 0, r: 60 },
   { id: 'meadow', name: 'THE EAST MEADOW', sub: 'Deer country', x: POI.meadow.x, z: POI.meadow.z, r: 40 },
   { id: 'pod', name: 'THE POD', sub: 'An escape capsule, still smoking', x: POI.pod.x, z: POI.pod.z, r: 26 },
-  { id: 'outpost', name: 'THORN OUTPOST', sub: 'The painted ones keep watch here', x: POI.village.x, z: POI.village.z, r: 42 },
+  { id: 'outpost', name: 'THORN OUTPOST', sub: 'The painted ones keep watch here', x: POI.village.x, z: POI.village.z, r: 42, hostile: true },
   { id: 'river', name: 'THE COLDWATER', sub: 'River gorge', river: true },
   { id: 'bridge', name: 'THE BROKEN SPAN', sub: 'An old-world highway', x: POI.bridge.x, z: POI.bridge.z, r: 45 },
   { id: 'halvard', name: 'HALVARD', sub: 'A town from before the fire', x: POI.halvard.x, z: POI.halvard.z, r: 95 },
   { id: 'burn', name: 'THE BURN', sub: 'Where the lander Tern came down', x: POI.burn.x, z: POI.burn.z, r: 70 },
-  { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80 },
+  { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80, hostile: true },
   { id: 'lake', name: 'LAKE ILSE', sub: 'Still water', x: POI.lake.x, z: POI.lake.z, r: 100 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
+  // past the rim
+  { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },
+  ...HOLDS.map(H => ({ id: H.id, name: H.name, sub: H.sub, x: H.x, z: H.z, r: H.R + 70, hostile: true })),
+  { id: 'cinder', name: 'CINDER CITY', sub: 'Towers from before the fire', x: POI.cinder.x, z: POI.cinder.z, r: 120 },
+  { id: 'watchers', name: 'THE WATCHERS', sub: 'Thirteen stones in a ring', x: POI.watchers.x, z: POI.watchers.z, r: 50 },
+  { id: 'varr', name: 'LAKE VARR', sub: 'Deep and cold', x: POI.varr.x, z: POI.varr.z, r: 200 },
+  { id: 'mirror', name: 'MIRRORWATER', sub: 'Not a ripple on it', x: POI.mirror.x, z: POI.mirror.z, r: 150 },
 ];
 
 /* ---------- models (from the ELYRA kit) ---------- */

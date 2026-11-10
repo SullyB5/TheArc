@@ -19,30 +19,65 @@ function terrainColor(x, z, h, sl, out) {
   return out;
 }
 const slopeAt = (x, z) => { const h = heightAt(x, z); return Math.hypot(heightAt(x + 1.5, z) - h, heightAt(x, z + 1.5) - h) / 1.5; };
-async function buildTerrain() {
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.detailSoil, normalMap: TX.soilN, normalScale: new THREE.Vector2(.6, .6) });
-  const CH = 160, NCH = Math.ceil(HALF * 2 / CH), SEG = LOW ? 40 : 64, c = new THREE.Color();
-  let done = 0;
-  for (let cj = 0; cj < NCH; cj++) for (let ci = 0; ci < NCH; ci++) {
-    const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH;
-    if (Math.hypot(x0 + CH / 2, z0 + CH / 2) > HALF + 120) continue;
-    const n = (SEG + 1) * (SEG + 1), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2);
-    for (let j = 0; j <= SEG; j++) for (let i = 0; i <= SEG; i++) {
-      const k = j * (SEG + 1) + i, x = x0 + i * CH / SEG, z = z0 + j * CH / SEG, h = heightAt(x, z);
+/* streamed: only the chunks near you exist; new ones are built a few rows per frame so walking never hitches */
+const CH = 160, NCH = Math.ceil(HALF * 2 / CH), TSEG = LOW ? 40 : 64;
+let terrMat = null, terrIdx = null, chunkJob = null;
+const CHUNKS = new Map();
+const T_LOAD = 470, T_DROP = 700;
+const chunkRectD = (ci, cj, px, pz) => { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(Math.max(x0 - px, 0, px - x0 - CH), Math.max(z0 - pz, 0, pz - z0 - CH)); };
+function chunkExists(ci, cj) { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(x0 + CH / 2, z0 + CH / 2) <= HALF + 120; }
+function startChunk(ci, cj) {
+  const n = (TSEG + 1) * (TSEG + 1);
+  return { ci, cj, row: 0, x0: -HALF + ci * CH, z0: -HALF + cj * CH, pos: new Float32Array(n * 3), nor: new Float32Array(n * 3), col: new Float32Array(n * 3), uv: new Float32Array(n * 2) };
+}
+const _tc = new THREE.Color();
+function stepChunk(J, ms) {
+  const t0 = performance.now(), { pos, nor, col, uv } = J;
+  while (J.row <= TSEG) {
+    const j = J.row;
+    for (let i = 0; i <= TSEG; i++) {
+      const k = j * (TSEG + 1) + i, x = J.x0 + i * CH / TSEG, z = J.z0 + j * CH / TSEG, h = heightAt(x, z);
       pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
       const hx = heightAt(x + 1, z) - heightAt(x - 1, z), hz = heightAt(x, z + 1) - heightAt(x, z - 1);
       const l = Math.hypot(hx, 2, hz); nor[k * 3] = -hx / l; nor[k * 3 + 1] = 2 / l; nor[k * 3 + 2] = -hz / l;
-      terrainColor(x, z, h, Math.hypot(hx, hz) / 2, c); col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      terrainColor(x, z, h, Math.hypot(hx, hz) / 2, _tc); col[k * 3] = _tc.r; col[k * 3 + 1] = _tc.g; col[k * 3 + 2] = _tc.b;
       uv[k * 2] = x / 7; uv[k * 2 + 1] = z / 7;
     }
-    const idx = [];
-    for (let j = 0; j < SEG; j++) for (let i = 0; i < SEG; i++) { const a = j * (SEG + 1) + i, b = a + 1, d = a + SEG + 1, e = d + 1; idx.push(a, d, b, b, d, e); }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
-    g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, mat); m.receiveShadow = true; world.add(m);
-    if (++done % 6 === 0) { setLoad(`LAYING THE GROUND ${Math.round(done / (NCH * NCH) * 100)}%`); await nextFrame(); }
+    J.row++;
+    if (ms && performance.now() - t0 > ms) return false;
+  }
+  if (!terrIdx) { const idx = []; for (let j = 0; j < TSEG; j++) for (let i = 0; i < TSEG; i++) { const a = j * (TSEG + 1) + i, b = a + 1, d = a + TSEG + 1, e = d + 1; idx.push(a, d, b, b, d, e); } terrIdx = new THREE.Uint32BufferAttribute(idx, 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(terrIdx);
+  g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, terrMat); m.receiveShadow = true; world.add(m);
+  CHUNKS.set(J.ci * 1000 + J.cj, m);
+  return true;
+}
+function nearestMissingChunk(px, pz) {
+  let best = null, bd = T_LOAD;
+  const c0 = Math.floor((px + HALF) / CH), c1 = Math.floor((pz + HALF) / CH), rad = Math.ceil(T_LOAD / CH) + 1;
+  for (let cj = c1 - rad; cj <= c1 + rad; cj++) for (let ci = c0 - rad; ci <= c0 + rad; ci++) {
+    if (ci < 0 || cj < 0 || ci >= NCH || cj >= NCH || CHUNKS.has(ci * 1000 + cj) || !chunkExists(ci, cj)) continue;
+    const d = chunkRectD(ci, cj, px, pz); if (d < bd) { bd = d; best = [ci, cj]; }
+  }
+  return best;
+}
+function updTerrain(px, pz, ms = 3.5) {
+  for (const [k, m] of CHUNKS) if (chunkRectD(Math.floor(k / 1000), k % 1000, px, pz) > T_DROP) { world.remove(m); m.geometry.dispose(); CHUNKS.delete(k); }
+  if (chunkJob && chunkRectD(chunkJob.ci, chunkJob.cj, px, pz) > T_LOAD + 60) chunkJob = null;
+  // after a teleport (respawn at camp) the ground under you is built immediately, the rest streams in
+  for (let k = 0; k < 4; k++) { const n = nearestMissingChunk(px, pz); if (!n || chunkRectD(n[0], n[1], px, pz) > 140) break; if (chunkJob && chunkJob.ci === n[0] && chunkJob.cj === n[1]) chunkJob = null; stepChunk(startChunk(n[0], n[1]), 0); }
+  if (!chunkJob) { const n = nearestMissingChunk(px, pz); if (n) chunkJob = startChunk(n[0], n[1]); }
+  if (chunkJob && stepChunk(chunkJob, ms)) chunkJob = null;
+}
+async function buildTerrain(px = 0, pz = 0) {
+  terrMat ||= new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.detailSoil, normalMap: TX.soilN, normalScale: new THREE.Vector2(.6, .6) });
+  let done = 0, n;
+  while ((n = nearestMissingChunk(px, pz))) {
+    stepChunk(startChunk(n[0], n[1]), 0);
+    if (++done % 4 === 0) { setLoad(`LAYING THE GROUND ${done}`); await nextFrame(); }
   }
 }
 
@@ -61,9 +96,11 @@ function buildWater() {
   }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
   const river = new THREE.Mesh(g, waterMat); river.renderOrder = 1; world.add(river);
-  const lg = new THREE.CircleGeometry(98, 64); lg.rotateX(-Math.PI / 2);
-  const luv = lg.attributes.uv, lp = lg.attributes.position; for (let i = 0; i < luv.count; i++) luv.setXY(i, lp.getX(i) + POI.lake.x, lp.getZ(i) + POI.lake.z);
-  const lake = new THREE.Mesh(lg, waterMat); lake.position.set(POI.lake.x, LAKE_L - .5, POI.lake.z); lake.renderOrder = 1; world.add(lake);
+  for (const L of LAKES) {
+    const lg = new THREE.CircleGeometry(L.R * 1.33, 64); lg.rotateX(-Math.PI / 2);
+    const luv = lg.attributes.uv, lp = lg.attributes.position; for (let i = 0; i < luv.count; i++) luv.setXY(i, lp.getX(i) + L.x, lp.getZ(i) + L.z);
+    const lake = new THREE.Mesh(lg, waterMat); lake.position.set(L.x, L.L - .5, L.z); lake.renderOrder = 1; world.add(lake);
+  }
 }
 
 /* ================= forest: firs, alders, snags, rocks, cliffs — instanced in map tiles so the camera culls them ================= */
@@ -97,7 +134,9 @@ function snagGeo() {
 function treeOK(x, z) {
   if (Math.hypot(x, z) < 62) return false;
   if (pathDist(x, z) < 5.5) return false;
-  if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30)) return false;
+  if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
+  if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
+  for (const p of [[POI.cinder, 110], [POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   if (Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 24) return false;
   if (SHELTERS.some(s => Math.hypot(x - s.x, z - s.z) < 12) || SCOUTS.some(s => Math.hypot(x - s.x, z - s.z) < 16)) return false;
@@ -114,11 +153,11 @@ async function buildForest() {
   for (const K of kinds) {
     let n = 0, guard = 0;
     while (n < K.n && guard++ < K.n * 25) {
-      const x = rr(-WORLD - 120, WORLD + 120), z = rr(-WORLD - 120, WORLD + 120);
-      if (Math.hypot(x, z) > WORLD + 140) continue;
+      const x = rr(-VALLEY - 120, VALLEY + 120), z = rr(-VALLEY - 120, VALLEY + 120);
+      if (Math.hypot(x, z) > VALLEY + 140) continue;
       const dens = fbm(x * .018 + 5, z * .018 + 11);
       if (K === kinds[1] ? (dens > .55 || rnd() > .5) : rnd() > smooth(.3, .6, dens) + .14) continue;
-      if (K === kinds[1] && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && Math.hypot(x - POI.lake.x, z - POI.lake.z) > 130 && rnd() < .7) continue;
+      if (K === kinds[1] && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && LAKES.every(L => Math.hypot(x - L.x, z - L.z) > L.R + 56) && rnd() < .7) continue;
       if (!treeOK(x, z)) continue;
       const s = K === kinds[0] ? rr(.85, 1.3) : rr(.8, 1.2), sy = K === kinds[0] ? rr(1.2, 2.1) : rr(.9, 1.3);
       dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set(rr(-.04, .04), rnd() * 6, rr(-.04, .04)); dummy.scale.set(s, sy, s); dummy.updateMatrix();
@@ -130,7 +169,7 @@ async function buildForest() {
     for (const b in K.list) {
       const L = K.list[b], im = new THREE.InstancedMesh(K.geo, TREEMAT, L.length);
       L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im);
+      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
     }
     await nextFrame();
   }
@@ -139,7 +178,7 @@ async function buildForest() {
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), rockMat, 900);
   rocks.castShadow = rocks.receiveShadow = true;
   for (let i = 0; i < 900; i++) {
-    const a = rnd() * Math.PI * 2, r = 60 + Math.sqrt(rnd()) * (WORLD + 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const a = rnd() * Math.PI * 2, r = 60 + Math.sqrt(rnd()) * (VALLEY + 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (pathDist(x, z) < 4 || Math.hypot(x - POI.halvard.x, z - POI.halvard.z) < 80) { i--; continue; }
     const s = rnd() < .1 ? rr(2, 4.5) : rr(.4, 1.4);
     dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3); dummy.scale.set(s * rr(1, 1.6), s * rr(.6, 1), s); dummy.updateMatrix();
@@ -151,7 +190,7 @@ async function buildForest() {
   if (MODELS.cliff) {
     let placed = 0, guard = 0;
     while (placed < (LOW ? 40 : 70) && guard++ < 6000) {
-      const x = rr(-WORLD, WORLD), z = rr(-WORLD, WORLD);
+      const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
       const sl = slopeAt(x, z); if (sl < 1 || Math.hypot(x, z) < 90 || pathDist(x, z) < 22 || heightAt(x, z) < 20) continue;
       if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25) || SCOUTS.some(q => Math.hypot(x - q.x, z - q.z) < 40)) continue;
       const s = rr(10, 26), c = modelCopy('cliff', s);
@@ -164,12 +203,87 @@ async function buildForest() {
   const fern = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1);
   const ferns = new THREE.InstancedMesh(fern, VCOL, LOW ? 1800 : 4000);
   for (let i = 0; i < ferns.count; i++) {
-    const x = rr(-WORLD, WORLD), z = rr(-WORLD, WORLD);
+    const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
     if (pathDist(x, z) < 3 || Math.hypot(x, z) < 48 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
     ferns.setMatrixAt(i, dummy.matrix);
   }
   ferns.receiveShadow = true; world.add(ferns);
+}
+
+/* ================= the outlands forest: 200m cells grown as you approach, from a seed per cell, so they're the same every visit ================= */
+const FAR_HIDE = [];                          // valley tree buckets: hidden once you're far from them
+const CELL_T = 200, NCT = Math.ceil(HALF * 2 / CELL_T), OCELLS = new Map(), OCOLS = new Set();
+let OGEO = null, rockMatO = null, fernGeoO = null;
+function cellRng(ci, cj) { let a = (ci * 73856093) ^ (cj * 19349663) ^ 0x5bd1e995; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function growCell(ci, cj) {
+  if (!OGEO) { OGEO = [firGeo(), alderGeo(), snagGeo()]; rockMatO = new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x9a968e, flatShading: true });
+    fernGeoO = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1); }
+  const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
+  const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
+  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
+  const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
+  K.forEach(([tries, L], ki) => {
+    for (let t = 0; t < tries; t++) {
+      const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z)) continue;
+      const dens = fbm(x * .018 + 5, z * .018 + 11);
+      if (ki === 1 ? (dens > .55 || R() > .5) : R() > smooth(.3, .6, dens) + .14) continue;
+      if (ki === 1 && waterAt(x, z) < -1e8 && Math.abs(x - riverX(z)) > 60 && LAKES.every(L => Math.hypot(x - L.x, z - L.z) > L.R + 56) && R() < .7) continue;
+      if (!treeOK(x, z)) continue;
+      const s = ki === 0 ? lerp(.85, 1.3, R()) : lerp(.8, 1.2, R()), sy = ki === 0 ? lerp(1.2, 2.1, R()) : lerp(.9, 1.3, R());
+      dummy.position.set(x, heightAt(x, z) - .25, z); dummy.rotation.set((R() - .5) * .08, R() * 6, (R() - .5) * .08); dummy.scale.set(s, sy, s); dummy.updateMatrix();
+      L.push([dummy.matrix.clone(), tint.setHSL(lerp(.27, .36, R()), lerp(.1, .3, R()), lerp(.75, 1.05, R())).clone()]);
+      if (cols) addCol(x, z, (ki === 0 ? .45 : .3) * s);
+    }
+    if (!L.length) return;
+    const im = new THREE.InstancedMesh(OGEO[ki], TREEMAT, L.length);
+    L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
+    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+  });
+  const rocks = [], ferns = [];
+  for (let t = 0; t < 20; t++) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 4 || waterAt(x, z) > heightAt(x, z) - .4) continue;
+    const s = R() < .12 ? lerp(2, 4.5, R()) : lerp(.4, 1.4, R());
+    dummy.position.set(x, heightAt(x, z) + s * .2, z); dummy.rotation.set(R() * 3, R() * 3, R() * 3); dummy.scale.set(s * lerp(1, 1.6, R()), s * lerp(.6, 1, R()), s); dummy.updateMatrix();
+    rocks.push(dummy.matrix.clone()); if (cols && s > 1) addCol(x, z, s * 1.1);
+  }
+  for (let t = 0; t < (LOW ? 40 : 90); t++) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z) || pathDist(x, z) < 3 || waterAt(x, z) > heightAt(x, z) - .4) continue;
+    const s = lerp(.6, 1.5, R()); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, R() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix(); ferns.push(dummy.matrix.clone());
+  }
+  for (const [L, geo, mat, sh] of [[rocks, null, null, true], [ferns, fernGeoO, VCOL, false]]) {
+    if (!L.length) continue;
+    const im = new THREE.InstancedMesh(geo || new THREE.DodecahedronGeometry(1, 0), mat || rockMatO, L.length);
+    L.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = sh; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+  }
+  if (MODELS.cliff && R() < .5) {
+    const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T;
+    if (!inner(x, z) && slopeAt(x, z) > 1 && pathDist(x, z) > 22 && !FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25)) {
+      const s = lerp(10, 26, R()), c = modelCopy('cliff', s); c.position.set(x, heightAt(x, z) - s * .25, z); c.rotation.y = R() * 6; g.add(c);
+      if (cols) addCol(x, z, s * .38);
+    }
+  }
+  OCOLS.add(key); world.add(g); OCELLS.set(key, g);
+}
+const FOR_SHOW = 430, FOR_DROP = 900;
+let farT = 0;
+function updForest(px, pz, dt) {
+  farT -= dt; if (farT > 0) return; farT = .25;
+  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
+  for (const [k, g] of OCELLS) {
+    const ci = Math.floor(k / 1000), cj = k % 1000, d = Math.hypot(-HALF + (ci + .5) * CELL_T - px, -HALF + (cj + .5) * CELL_T - pz);
+    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); } else g.visible = d < FOR_SHOW;
+  }
+  if (Math.hypot(px, pz) < VALLEY - 120) return;
+  // grow the nearest missing cell (one per tick)
+  let best = null, bd = FOR_SHOW - 60; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
+  for (let cj = c1 - 3; cj <= c1 + 3; cj++) for (let ci = c0 - 3; ci <= c0 + 3; ci++) {
+    if (ci < 0 || cj < 0 || ci >= NCT || cj >= NCT || OCELLS.has(ci * 1000 + cj)) continue;
+    const cx = -HALF + (ci + .5) * CELL_T, cz = -HALF + (cj + .5) * CELL_T, d = Math.hypot(cx - px, cz - pz);
+    if (Math.hypot(cx, cz) < VALLEY - 40 || Math.hypot(cx, cz) > WORLD + 200) continue;
+    if (d < bd) { bd = d; best = [ci, cj]; }
+  }
+  if (best) { growCell(best[0], best[1]); farT = .05; }
 }
 
 /* ================= grass: a patch of blades that follows you, swaying in the wind ================= */

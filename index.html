@@ -20,36 +20,59 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0b0f0d;color:var(--in
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 .hud{position:fixed;inset:0;pointer-events:none;transition:opacity .5s}
 body.cine .hud.game,body.title .hud.game{opacity:0}
-body.cine .touch,body.title .touch{display:none}
+body.cine .touch,body.title .touch,body:not(.touch) .touch{display:none}
 
-/* vitals: tiny, top-left */
-#vitals{position:absolute;left:var(--l);top:var(--t);display:grid;gap:4px;padding:6px 8px;border-radius:8px;background:linear-gradient(90deg,#0008,#0000)}
-.bar{width:116px;height:5px;border-radius:3px;background:#ffffff1f;overflow:hidden}
-.bar i{display:block;height:100%;width:100%;border-radius:3px;transition:width .25s}
-#hpb i{background:linear-gradient(90deg,#c43b2a,#ef6a4a)}
-#fdb i{background:linear-gradient(90deg,#b07a2a,#f0b04a)}
-.inv{display:flex;gap:12px;font-size:14px;margin-top:2px;text-shadow:0 1px 2px #000}
-.inv span{display:flex;align-items:center;gap:4px}
-.inv svg{width:14px;height:14px}
-
-/* top-right: ammo + clock */
-#ammo{position:absolute;right:calc(var(--r) + 60px);top:var(--t);text-align:right;padding:6px 8px;border-radius:8px;background:linear-gradient(270deg,#0008,#0000);text-shadow:0 1px 2px #000}
-#ammo b{font-size:22px;font-weight:700;letter-spacing:.02em}
-#ammo small{color:var(--dim);font-size:14px}
-#clock{font-size:13px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
-
-/* objective: one slim line, top centre */
-#obj{position:absolute;left:50%;top:var(--t);transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:46vw;padding:5px 12px;border-radius:99px;background:#0009;font-size:15px;white-space:nowrap;text-shadow:0 1px 2px #000}
-#obj .arrow{width:16px;height:16px;flex:none;color:var(--amber);transition:transform .1s linear}
-#obj .t{overflow:hidden;text-overflow:ellipsis}
-#obj .d{color:var(--dim);font-size:13px}
-#obj.rust{background:#6d1d0ccc;box-shadow:0 0 0 1px #ff8a5a88}
+/* HUD: health (bottom-left) · toolbar (bottom-centre) · gun + ammo (bottom-right) · minimap (top-right) · bag (top-left) */
+#hp{position:absolute;left:var(--l);bottom:var(--b);display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:10px;background:#0007}
+#hp svg{width:18px;height:18px;flex:none}
+#hp .bar{width:170px;height:9px;border-radius:5px;background:#ffffff1f;overflow:hidden}
+#hp .bar i{display:block;height:100%;width:100%;border-radius:5px;background:linear-gradient(90deg,#c43b2a,#ef6a4a);transition:width .25s}
+#hp em{font-style:normal;font-size:12px;letter-spacing:.12em;color:var(--amber);display:none}
+#hp.hungry em{display:inline;animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.35}}
+#tool{position:absolute;left:50%;bottom:var(--b);transform:translateX(-50%);display:flex;gap:5px;pointer-events:auto}
+.slot{position:relative;width:54px;height:54px;border-radius:9px;background:#0b0d0cb8;box-shadow:inset 0 0 0 1.5px #ffffff26;display:grid;place-items:center;cursor:pointer}
+.slot.on{box-shadow:inset 0 0 0 2px var(--amber),0 0 12px #f0a64055;background:#1a1610cc}
+.slot.empty{opacity:.55}
+.slot svg{width:40px;height:22px}
+.slot em{position:absolute;left:5px;top:2px;font-style:normal;font-size:11px;color:var(--dim)}
+.slot b{position:absolute;right:5px;bottom:2px;font-size:13px}
+#gun{position:absolute;right:var(--r);bottom:var(--b);text-align:right;padding:6px 10px;border-radius:10px;background:#0007;text-shadow:0 1px 2px #000;line-height:1}
+#gun span{display:block;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+#gun b{font-size:30px;font-weight:700}
+#gun small{color:var(--dim);font-size:16px}
+#mini{position:absolute;right:var(--r);top:var(--t);width:132px;height:132px;border-radius:50%;box-shadow:0 0 0 2px #ffffff33,0 4px 16px #0008;pointer-events:auto;cursor:pointer}
+#minic{width:100%;height:100%;border-radius:50%;display:block}
+#mini i{position:absolute;left:50%;top:-1px;transform:translateX(-50%);font:700 11px/1 "Barlow Condensed",sans-serif;font-style:normal;color:var(--ink);background:#000a;border-radius:6px;padding:1px 4px}
+#bInv{position:absolute;left:var(--l);top:var(--t);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;display:grid;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
+#bInv svg{width:24px;height:24px}
+#alert{position:absolute;left:50%;top:var(--t);transform:translateX(-50%);padding:5px 14px;border-radius:99px;background:#000a;font-size:15px;white-space:nowrap;display:none;text-shadow:0 1px 2px #000}
+#alert.on{display:block}
+#alert.rust{background:#6d1d0ccc;box-shadow:0 0 0 1px #ff8a5a88}
 #toast{position:absolute;left:50%;top:calc(var(--t) + 36px);transform:translateX(-50%);font-size:15px;color:var(--amber);text-shadow:0 1px 3px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
 #toast.on{opacity:1}
-
-/* world marker */
-#mark{position:absolute;left:0;top:0;transform:translate(-50%,-100%);display:none;flex-direction:column;align-items:center;font-size:12px;color:var(--amber);text-shadow:0 1px 2px #000}
-#mark i{width:10px;height:10px;transform:rotate(45deg);border:2px solid var(--amber);border-radius:2px;margin-bottom:3px}
+body.shopping #tool{display:none}
+body.touch #gun{bottom:auto;top:calc(var(--t) + 140px);padding:4px 8px}
+body.touch #gun b{font-size:24px}
+body.touch #mini{width:112px;height:112px}
+body.touch .slot{width:46px;height:46px}
+body.touch #hp .bar{width:120px}
+/* inventory */
+#inv{position:fixed;inset:0;z-index:7;display:none;place-items:center;background:#05080bcc}
+#inv.on{display:grid}
+#invp{width:min(520px,calc(100vw - 40px));padding:16px 18px;border-radius:14px;background:#12130fee;box-shadow:0 0 0 1.5px #ffffff22,0 10px 40px #000}
+#invp h3{margin:0 0 10px;font:900 26px/1 "Big Shoulders Stencil Display",Impact,sans-serif;letter-spacing:.08em}
+#invb .row{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:6px}
+#invb .it{display:grid;justify-items:center;gap:2px;padding:8px 4px;border-radius:9px;background:#ffffff0d;box-shadow:inset 0 0 0 1px #ffffff1a}
+#invb .it svg{width:30px;height:20px}
+#invb .it b{font-size:20px}
+#invb .it span{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+#invb .stat{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin:12px 0 6px;font-size:14px;color:var(--dim)}
+#invb .stat .bar{height:8px;border-radius:4px;background:#ffffff1f;overflow:hidden}
+#invb .stat i{display:block;height:100%}
+#invb .obj{margin:10px 0 2px;color:var(--amber);font-size:16px}
+#invb .day{margin:4px 0 0;color:var(--dim);font-size:14px;letter-spacing:.04em}
+#invp .x{margin-top:10px;font-size:13px;color:#fff8;letter-spacing:.12em;text-align:center}
 
 #cross{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:#fffc;box-shadow:0 0 0 1px #0007}
 #hitm{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px;opacity:0;transition:opacity .15s}
@@ -127,13 +150,13 @@ body.title #title{display:flex}
 #scope i::after{top:0;bottom:0;left:50%;width:1.5px;margin-left:-.75px}
 #map{position:fixed;inset:0;z-index:7;display:none;place-items:center;align-content:center;background:#05080bdd}
 #map.on{display:grid}
-#map canvas{width:min(calc(100vh - 60px),calc(100vw - 40px),560px);aspect-ratio:1;border-radius:12px;box-shadow:0 0 0 2px #ffffff22,0 10px 40px #000}
+#map canvas{width:min(calc(100vh - 70px),calc(100vw - 40px),760px);aspect-ratio:1;border-radius:12px;box-shadow:0 0 0 2px #ffffff22,0 10px 40px #000}
 #map p{margin:8px 0 0;font-size:14px;letter-spacing:.2em;color:var(--dim);text-align:center}
 .btn.sm{width:46px;height:34px;border-radius:17px;font-size:12px}
 .btn.lit{background:#f0a640aa;color:#1a1208}
 #bAim{right:calc(var(--r) + 110px);bottom:calc(var(--b) + 132px)}
-#bSwap{right:calc(var(--r) + 166px);bottom:calc(var(--b) + 20px)}
-#bMap{right:calc(var(--r) + 6px);top:calc(var(--t) + 2px)}
+
+
 #rot{position:fixed;inset:0;z-index:20;background:#0b0f0d;display:grid;place-items:center;text-align:center;font-size:20px;color:var(--dim)}
 #rot[hidden]{display:none}
 #rot svg{width:64px;height:64px;margin-bottom:12px;stroke:var(--amber)}
@@ -143,24 +166,20 @@ body.title #title{display:flex}
 <canvas id="c"></canvas>
 
 <div class="hud game">
-  <div id="vitals">
-    <div class="bar" id="hpb"><i></i></div>
-    <div class="bar" id="fdb"><i></i></div>
-    <div class="inv">
-      <span><svg viewBox="0 0 16 16"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#9aa3a8" stroke="#000" stroke-width="1"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" stroke-width="1" fill="none"/></svg><b id="scrap">0</b></span>
-      <span><svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#c0634a" stroke="#000"/><circle cx="12.5" cy="12.5" r="2" fill="#eee" stroke="#000"/></svg><b id="meat">0</b></span>
-    </div>
-  </div>
-  <div id="obj"><svg class="arrow" viewBox="0 0 16 16"><path d="M8 1l6 13-6-3-6 3z" fill="currentColor"/></svg><span class="t" id="objt">—</span><span class="d" id="objd"></span></div>
+  <div id="hp"><svg viewBox="0 0 16 16"><path d="M8 14S1.5 9.6 1.5 5.4C1.5 3.3 3.1 2 4.9 2 6.3 2 7.4 2.8 8 4c.6-1.2 1.7-2 3.1-2 1.8 0 3.4 1.3 3.4 3.4C14.5 9.6 8 14 8 14z" fill="#e0533b" stroke="#000"/></svg><div class="bar" id="hpb"><i></i></div><em>HUNGRY</em></div>
+  <div id="tool"></div>
+  <div id="gun"><span id="gunn">Carbine</span><b id="mag">20</b> <small id="res">/ 60</small></div>
+  <div id="mini"><canvas id="minic"></canvas><i>N</i></div>
+  <button id="bInv" aria-label="Inventory"><svg viewBox="0 0 24 24" fill="none" stroke="#efe9dc" stroke-width="1.8" stroke-linejoin="round"><path d="M5 9h14l-1 11H6z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><path d="M9 13h6"/></svg></button>
+  <div id="alert"></div>
   <div id="toast"></div>
-  <div id="ammo"><b id="mag">8</b> <small id="res">/ 24</small><div id="clock">Day 1</div></div>
-  <div id="mark"><i></i><span id="markd"></span></div>
   <div id="cross"></div>
   <svg id="hitm" viewBox="0 0 22 22"><path d="M3 3l5 5M19 3l-5 5M3 19l5-5M19 19l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
   <div id="prompt"></div>
 </div>
 <div id="scope"><i></i></div>
-<div id="map"><canvas id="mapc"></canvas><p>THE VALLEY · <b>M</b> / tap to close</p></div>
+<div id="map"><canvas id="mapc"></canvas><p><span id="mapday"></span> · <b>M</b> / tap to close</p></div>
+<div id="inv"><div id="invp"><h3>INVENTORY</h3><div id="invb"></div><div class="x"><b>I</b> / tap to close</div></div></div>
 <div id="hurt"></div><div id="rustv"></div>
 <div class="lb" id="lbt"></div><div class="lb" id="lbb"></div>
 <div id="sub"></div>
@@ -176,8 +195,6 @@ body.title #title{display:flex}
   <div class="btn" id="bRel">RELOAD</div>
   <div class="btn" id="bUse">USE</div>
   <div class="btn sm" id="bAim">AIM</div>
-  <div class="btn sm" id="bSwap">SWAP</div>
-  <div class="btn sm" id="bMap">MAP</div>
 </div>
 
 <div id="title">

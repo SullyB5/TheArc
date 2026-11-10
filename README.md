@@ -12,5 +12,11 @@ First-person survival / holdout game (Three.js, plain static files — no build 
 - `assets/` models, textures, sound effects and score borrowed from Bryce's ELYRA kit (real-world guns only); sound effects are Pixabay (see `assets/sfx/SOURCES-from-elyra.md`)
 - `vendor/` three.js r170 example modules (GLTF loader, meshopt decoder, post-processing)
 
-Controls — PC: WASD, mouse, click fire, right-click aim, R reload, Q swap, E use, Space jump/swim, M map, N sound.
-Phone: left thumb move, right thumb look, crosshair button fires, AIM / SWAP / MAP buttons.
+World: ~4.4 km across, one forest biome. The Chapter 1 valley sits in the middle inside a ring of ridges; roads leave it through passes
+to the outlands (Varnhold, Sunscar, Elderhollow clan holds, Cinder City, the Watchers, Lake Varr, Mirrorwater). Terrain chunks and
+outland forest cells stream in around the player (`updTerrain` / `updForest` in `1b-build.js`).
+
+HUD: health (bottom-left), toolbar 1–5 (bottom), gun + ammo (bottom-right), minimap (top-right, tap for the full map), bag (inventory).
+
+Controls — PC: WASD, mouse, click fire, right-click aim, R reload, 1–5 toolbar (Q / wheel swap guns, 3 eats a ration), E use, Space jump/swim, I inventory, M map, N sound.
+Phone: left thumb move, right thumb look, crosshair button fires, AIM; tap toolbar slots, the minimap, or the bag.

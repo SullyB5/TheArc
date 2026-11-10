@@ -355,5 +355,5 @@ function spawnScrap(x, z, tag) {
 }
 function seedScraps() {
   for (let i = 0; i < 9; i++) spawnScrap(rr(-34, 34), rr(56, 124), 'field');
-  for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(70, WORLD - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
+  for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(70, VALLEY - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
 }

@@ -8,8 +8,7 @@ let named = {};
 const gateMaxFor = lv => 260 + lv * 220;
 
 /* ================= UI helpers ================= */
-const hud = { hp: $('hpb').firstElementChild, fd: $('fdb').firstElementChild, scrap: $('scrap'), meat: $('meat'), mag: $('mag'), res: $('res'), clock: $('clock'),
-  obj: $('obj'), objt: $('objt'), objd: $('objd'), arrow: document.querySelector('#obj .arrow'), toast: $('toast'), mark: $('mark'), markd: $('markd'),
+const hud = { hp: $('hpb').firstElementChild, hpw: $('hp'), mag: $('mag'), res: $('res'), gunn: $('gunn'), alert: $('alert'), tool: $('tool'), toast: $('toast'),
   prompt: $('prompt'), hurt: $('hurt'), rustv: $('rustv'), sub: $('sub'), hitm: $('hitm'), use: $('bUse') };
 let toastT = 0;
 function toast(s, dur = 2.6) { hud.toast.textContent = s; hud.toast.classList.add('on'); toastT = dur; }
@@ -81,7 +80,8 @@ const STEPS = {
 };
 function nearestScrap(tag) { let b = null, bd = 1e9; for (const s of SCRAPS) if (s.alive && (!tag || s.tag === tag)) { const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } return b; }
 function nearestAnimal(type) { let b = null, bd = 1e9; for (const e of ents) if (e.type === type && !e.dead) { const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < bd) { bd = d; b = e; } } return b; }
-function setStep(n) { G.step = n; save(); }
+function setStep(n) { G.step = n; save(); const st = STEPS[n]; if (st && n > 1 && G.mode === 'play') setTimeout(() => toast('◆ ' + (typeof st.text === 'function' ? st.text() : st.text), 4), 900); }
+function objText() { const st = STEPS[G.step]; return st ? (typeof st.text === 'function' ? st.text() : st.text) : ''; }
 
 function introCine() {
   const g = CAMP_R;
@@ -120,7 +120,7 @@ const INTERACT = [
   { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => (G.step >= 4 || G.step === 0) && G.step !== 11 ? 'Workbench' : null, act: () => openShop() },
   { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 ? 'Get patched up' : null, act: () => talk('juno') },
   { id: 'vos', at: () => named.vos, r: 2.8, label: () => G.step > 1 && G.step !== 11 ? 'Talk to Vos' : null, act: () => talk('vos') },
-  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook & eat (${INV.meat} meat)` : null, act: () => eat() },
+  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook ${INV.meat} meat into rations` : null, act: () => cook() },
   { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.resH = G.flags.hunter ? RESH_MAX : INV.resH; sfx('reload'); toast('Ammo restocked'); } },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
@@ -150,12 +150,22 @@ function butcher(e) {
   e.deadT = Math.max(e.deadT, 20);
   if (G.step === 6 && INV.meat >= 2) { setStep(7); say([['Juno', 'Cook it at the fire pit. First real food most of us have ever had.']]); }
 }
-function eat() {
+const RATION = () => [[40, 10], [55, 20], [70, 30]][UP.smoke];
+function cook() {
   if (INV.meat <= 0) return;
-  INV.meat--; const lv = UP.smoke;
-  P.food = Math.min(100, P.food + [40, 55, 70][lv]); P.hp = Math.min(100, P.hp + [10, 20, 30][lv]);
+  const n = INV.meat; INV.meat = 0; INV.rations = (INV.rations || 0) + n;
   sfx('eat'); puff(SPOTS.fire.x, H0 + 1.2, SPOTS.fire.z, 0x9a9a9a, 6, .8, .3, 1.4, 1);
-  toast(`+${[40, 55, 70][lv]} food`);
+  toast(`+${n} ration${n > 1 ? 's' : ''} · slot 3 to eat`, 3);
+  if (P.food < 90) eatRation(true);
+  eat();
+}
+function eatRation(quiet) {
+  if (!(INV.rations > 0)) { if (!quiet) { sfx('no'); toast('No rations — cook meat at the fire'); } return; }
+  if (P.food >= 99 && !quiet) { toast('Not hungry'); return; }
+  INV.rations--; const [f, h] = RATION();
+  P.food = Math.min(100, P.food + f); P.hp = Math.min(100, P.hp + h); sfx('eat'); toast(`+${f} food`, 1.6);
+}
+function eat() {
   if (G.step === 7) {
     setStep(8);
     say([['Radio', "Kade here — I've got a pod beacon on the mast."], ['Radio', 'South-east, past the ridge. Somebody else made it down. Go get them.']]);
@@ -190,8 +200,8 @@ function renderShop() {
     return `<div class="tile ${max ? 'max' : INV.scrap < cost ? 'no' : ''}" data-id="${u.id}"><img src="${ICONS[u.id]}" alt="${u.id}"><div class="pips">${Array.from({ length: u.max }, (_, i) => `<i class="${i < lv ? 'f' : ''}"></i>`).join('')}</div><div class="cost">${max ? 'MAX' : GEAR + cost}</div></div>`;
   }).join('') + '<button id="shopx" aria-label="Close">✕</button>';
 }
-function openShop() { shopOpen = true; renderShop(); shopEl.classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
-function closeShop() { shopOpen = false; shopEl.classList.remove('on'); }
+function openShop() { document.body.classList.add('shopping'); shopOpen = true; renderShop(); shopEl.classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
+function closeShop() { document.body.classList.remove('shopping'); shopOpen = false; shopEl.classList.remove('on'); }
 shopEl.addEventListener('click', e => {
   if (e.target.closest('#shopx')) { closeShop(); return; }
   const t = e.target.closest('.tile'); if (!t) return;
@@ -283,7 +293,7 @@ function updNight(dt) {
       const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
       spawnClan(raiderKind(), Math.sin(a) * r, Math.cos(a) * r, 'raid');
     }
-  } else if (!ents.some(e => e.type === 'clan' && !e.dead)) {
+  } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
     else endNight(true);
   }
@@ -291,7 +301,7 @@ function updNight(dt) {
 }
 function endNight(won) {
   night.active = false; gate.open = true; gate.hp = gate.max;
-  for (const e of [...ents]) if (e.type === 'clan') removeEnt(e);
+  for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
   for (const s of SCRAPS) if (!s.alive && s.tag === 'wild' && rnd() < .5) { s.alive = true; s.g.visible = true; }
   ensureWildlife();
@@ -602,9 +612,13 @@ function openCrate(c) {
 
 /* ================= wildlife + the clans in the wider valley ================= */
 function ensureWildlife() {
-  const deer = ents.filter(e => e.type === 'deer' && !e.dead).length, boar = ents.filter(e => e.type === 'boar' && !e.dead).length;
+  const inV = e => Math.hypot(e.home ? e.home.x : e.x, e.home ? e.home.z : e.z) < VALLEY;
+  const deer = ents.filter(e => e.type === 'deer' && !e.dead && inV(e)).length, boar = ents.filter(e => e.type === 'boar' && !e.dead && inV(e)).length;
+  const odeer = ents.filter(e => e.type === 'deer' && !e.dead && !inV(e)).length, oboar = ents.filter(e => e.type === 'boar' && !e.dead && !inV(e)).length;
+  for (let i = odeer; i < 30; i++) { const m = OUT_MEADOWS[i % OUT_MEADOWS.length]; spawnDeer(m.x + rr(-22, 22), m.z + rr(-22, 22)); }
+  for (let i = oboar; i < 14; i++) { const a = rnd() * 6.28, r = rr(VALLEY + 140, WORLD - 120); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
   for (let i = deer; i < 26; i++) { const m = MEADOWS[i % MEADOWS.length]; spawnDeer(m.x + rr(-18, 18), m.z + rr(-18, 18)); }
-  for (let i = boar; i < 10; i++) { const a = rnd() * 6.28, r = rr(90, WORLD - 60); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
+  for (let i = boar; i < 10; i++) { const a = rnd() * 6.28, r = rr(90, VALLEY - 60); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
 }
 function clanGroup(c, n, spread, mix) { for (let i = 0; i < n; i++) spawnClan(mix[i % mix.length], c.x + rr(-spread, spread), c.z + rr(-spread, spread), 'guard'); }
 function villageGuards() {
@@ -612,6 +626,7 @@ function villageGuards() {
   clanGroup(POI.ashmere, 11, 26, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
   clanGroup(POI.burn, 4, 22, ['warrior', 'thrower']);
   for (const s of SCOUTS) clanGroup(s, 3, 7, ['warrior', 'thrower', 'warrior']);
+  for (const H of HOLDS) clanGroup(H, 9, H.R * .6, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
 }
 
 /* ================= time + atmosphere ================= */
@@ -663,36 +678,48 @@ function updTime(dt) {
   if (AC && isNight() && !muted && !night.active) { cricketT -= .016; if (cricketT <= 0) { cricketT = rr(.3, 1.6); for (let i = 0; i < 3; i++) tone(rr(3800, 4600), .03, .025, 'sine', i * .06); } }
 }
 
-/* ================= HUD ================= */
-const _p = new THREE.Vector3();
+/* ================= HUD: health, toolbar, gun + ammo, minimap — that's it ================= */
+const SLOT_ICON = {
+  rifle: '<svg viewBox="0 0 40 16"><path d="M2 7h22l3-2h9v3h-6l-1 2h-6l-2 5h-4l1-5H2z" fill="#d9d2c2" stroke="#000" stroke-width="1"/></svg>',
+  hunter: '<svg viewBox="0 0 40 16"><path d="M1 8h28v-2h10v2l-10 1-2 2h-6l-3 4h-4l1-4H1z" fill="#c9a77a" stroke="#000" stroke-width="1"/><rect x="12" y="3" width="10" height="3" rx="1" fill="#555" stroke="#000" stroke-width=".8"/></svg>',
+  ration: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#a8552e" stroke="#000"/><path d="M5 9c2-1 4-3 5-5" stroke="#e8b070" stroke-width="1.2" fill="none"/></svg>',
+};
+let toolSig = '';
+function slotDefs() {
+  return [
+    { k: 'gun0', icon: SLOT_ICON.rifle, label: WEAPONS[RIFLE[UP.rifle].id].name, on: P.slot === 0 },
+    { k: 'gun1', icon: G.flags.hunter ? SLOT_ICON.hunter : '', label: G.flags.hunter ? 'Hunting rifle' : '', on: P.slot === 1 },
+    { k: 'ration', icon: INV.rations > 0 ? SLOT_ICON.ration : '', label: INV.rations > 0 ? 'Ration' : '', n: INV.rations || 0 },
+    { k: 'e4' }, { k: 'e5' },
+  ];
+}
+function renderTool() {
+  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, !!x.icon, x.on, x.n]));
+  if (sig === toolSig) return; toolSig = sig;
+  hud.tool.innerHTML = d.map((x, i) => `<div class="slot${x.on ? ' on' : ''}${x.icon ? '' : ' empty'}" data-i="${i}" title="${x.label || ''}"><em>${i + 1}</em>${x.icon || ''}${x.n ? `<b>${x.n}</b>` : ''}</div>`).join('');
+}
+function useSlot(i) {
+  if (G.mode !== 'play' || cine || P.dead) return;
+  if (i === 0 && P.slot !== 0) swapGun();
+  else if (i === 1 && P.slot !== 1 && G.flags.hunter) swapGun();
+  else if (i === 2) eatRation();
+}
+hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
-  hud.hp.style.width = Math.max(0, P.hp) + '%'; hud.fd.style.width = P.food + '%';
-  hud.scrap.textContent = INV.scrap; hud.meat.textContent = INV.meat;
+  hud.hp.style.width = Math.max(0, P.hp) + '%';
+  hud.hpw.classList.toggle('hungry', P.food < 22);
   hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
-  const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  hud.clock.textContent = `Day ${G.day} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-  // objective
-  let text, at;
-  if (rust.state === 'warn' || (rust.state === 'active' && !P.safe)) {
-    const s = nearestShelter(); text = rust.state === 'warn' ? `Red fog in ${Math.ceil(rust.t)}s — get to cover` : 'Get under a roof!'; at = s;
-    hud.obj.classList.add('rust');
-  } else {
-    hud.obj.classList.remove('rust');
-    const st = STEPS[G.step];
-    if (night.active && G.step !== 11) { text = `Hold Kestrel · wave ${night.wave}/${night.waves}`; at = { x: 0, z: CAMP_R }; }
-    else if (st) { text = typeof st.text === 'function' ? st.text() : st.text; at = st.at(); }
-  }
-  if (text) { hud.obj.style.display = 'flex'; hud.objt.textContent = text; } else hud.obj.style.display = 'none';
-  if (at && !(rust.state === 'active' && P.safe)) {
-    const dx = at.x - P.x, dz = at.z - P.z, d = Math.hypot(dx, dz);
-    const rel = angWrap(Math.atan2(dx, dz) - (P.yaw + Math.PI));
-    hud.arrow.style.transform = `rotate(${-rel}rad)`; hud.objd.textContent = d > 4 ? Math.round(d) + 'm' : '';
-    hud.arrow.style.display = '';
-    _p.set(at.x, heightAt(at.x, at.z) + 3, at.z).project(camera);
-    if (_p.z < 1 && Math.abs(_p.x) < 1.1 && Math.abs(_p.y) < 1.1 && d > 6) {
-      hud.mark.style.display = 'flex'; hud.mark.style.left = ((_p.x + 1) / 2 * innerWidth) + 'px'; hud.mark.style.top = ((1 - _p.y) / 2 * innerHeight) + 'px'; hud.markd.textContent = Math.round(d) + 'm';
-    } else hud.mark.style.display = 'none';
-  } else { hud.arrow.style.display = 'none'; hud.objd.textContent = ''; hud.mark.style.display = 'none'; }
+  hud.gunn.textContent = WEAPONS[gunId()].name;
+  renderTool();
+  // a short alert only when something is actually trying to kill you
+  let alert = '';
+  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get under a roof`;
+  else if (rust.state === 'active' && !P.safe) alert = 'Red fog — get under a roof!';
+  else if (night.active) alert = `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  else if (P.food <= 0) alert = 'Starving — eat something';
+  hud.alert.textContent = alert; hud.alert.classList.toggle('on', !!alert); hud.alert.classList.toggle('rust', rust.state === 'warn' || rust.state === 'active');
+  miniT -= dt; if (miniT <= 0) { miniT = .1; drawMini(); }
+  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; renderInv(); } }
   // interact prompt
   curInter = findInteract();
   if (curInter) {
@@ -704,6 +731,36 @@ function updHUD(dt) {
   if (subT > 0) { subT -= dt; if (subT <= 0) nextLine(); }
 }
 
+/* ---------- inventory ---------- */
+let invOpen = false, invT = 0;
+const ICO = {
+  scrap: '<svg viewBox="0 0 16 16"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#9aa3a8" stroke="#000"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" fill="none"/></svg>',
+  meat: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#c0634a" stroke="#000"/><circle cx="12.5" cy="12.5" r="2" fill="#eee" stroke="#000"/></svg>',
+  ammo: '<svg viewBox="0 0 16 16"><path d="M4 14V6l1.5-4L7 6v8zM9 14V6l1.5-4L12 6v8z" fill="#d8b25a" stroke="#000" stroke-width=".8"/></svg>',
+};
+function objectiveNow() {
+  if (rust.state === 'warn' || rust.state === 'active') return 'Get under a roof until the fog lifts';
+  if (night.active && G.step !== 11) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  return objText();
+}
+function renderInv() {
+  const it = (ic, n, l) => `<div class="it">${ic}<b>${n}</b><span>${l}</span></div>`;
+  const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
+  $('invb').innerHTML = `
+    <div class="row">${it(ICO.scrap, INV.scrap, 'Scrap')}${it(ICO.meat, INV.meat, 'Raw meat')}${it(SLOT_ICON.ration, INV.rations || 0, 'Rations')}${it(ICO.ammo, INV.res, 'Rifle ammo')}${G.flags.hunter ? it(ICO.ammo, INV.resH, 'Hunting ammo') : ''}</div>
+    <div class="stat"><span>Health</span><div class="bar"><i style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i style="width:${P.food}%;background:#e0a040"></i></div></div>
+    <p class="obj">◆ ${objectiveNow() || 'Explore'}</p>
+    <p class="day">Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% of the land explored</p>`;
+}
+function toggleInv(v = !invOpen) {
+  if (v && mapOpen) toggleMap();
+  invOpen = v; $('inv').classList.toggle('on', v); if (v) { renderInv(); if (document.pointerLockElement) document.exitPointerLock(); }
+}
+$('inv').addEventListener('click', () => toggleInv(false));
+$('bInv').addEventListener('click', e => { e.stopPropagation(); toggleInv(); });
+$('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
+if (isTouch) document.body.classList.add('touch');
+
 /* ================= input ================= */
 const keys = {};
 addEventListener('keydown', e => {
@@ -714,9 +771,11 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
-  if (e.code === 'KeyM' || e.code === 'Tab') { e.preventDefault(); toggleMap(); }
-  if (e.code === 'KeyQ' || e.code === 'Digit2' || e.code === 'Digit1') swapGun();
-  if (e.code === 'Escape' && shopOpen) closeShop();
+  if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
+  if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
+  if (e.code === 'KeyQ') swapGun();
+  const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
+  if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function keyMove() {
@@ -734,6 +793,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) input.fire = true;
   if (e.button === 2) input.ads = true;
 });
+addEventListener('wheel', e => { if (G.mode === 'play' && document.pointerLockElement && G.flags.hunter && Math.abs(e.deltaY) > 4) swapGun(); }, { passive: true });
 addEventListener('contextmenu', e => { if (G.mode === 'play') e.preventDefault(); });
 addEventListener('mouseup', e => { if (e.button === 0 && !isTouch) input.fire = false; if (e.button === 2) input.ads = false; });
 addEventListener('mousemove', e => { if (document.pointerLockElement === canvas && !cine) { input.look[0] += e.movementX * .0022; input.look[1] += e.movementY * .0022; } });
@@ -748,12 +808,14 @@ function tStart(e) {
   for (const t of e.changedTouches) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
     if (el && (el.closest('.tile') || el.closest('#shopx') || el.closest('#arcade-home'))) continue;
+    if (el && el.closest('.slot')) { e.preventDefault(); useSlot(+el.closest('.slot').dataset.i); continue; }
+    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else toggleInv(); continue; }
     const btn = el && el.closest('.btn');
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
       else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') input.jump = true; if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
-        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } if (btn.id === 'bSwap') swapGun(); if (btn.id === 'bMap') toggleMap(); }
+        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
       continue;
     }
     if (t.clientX < innerWidth * .42 && ![...touches.values()].some(v => v.kind === 'stick')) {
@@ -787,6 +849,7 @@ function tEnd(e) {
 }
 for (const el of [canvas, $('touch')]) { el.addEventListener('touchstart', tStart, { passive: false }); el.addEventListener('touchmove', tMove, { passive: false }); el.addEventListener('touchend', tEnd); el.addEventListener('touchcancel', tEnd); }
 document.addEventListener('touchmove', e => { if (G.mode === 'play' && !e.target.closest('#shop')) e.preventDefault(); }, { passive: false });
+for (const id of ['inv', 'map']) $(id).addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
 
 /* ================= save ================= */
 const SAVE = 'the-arc-save-v2';
@@ -815,12 +878,13 @@ function frame(now) {
     vm.visible = false; titleT += dt * .03;
     camera.position.set(Math.sin(titleT) * 80, H0 + 20, Math.cos(titleT) * 80 + 20);
     camera.lookAt(0, H0 + 14, -30);
-    updGrass(camera.position.x, camera.position.z);
+    updGrass(camera.position.x, camera.position.z); updTerrain(camera.position.x, camera.position.z); updForest(camera.position.x, camera.position.z, dt);
     updTime(dt); music.go('dawn');
   } else {
     keyMove();
     if (cine) updCine(dt); else { updPlayer(dt); }
-    updGrass(camera.position.x, camera.position.z);
+    updGrass(camera.position.x, camera.position.z); updTerrain(camera.position.x, camera.position.z); updForest(camera.position.x, camera.position.z, dt);
+    if (!cine) updExplore(dt);
     music.go(cine && G.step === 0 ? 'intro' : night.active ? 'raid' : rust.state === 'active' || rust.state === 'warn' ? 'tense' : isNight() ? 'night' : 'day');
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
     if (mapOpen) drawMap();
@@ -850,54 +914,119 @@ function checkRegions() {
   const seen = G.flags.seen = G.flags.seen || {};
   for (const R of REGIONS) {
     if (seen[R.id]) continue;
-    const inside = R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
+    const inside = R.area ? R.area(P.x, P.z) : R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
     if (inside && !cine) { seen[R.id] = 1; card(R.name, R.sub, 3.6); music.sting('sting-drum-hit', .35); save(); return; }
   }
 }
+/* the map covers the whole land; anywhere you haven't walked stays dark (the valley you already know) */
 let mapOpen = false, mapBase = null;
-const MAPPX = 440, MAPR = WORLD + 60;
-function buildMapCanvas() {
-  const c = document.createElement('canvas'); c.width = c.height = MAPPX; const g = c.getContext('2d'), img = g.createImageData(MAPPX, MAPPX), col = new THREE.Color();
-  for (let j = 0; j < MAPPX; j++) for (let i = 0; i < MAPPX; i++) {
-    const x = (i / MAPPX * 2 - 1) * MAPR, z = (j / MAPPX * 2 - 1) * MAPR, h = heightAt(x, z), k = (j * MAPPX + i) * 4;
-    const sl = (heightAt(x - 2, z) - heightAt(x + 2, z)) * .06;
-    terrainColor(x, z, h, slopeAt(x, z), col);
-    let r = col.r, gg = col.g, b = col.b;
-    if (waterAt(x, z) > h) { r = .12; gg = .24; b = .28; }
-    const sh = clamp(1 + sl + (h - 20) * .002, .55, 1.4), edge = Math.hypot(x, z) > WORLD ? .45 : 1;
-    img.data[k] = Math.pow(r * sh * edge, 1 / 2.2) * 255; img.data[k + 1] = Math.pow(gg * sh * edge, 1 / 2.2) * 255; img.data[k + 2] = Math.pow(b * sh * edge, 1 / 2.2) * 255; img.data[k + 3] = 255;
+const MAPPX = LOW ? 768 : 1024, MAPR = WORLD + 100;
+const EXP_N = 120, EXP = new Uint8Array(EXP_N * EXP_N), fogC = document.createElement('canvas');
+fogC.width = fogC.height = EXP_N; const fogG = fogC.getContext('2d'), fogImg = fogG.createImageData(EXP_N, EXP_N);
+for (let k = 0; k < EXP_N * EXP_N; k++) { fogImg.data[k * 4] = 6; fogImg.data[k * 4 + 1] = 9; fogImg.data[k * 4 + 2] = 11; }
+const expIdx = (x, z) => { const i = Math.floor((x / MAPR + 1) / 2 * EXP_N), j = Math.floor((z / MAPR + 1) / 2 * EXP_N); return i < 0 || j < 0 || i >= EXP_N || j >= EXP_N ? -1 : j * EXP_N + i; };
+function fogPix(k) { fogImg.data[k * 4 + 3] = EXP[k] ? 0 : 215; }
+function fogFlush() { fogG.putImageData(fogImg, 0, 0); }
+function exploreAt(x, z, r) {
+  let ch = false; const cs = MAPR * 2 / EXP_N;
+  for (let dz = -r; dz <= r; dz += cs * .5) for (let dx = -r; dx <= r; dx += cs * .5) {
+    if (dx * dx + dz * dz > r * r) continue; const k = expIdx(x + dx, z + dz); if (k >= 0 && !EXP[k]) { EXP[k] = 1; fogPix(k); ch = true; }
+  }
+  if (ch) fogFlush(); return ch;
+}
+function exploredPct() { let n = 0, t = 0; for (let j = 0; j < EXP_N; j++) for (let i = 0; i < EXP_N; i++) { const x = ((i + .5) / EXP_N * 2 - 1) * MAPR, z = ((j + .5) / EXP_N * 2 - 1) * MAPR; if (Math.hypot(x, z) > WORLD) continue; t++; n += EXP[j * EXP_N + i]; } return Math.round(n / t * 100); }
+function packExp() { let s0 = ''; for (let k = 0; k < EXP.length; k += 6) { let v = 0; for (let b = 0; b < 6; b++) v |= (EXP[k + b] || 0) << b; s0 += String.fromCharCode(48 + v); } return s0; }
+function unpackExp(str) { EXP.fill(0); if (str) for (let c = 0; c < str.length; c++) { const v = str.charCodeAt(c) - 48; for (let b = 0; b < 6; b++) if (c * 6 + b < EXP.length) EXP[c * 6 + b] = (v >> b) & 1; } }
+function resetExplore(str) {
+  unpackExp(str);
+  for (let j = 0; j < EXP_N; j++) for (let i = 0; i < EXP_N; i++) { const x = ((i + .5) / EXP_N * 2 - 1) * MAPR, z = ((j + .5) / EXP_N * 2 - 1) * MAPR; if (Math.hypot(x, z) < VALLEY - 40) EXP[j * EXP_N + i] = 1; }
+  for (let k = 0; k < EXP.length; k++) fogPix(k); fogFlush();
+}
+let expT = 0;
+function updExplore(dt) { expT -= dt; if (expT > 0) return; expT = .5; if (exploreAt(P.x, P.z, 150)) G.flags.exp = packExp(); }
+
+async function buildMapCanvas() {
+  const c = document.createElement('canvas'); c.width = c.height = MAPPX; const g = c.getContext('2d'), img = g.createImageData(MAPPX, MAPPX);
+  const cG = [.34, .45, .23], cF = [.2, .27, .17], cR = [.44, .43, .4], cS = [.89, .9, .91];
+  for (let j = 0; j < MAPPX; j++) {
+    const z = (j / MAPPX * 2 - 1) * MAPR;
+    for (let i = 0; i < MAPPX; i++) {
+      const x = (i / MAPPX * 2 - 1) * MAPR, h = heightAt(x, z), k = (j * MAPPX + i) * 4;
+      const hx = heightAt(x + 3, z) - heightAt(x - 3, z), hz = heightAt(x, z + 3) - heightAt(x, z - 3), sl = Math.hypot(hx, hz) / 6;
+      const f = smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8, rk = smooth(.7, 1.3, sl), sn = smooth(122, 150, h);
+      let r = lerp(cG[0], cF[0], f), gg = lerp(cG[1], cF[1], f), b = lerp(cG[2], cF[2], f);
+      r = lerp(r, cR[0], rk); gg = lerp(gg, cR[1], rk); b = lerp(b, cR[2], rk); r = lerp(r, cS[0], sn); gg = lerp(gg, cS[1], sn); b = lerp(b, cS[2], sn);
+      if (waterAt(x, z) > h) { r = .12; gg = .24; b = .28; }
+      const sh = clamp(1 - (hx + hz) * .05 + (h - 20) * .0015, .55, 1.45), edge = Math.hypot(x, z) > WORLD ? .45 : 1;
+      img.data[k] = Math.pow(clamp(r * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 1] = Math.pow(clamp(gg * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 2] = Math.pow(clamp(b * sh * edge, 0, 1), 1 / 2.2) * 255; img.data[k + 3] = 255;
+    }
+    if (j % 48 === 0) { setLoad(`DRAWING THE MAP ${Math.round(j / MAPPX * 100)}%`); await nextFrame(); }
   }
   g.putImageData(img, 0, 0);
+  g.strokeStyle = 'rgba(120,96,66,.85)'; g.lineWidth = MAPPX / 420; g.lineCap = g.lineJoin = 'round';
+  for (const p of PATHS) { g.beginPath(); p.forEach(([x, z], i) => { const X = (x / MAPR + 1) / 2 * MAPPX, Y = (z / MAPR + 1) / 2 * MAPPX; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }
   mapBase = c;
 }
 const toMap = (x, z, S) => [(x / MAPR + 1) / 2 * S, (z / MAPR + 1) / 2 * S];
+function regionColor(R) { return R.id === 'kestrel' ? '#f0a640' : R.hostile ? '#e0573d' : '#efe9dc'; }
 function drawMap() {
-  const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 40, innerWidth - 40, 560) * (devicePixelRatio > 1 ? 2 : 1));
+  const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 70, innerWidth - 40, 760) * (devicePixelRatio > 1 ? 2 : 1));
   if (cv.width !== S) cv.width = cv.height = S;
   const g = cv.getContext('2d');
-  g.drawImage(mapBase, 0, 0, S, S);
-  const k = S / 440, seen = G.flags.seen || {};
-  g.font = `700 ${12 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
+  g.imageSmoothingEnabled = true; g.drawImage(mapBase, 0, 0, S, S); g.drawImage(fogC, 0, 0, S, S);
+  const k = S / 560, seen = G.flags.seen || {};
+  g.font = `700 ${11 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
   for (const R of REGIONS) {
-    if (R.river) continue; const [x, y] = toMap(R.x, R.z, S);
-    if (!seen[R.id]) { g.fillStyle = '#0006'; g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill(); continue; }
-    g.fillStyle = R.id === 'kestrel' ? '#f0a640' : R.id === 'ashmere' || R.id === 'outpost' ? '#e0573d' : '#efe9dc';
-    g.beginPath(); g.arc(x, y, 3.5 * k, 0, 7); g.fill();
+    if (R.river || R.area || !seen[R.id]) continue; const [x, y] = toMap(R.x, R.z, S);
+    g.fillStyle = regionColor(R); g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill();
     g.fillStyle = '#000a'; g.fillText(R.name, x + k, y - 5 * k); g.fillStyle = '#efe9dc'; g.fillText(R.name, x, y - 6 * k);
   }
-  const at = STEPS[G.step]?.at?.(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 7 * k, 0, 7); g.stroke(); }
-  const [px, py] = toMap(P.x, P.z, S); g.save(); g.translate(px, py); g.rotate(-P.yaw + Math.PI);
+  const at = objAt(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 6 * k, 0, 7); g.stroke(); }
+  const [px, py] = toMap(P.x, P.z, S); playerArrow(g, px, py, 1.1 * k);
+  $('mapday').textContent = `Day ${G.day} of 100 · ${exploredPct()}% explored`;
+}
+function playerArrow(g, x, y, k) {
+  g.save(); g.translate(x, y); g.rotate(-P.yaw + Math.PI);
   g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5 * k; g.beginPath(); g.moveTo(0, -8 * k); g.lineTo(5 * k, 6 * k); g.lineTo(0, 3 * k); g.lineTo(-5 * k, 6 * k); g.closePath(); g.fill(); g.stroke(); g.restore();
 }
+function objAt() {
+  if (rust.state === 'warn' || (rust.state === 'active' && !P.safe)) return nearestShelter();
+  if (night.active) return { x: 0, z: CAMP_R };
+  return STEPS[G.step]?.at?.() || null;
+}
+/* minimap: north-up, ~200m around you */
+let miniT = 0;
+const MINI_R = 200;
+function drawMini() {
+  if (!mapBase) return;
+  const cv = $('minic'), css = cv.clientWidth || 130, S = Math.round(css * Math.min(devicePixelRatio || 1, 2));
+  if (cv.width !== S) cv.width = cv.height = S;
+  const g = cv.getContext('2d'), sc = MAPPX / (MAPR * 2), half = MINI_R * sc, cx = (P.x / MAPR + 1) / 2 * MAPPX, cz = (P.z / MAPR + 1) / 2 * MAPPX;
+  g.clearRect(0, 0, S, S); g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2, 0, 7); g.clip();
+  g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, S, S);
+  g.drawImage(mapBase, cx - half, cz - half, half * 2, half * 2, 0, 0, S, S);
+  const fs = EXP_N / (MAPR * 2), fh = MINI_R * fs, fx = (P.x / MAPR + 1) / 2 * EXP_N, fz = (P.z / MAPR + 1) / 2 * EXP_N;
+  g.drawImage(fogC, fx - fh, fz - fh, fh * 2, fh * 2, 0, 0, S, S);
+  const toM = (x, z) => [S / 2 + (x - P.x) / MINI_R * S / 2, S / 2 + (z - P.z) / MINI_R * S / 2], k = S / 130, seen = G.flags.seen || {};
+  for (const R of REGIONS) { if (R.river || R.area || !seen[R.id]) continue; const [x, y] = toM(R.x, R.z); if (Math.hypot(x - S / 2, y - S / 2) > S / 2) continue; g.fillStyle = regionColor(R); g.beginPath(); g.arc(x, y, 2.5 * k, 0, 7); g.fill(); }
+  const at = objAt();
+  if (at) {
+    let [x, y] = toM(at.x, at.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), m = S / 2 - 7 * k;
+    if (d > m) { x = S / 2 + dx / d * m; y = S / 2 + dy / d * m; }
+    g.fillStyle = rust.state === 'warn' || rust.state === 'active' ? '#7fc4b8' : '#f0a640'; g.strokeStyle = '#000'; g.lineWidth = 1.2 * k;
+    g.save(); g.translate(x, y); g.rotate(Math.PI / 4); g.fillRect(-3.5 * k, -3.5 * k, 7 * k, 7 * k); g.strokeRect(-3.5 * k, -3.5 * k, 7 * k, 7 * k); g.restore();
+  }
+  playerArrow(g, S / 2, S / 2, .8 * k);
+  g.restore();
+}
 $('map').addEventListener('click', () => toggleMap());
-$('map').addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
-function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOpen); if (mapOpen) drawMap(); }
+function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOpen); if (mapOpen) { if (invOpen) toggleInv(false); drawMap(); } }
 
 /* ================= start ================= */
 function startGame(fresh) {
   initAudio();
   const s = !fresh && load();
-  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
+  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
   G.step = 0; G.day = 1; G.tod = .34; G.chapterDone = false; G.flags = {};
   if (s) {
     Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.chapterDone = s.chapterDone; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
@@ -908,7 +1037,8 @@ function startGame(fresh) {
     if (G.step === 6) spawnHerd(POI.meadow, 4);
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
   }
-  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1;
+  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
+  resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; selectGunView(RIFLE[UP.rifle].id);
   applyUpgrades();
   gate.hp = gate.max;
@@ -925,7 +1055,7 @@ function startGame(fresh) {
 function menu() {
   const s = load();
   $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire and aim · AIM to scope · MAP for the valley.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · Q swap · E use · Space jump/swim · M map · N sound';
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
   $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
@@ -948,17 +1078,18 @@ async function boot() {
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
+  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
   named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
   named.vos = spawnNPC('vos', SPOTS.vosPost.x, SPOTS.vosPost.z, { model: 'elias', yaw: Math.PI, h: 1.86 });
   for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2], [-8, -4], [12, 22]]) spawnNPC('extra', x, z, { wander: true });
   ensureWildlife(); villageGuards();
-  buildMapCanvas();
+  await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
   requestAnimationFrame(frame);
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE };
+window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
