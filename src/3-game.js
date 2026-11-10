@@ -84,6 +84,7 @@ function talk(who) {
   if (who === 'juno') { if (P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0) { P.hp = 100; clearInjuries(); say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', pick(["You're in one piece. Keep it that way.", 'Farlight trades medicine. West, past the rim.', 'Boil your water. I’m tired of treating fevers.'])]]); return true; }
   return false;
 }
+function restBunk() { if (night.active) { sfx('no'); toast('No sleeping through a raid'); return; } P.hp = 100; P.food = Math.max(0, P.food - 8); sfx('pickup'); toast('You rest up · health full', 2.4); save(); }
 // what each keeper does besides trading (Q / hold on the trade prompt)
 const KEEPER_Q = {
   kade: { l: () => 'upgrades', act: () => talk('kade') },
@@ -93,7 +94,7 @@ const KEEPER_Q = {
 
 /* ================= interactables ================= */
 const INTERACT = [
-  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.stN, act: () => openCraft(D.cat) })),
+  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.id === 'bunk' && P.hp >= 100 ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
   { id: 'forge', at: () => SHOP.craft.forge, r: 2.4, label: () => 'Forge · smelt + metalwork', act: () => openCraft('mat') },
   { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
@@ -549,7 +550,7 @@ function updPlayer(dt) {
     const moving = hs > .6 && P.onGround;
     const stepLen = sprint ? 2.25 : 1.6, b0 = Math.floor(P.bob / Math.PI);
     if (P.onGround) P.bob += hs * dt / stepLen * Math.PI;
-    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
+    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || (Math.hypot(P.x, P.z) < CAMP_R && streetDist(P.x, P.z) < .3) || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
     if (moving && Math.floor(P.bob / Math.PI) !== b0) { sfx('step', sprint ? 1.35 : clamp(hs / 5.4, .5, 1)); if (depth > -.05) sfx('splash'); }
     P.bobAmp = lerp(P.bobAmp, moving ? clamp(hs / 5.4, 0, 1.8) : 0, Math.min(1, dt * 8));
     // the eye follows the ground smoothly instead of snapping over every bump
@@ -802,8 +803,8 @@ function renderInv() {
     body += `<p class="dim">${SD.blurb} You have <b>${INV.scrap}</b> scrap. Stock changes every day${SD.tiered ? ' · better gear shows up as you climb the tiers' : ''}.</p><h4>Buy</h4><div class="row">`;
     L.forEach(([id, n, left], i) => { const pr = Math.ceil(valueOf(id) * n * mk); body += itemTile(id, n, `<button data-buy="${i}"${left > 0 && INV.scrap >= pr ? '' : ' class="dis"'}>${left > 0 ? pr + ' scrap' : 'sold out'}</button>`); });
     body += `</div><h4>Sell</h4><div class="row">`;
-    for (const c of BAG_ORDER) for (const [id, n] of groups[c] || []) if (id !== 'scrap' && ITEMS[id]?.c !== 'story') { const lot = Math.min(n, TRADE_LOT[id] || 1); body += itemTile(id, n, `<button data-sell="${id}">+${Math.max(1, Math.floor(valueOf(id) * lot * .5))}${lot > 1 ? ' /' + lot : ''}</button>`); }
-    for (const t of INV.tools) if (!busy(t)) body += gearTile(t, `<button data-sellg="${t.u}">+${Math.max(2, Math.round(valueOf(t.id) * .5 * t.d / t.max))}</button>`);
+    for (const c of BAG_ORDER) for (const [id, n] of groups[c] || []) if (id !== 'scrap' && ITEMS[id]?.c !== 'story') { const lot = Math.min(n, TRADE_LOT[id] || 1); body += itemTile(id, n, `<button data-sell="${id}">+${Math.max(1, Math.floor(valueOf(id) * lot * (SD.sell || .5)))}${lot > 1 ? ' /' + lot : ''}</button>`); }
+    for (const t of INV.tools) if (!busy(t)) body += gearTile(t, `<button data-sellg="${t.u}">+${Math.max(2, Math.round(valueOf(t.id) * (SD.sell || .5) * t.d / t.max))}</button>`);
     body += '</div>';
   }
   $('invb').innerHTML = tabs + head + body;
@@ -1168,7 +1169,7 @@ async function boot() {
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
-  for (const D of SHOP_DEFS) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.a + Math.PI, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
   for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
   SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   ensureWildlife(); villageGuards();
