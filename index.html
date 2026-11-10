@@ -150,7 +150,7 @@ body.cine #skip{display:block}
 #shopx{width:38px;height:38px;border-radius:50%;border:0;background:#141310e6;color:var(--ink);font:700 18px/1 system-ui;box-shadow:inset 0 0 0 1.5px #ffffff22;pointer-events:auto;cursor:pointer;margin-left:4px}
 
 /* touch controls: edges only */
-.touch{position:fixed;inset:0;pointer-events:none;z-index:3}
+#touch{position:fixed;inset:0;pointer-events:none;z-index:3}
 #stick{position:absolute;width:110px;height:110px;margin:-55px;border-radius:50%;border:2px solid #ffffff30;background:#ffffff0a;display:none}
 #stick i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;background:#ffffff40}
 .btn{position:absolute;pointer-events:auto;border-radius:50%;border:2px solid #ffffff38;background:#0000004d;color:#fffd;display:grid;place-items:center;font:700 13px/1 "Barlow Condensed",sans-serif;letter-spacing:.06em;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
@@ -159,7 +159,7 @@ body.cine #skip{display:block}
 #bFire svg{width:30px;height:30px}
 #bJump{right:calc(var(--r) + 104px);bottom:calc(var(--b) + 12px);width:50px;height:50px}
 #bRel{right:calc(var(--r) + 24px);bottom:calc(var(--b) + 116px);width:50px;height:50px}
-#bThrow{right:calc(var(--r) + 24px);bottom:calc(var(--b) + 176px);width:50px;height:50px;font-size:10px}
+#bThrow{right:calc(var(--r) + 180px);bottom:calc(var(--b) + 132px);width:50px;height:50px;font-size:10px}
 #invb .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}#invb .cb{display:flex;gap:4px}#invb .it .nm{font-size:12px}#invb p.dim button{margin-left:4px}
 #bUse{right:calc(var(--r) + 96px);bottom:calc(var(--b) + 84px);min-width:56px;height:44px;border-radius:22px;padding:0 12px;display:none;background:#f0a640cc;color:#1a1208;border-color:#f0a640}
 
@@ -197,6 +197,7 @@ body.title #title{display:flex}
 #stam i{display:block;height:100%;width:100%;background:#e8dcc0;border-radius:2px}
 #stam.low i{background:#f0a640;animation:blink .8s infinite}
 body.touch #stam{width:120px}
+body.touch #sub{bottom:calc(var(--b) + 78px);font-size:15px;max-width:46vw}
 
 
 #rot{position:fixed;inset:0;z-index:20;background:#0b0f0d;display:grid;place-items:center;text-align:center;font-size:20px;color:var(--dim)}
