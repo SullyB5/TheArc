@@ -71,13 +71,23 @@ const POI = {
   lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
-  cinder: { x: 1120, z: -520 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
+  cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
 };
 const HOLDS = [
   { id: 'varnhold', name: 'VARNHOLD', sub: 'Hold of the Hollow Pines clan', ...POI.varnhold, R: 40 },
   { id: 'sunscar', name: 'SUNSCAR', sub: 'Hold of the Ridge Runners', ...POI.sunscar, R: 36 },
   { id: 'elderhollow', name: 'ELDERHOLLOW', sub: 'Hold of the Rootkin', ...POI.elderhollow, R: 44 },
 ];
+/* Cinder City: a dead city 840m across, with the Foundry — the district Ironjaw rebuilt — inside it. Other bases out in the wilds. */
+const CITY = { x: 1300, z: -760, R: 420 }, FOUNDRY = { x: 1230, z: -700, R: 88 };
+const BASES = [
+  { id: 'farlight', name: 'FARLIGHT', sub: 'Arc survivors · traders', x: -900, z: -650, R: 44, fac: 'arc' },
+  { id: 'greystation', name: 'GREYHOLD STATION', sub: 'Greyhold soldiers', x: -700, z: -1250, R: 50, fac: 'grey', hostile: true },
+  { id: 'ironyard_s', name: 'IRONJAW YARD', sub: 'Scavenger fort', x: 820, z: -1180, R: 38, fac: 'iron', hostile: true },
+  { id: 'ironyard_e', name: 'RUSTGATE', sub: 'Scavenger fort', x: 1760, z: -180, R: 38, fac: 'iron', hostile: true },
+];
+const inCity = (x, z, pad = 0) => Math.hypot(x - CITY.x, z - CITY.z) < CITY.R + pad;
+const inBase = (x, z, pad = 0) => BASES.some(B => Math.hypot(x - B.x, z - B.z) < B.R + pad);
 const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
 const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
@@ -257,7 +267,8 @@ function prepFlats() {
   for (const s of SHELTERS) addFlat(s.x, s.z, 6, 14);
   for (const s of SCOUTS) addFlat(s.x, s.z, 8, 18);
   for (const H of HOLDS) addFlat(H.x, H.z, H.R + 8, H.R + 40);
-  addFlat(POI.cinder.x, POI.cinder.z, 70, 110);
+  addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
+  for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
 }
 
@@ -569,7 +580,9 @@ const REGIONS = [
   // past the rim
   { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },
   ...HOLDS.map(H => ({ id: H.id, name: H.name, sub: H.sub, x: H.x, z: H.z, r: H.R + 70, hostile: true })),
-  { id: 'cinder', name: 'CINDER CITY', sub: 'Towers from before the fire', x: POI.cinder.x, z: POI.cinder.z, r: 120 },
+  { id: 'foundry', name: 'THE FOUNDRY', sub: 'Ironjaw rebuilt this district · the best loot in the land', x: FOUNDRY.x, z: FOUNDRY.z, r: FOUNDRY.R + 20, hostile: true, base: true },
+  { id: 'cinder', name: 'CINDER CITY', sub: 'A dead city · scavengers in the towers', x: CITY.x, z: CITY.z, r: CITY.R + 20 },
+  ...BASES.map(B => ({ id: B.id, name: B.name, sub: B.sub, x: B.x, z: B.z, r: B.R + 40, hostile: B.hostile, base: true, friend: !B.hostile })),
   { id: 'watchers', name: 'THE WATCHERS', sub: 'Thirteen stones in a ring', x: POI.watchers.x, z: POI.watchers.z, r: 50 },
   { id: 'varr', name: 'LAKE VARR', sub: 'Deep and cold', x: POI.varr.x, z: POI.varr.z, r: 200 },
   { id: 'mirror', name: 'MIRRORWATER', sub: 'Not a ripple on it', x: POI.mirror.x, z: POI.mirror.z, r: 150 },

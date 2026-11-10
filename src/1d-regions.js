@@ -286,26 +286,6 @@ function buildHold(H) {
   for (let i = 0; i < 3; i++) supplyCrate(H.x + rr(-R * .5, R * .5), H.z + rr(-R * .5, R * .5), pick(['ammo', 'mixed']));
 }
 
-// Cinder City: an old-world town gone to rust and creeper — broken towers, burnt-out cars, streets in a grid
-function buildCinder() {
-  const C = POI.cinder;
-  for (let gx = -3; gx <= 3; gx++) for (let gz = -3; gz <= 3; gz++) {
-    const x = C.x + gx * 26 + rr(-3, 3), z = C.z + gz * 26 + rr(-3, 3);
-    if (Math.hypot(x - C.x, z - C.z) > 92 || rnd() < .2) continue;
-    if (Math.abs(gx) <= 1 && Math.abs(gz) <= 1 && rnd() < .6) {           // towers in the middle, tops snapped off
-      const w = rr(10, 15), d = rr(10, 15), hgt = rr(16, 42), g = new THREE.Group(), mat = concMat(pick([0xb8b2a6, 0xa49c90, 0x8e8a84]));
-      mesh(new THREE.BoxGeometry(w, hgt, d), mat, 0, hgt / 2, 0, g);
-      for (let k = 2; k < hgt - 2; k += 3.2) for (const sd of [-1, 1]) mesh(new THREE.BoxGeometry(w * .9, 1.1, .1), M(0x141414), 0, k, sd * (d / 2 + .02), g);
-      for (let k = 0; k < 5; k++) { const c = mesh(new THREE.BoxGeometry(rr(2, 5), rr(1, 4), rr(2, 5)), mat, rr(-w / 2, w / 2), hgt + rr(0, 2), rr(-d / 2, d / 2), g); c.rotation.set(rr(-.4, .4), rnd() * 3, rr(-.4, .4)); }
-      const lat = mesh(lattice(1.2, rr(4, 8), 0x6a5a4a, 1.6), VCOL, rr(-w / 3, w / 3), hgt, rr(-d / 3, d / 3), g); lat.rotation.z = rr(-.5, .5);
-      place(g, x, z, rr(-.05, .05)); addColLine(x - w / 2, z, x + w / 2, z, d / 2);
-      SHELTERS.push({ x, z: z + d / 2 + 1.5, kind: 'house', r: 2.5 });
-    } else if (rnd() < .65) house(x, z, (gx + gz) % 2 ? 0 : Math.PI / 2, rr(7, 11), rr(6, 9), rnd() < .4 ? 2 : 1);
-    else car(x + rr(-6, 6), z + rr(-6, 6), rnd() * 6);
-  }
-  for (let i = 0; i < 6; i++) supplyCrate(C.x + rr(-70, 70), C.z + rr(-70, 70), pick(['ammo', 'scrap', 'mixed', 'scrap']));
-}
-
 // the Watchers: a ring of standing stones on the western moor, older than anyone remembers
 function buildWatchers() {
   const W = POI.watchers;
@@ -320,7 +300,7 @@ function buildWatchers() {
 
 function buildOutlands() {
   for (const H of HOLDS) buildHold(H);
-  buildCinder(); buildWatchers();
+  buildWatchers();
   // supply crates and hull scrap scattered over the outlands (the Arc's ring broke up on the way down)
   for (let i = 0; i < 46; i++) {
     const a = rnd() * Math.PI * 2, r = rr(VALLEY + 120, WORLD - 80), x = Math.cos(a) * r, z = Math.sin(a) * r;

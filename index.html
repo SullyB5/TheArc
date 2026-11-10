@@ -65,6 +65,9 @@ body.touch #hp .bar{width:120px}
 #invb .row{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:6px}
 #invb .it{display:grid;justify-items:center;gap:2px;padding:8px 4px;border-radius:9px;background:#ffffff0d;box-shadow:inset 0 0 0 1px #ffffff1a}
 #invb .it svg{width:30px;height:20px}
+#invb .it img.ic{width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 2px 2px #000a)}
+.slot img.ic{width:42px;height:42px;object-fit:contain}
+body.touch .slot img.ic{width:36px;height:36px}
 #invb .it b{font-size:20px}
 #invb .it span{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
 #invb .stat{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin:12px 0 6px;font-size:14px;color:var(--dim)}
@@ -72,6 +75,37 @@ body.touch #hp .bar{width:120px}
 #invb .stat i{display:block;height:100%}
 #invb .obj{margin:10px 0 2px;color:var(--amber);font-size:16px}
 #invb .day{margin:4px 0 0;color:var(--dim);font-size:14px;letter-spacing:.04em}
+#invp{width:min(760px,calc(100vw - 24px));max-height:calc(100vh - 40px);overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#invb .tabs{display:flex;gap:6px;margin-bottom:8px}
+#invb button{font:700 13px/1 "Barlow Condensed",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);background:#ffffff14;border:0;border-radius:7px;padding:7px 11px;cursor:pointer;box-shadow:inset 0 0 0 1px #ffffff22}
+#invb .tabs button{font-size:17px;padding:8px 16px}
+#invb button.on{background:var(--amber);color:#1a1208}
+#invb .tabs .xb{margin-left:auto}
+#invb h4{margin:12px 0 5px;font-size:12px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+#invb .it button{margin-top:3px;padding:4px 8px;font-size:11px}
+#invb .it.gear .nm{color:var(--ink);text-transform:none;font-size:13px;letter-spacing:0}
+#invb .it.gear.on{box-shadow:inset 0 0 0 1.5px var(--teal)}
+#invb .it small{font-size:11px;color:var(--dim)}
+#invb .dur{width:80%;height:4px;border-radius:2px;background:#ffffff1f;overflow:hidden}#invb .dur i{display:block;height:100%}
+#invb .tags{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 4px}
+#invb .tag{font-size:13px;padding:2px 8px;border-radius:10px;color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+#invb .dim{color:var(--dim);font-size:13px;margin:6px 0}
+#invb .ctabs{display:flex;gap:5px;flex-wrap:wrap}
+#invb .recs{display:grid;gap:5px;margin-top:4px}
+#invb .rec{display:grid;grid-template-columns:40px 1fr auto;gap:10px;align-items:center;padding:7px 10px;border-radius:9px;background:#ffffff0a;box-shadow:inset 0 0 0 1px #ffffff14}
+#invb .rec>svg{width:28px;height:28px}
+#invb .rec>img.ic{width:40px;height:40px;object-fit:contain}
+#invb .rec.can{box-shadow:inset 0 0 0 1px #f0a64077;background:#f0a64012}
+#invb .rec.lock{opacity:.45}
+#invb .rec b{font-size:16px}#invb .rec em{font-style:normal;color:var(--dim);font-size:12px;margin-left:8px}
+#invb .ing{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12.5px;margin-top:2px}
+#invb .ing .ok{color:#9ad06a}#invb .ing .no{color:#e0806a}
+#invb .rec small{font-size:11px;color:var(--dim);text-align:right;max-width:110px}
+#invb .rec button.dis{opacity:.4}
+#prompt .pg,#bUse .pg{display:block;height:4px;margin-top:4px;border-radius:2px;background:#ffffff26;overflow:hidden}#prompt .pg i,#bUse .pg i{display:block;height:100%;background:var(--amber)}
+#bUse small{font-size:10px;opacity:.75}
+.slot u{position:absolute;left:4px;bottom:3px;height:3px;max-width:calc(100% - 8px);border-radius:2px;text-decoration:none}
+.slot.warn{box-shadow:inset 0 0 0 1.5px #e0573d!important}
 #invp .x{margin-top:10px;font-size:13px;color:#fff8;letter-spacing:.12em;text-align:center}
 
 #cross{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:#fffc;box-shadow:0 0 0 1px #0007}
@@ -125,6 +159,8 @@ body.cine #skip{display:block}
 #bFire svg{width:30px;height:30px}
 #bJump{right:calc(var(--r) + 104px);bottom:calc(var(--b) + 12px);width:50px;height:50px}
 #bRel{right:calc(var(--r) + 24px);bottom:calc(var(--b) + 116px);width:50px;height:50px}
+#bThrow{right:calc(var(--r) + 24px);bottom:calc(var(--b) + 176px);width:50px;height:50px;font-size:10px}
+#invb .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}#invb .cb{display:flex;gap:4px}#invb .it .nm{font-size:12px}#invb p.dim button{margin-left:4px}
 #bUse{right:calc(var(--r) + 96px);bottom:calc(var(--b) + 84px);min-width:56px;height:44px;border-radius:22px;padding:0 12px;display:none;background:#f0a640cc;color:#1a1208;border-color:#f0a640}
 
 /* title */
@@ -186,7 +222,7 @@ body.touch #stam{width:120px}
 </div>
 <div id="scope"><i></i></div>
 <div id="map"><canvas id="mapc"></canvas><p><span id="mapday"></span> · <b>M</b> / tap to close</p></div>
-<div id="inv"><div id="invp"><h3>INVENTORY</h3><div id="invb"></div><div class="x"><b>I</b> / tap to close</div></div></div>
+<div id="inv"><div id="invp"><div id="invb"></div><div class="x"><b>I</b> / tap outside to close</div></div></div>
 <div id="hurt"></div><div id="rustv"></div>
 <div class="lb" id="lbt"></div><div class="lb" id="lbb"></div>
 <div id="sub"></div>
@@ -200,6 +236,7 @@ body.touch #stam{width:120px}
   <div class="btn" id="bFire"><svg viewBox="0 0 30 30" fill="none" stroke="#fff" stroke-width="2.4"><circle cx="15" cy="15" r="9"/><path d="M15 2v7M15 21v7M2 15h7M21 15h7"/></svg></div>
   <div class="btn" id="bJump">JUMP</div>
   <div class="btn" id="bRel">RELOAD</div>
+  <div class="btn" id="bThrow">THROW</div>
   <div class="btn" id="bUse">USE</div>
   <div class="btn sm" id="bAim">AIM</div>
   <div class="btn sm" id="bRun">RUN</div>

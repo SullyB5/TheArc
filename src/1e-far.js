@@ -60,7 +60,8 @@ function farTreeOK(x, z) {
   const d = Math.hypot(x, z); if (d < 62 || d > WORLD + 120) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r0 + 6)) return false;
-  for (const p of [[POI.cinder, 110], [POI.burn, 64], [POI.halvard, 96], [POI.ashmere, 62]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
+  if (inCity(x, z, 30) || inBase(x, z, 12)) return false;
+  for (const p of [ [POI.burn, 64], [POI.halvard, 96], [POI.ashmere, 62]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   const h = heightAt(x, z); if (h > 136 || waterAt(x, z) > h - .6) return false;
   if (slopeAt(x, z) > 1.5) return false;
   if (pathDist(x, z) < 6) return false;

@@ -12,11 +12,11 @@ function limb(w, h, d, color, parent, x, y, z) {
 /* people are ELYRA's survivor models (rigid), moved by hand: stride bob, sway, lean, lunge. The Thornkin wear the same
    kit darkened to leather, with an ash band, a fur mantle with thorns, and a spear, blade or club. */
 function makePerson(kind, o = {}) {
-  const clan = kind !== 'arc';
+  const clan = kind === 'warrior' || kind === 'thrower' || kind === 'brute', armed = kind === 'gunner' || kind === 'soldier';
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
-  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : pick(['civilian', 'civilian', 'michael']));
-  const tint = o.tint ?? (clan ? pick([0x6a5040, 0x5a4434, 0x7a5a44]) : null);
+  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
+  const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
   const m = modelCopy(model, H, 'y', tint);
   if (m) body.add(m);
   else { mesh(new THREE.BoxGeometry(.5, H * .55, .3), M(0x4a4a4a), 0, H * .62, 0, body); mesh(new THREE.BoxGeometry(.28, .3, .28), M(0xc68e6a), 0, H * .93, 0, body); }
@@ -40,6 +40,17 @@ function makePerson(kind, o = {}) {
       mesh(new THREE.BoxGeometry(.26, .26, .42), M(0x6a6660), 0, .25, .8, weapon);
     } else {
       const b = mesh(new THREE.BoxGeometry(.04, .09, .7), M(0x8a8a86), 0, 0, .4, weapon); mesh(new THREE.BoxGeometry(.06, .06, .18), leather, 0, 0, 0, weapon);
+    }
+  }
+  if (armed) {
+    weapon = new THREE.Group(); weapon.position.set(.22, H * .58, .22); body.add(weapon);
+    const gm = modelCopy(kind === 'soldier' ? 'gun-desert' : 'gun-night', .72, 'z'); if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
+    if (kind === 'soldier') {                                     // Greyhold: helmet + gas mask
+      mesh(new THREE.SphereGeometry(.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(0x4a5056), 0, H * .95, 0, body);
+      mesh(new THREE.BoxGeometry(.2, .14, .1), M(0x1a1a1a), 0, H * .9, .12, body); for (const sx of [-1, 1]) mesh(new THREE.CylinderGeometry(.045, .05, .08, 8), M(0x2a2a2a), sx * .08, H * .87, .17, body).rotation.x = Math.PI / 2;
+    } else {                                                       // Ironjaw: scrap shoulder plate + red rag
+      mesh(new THREE.BoxGeometry(.32, .06, .26), new THREE.MeshLambertMaterial({ map: texCorr, color: 0x8a6a4a }), -.18, H * .82, 0, body).rotation.z = .3;
+      mesh(new THREE.BoxGeometry(.3, .07, .05), M(0x8a2a1a), 0, H * .9, .13, body);
     }
   }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
@@ -95,10 +106,10 @@ const ents = [];
 function addEnt(e) { e.pd = Math.hypot(e.x, e.z); e.y = heightAt(e.x, e.z); world.add(e.g); ents.push(e); e.g.position.set(e.x, e.y, e.z); return e; }
 function removeEnt(e) { world.remove(e.g); const i = ents.indexOf(e); if (i >= 0) ents.splice(i, 1); }
 
-function spawnClan(kind, x, z, mode) {
-  const p = makePerson(kind);
-  const hp = kind === 'brute' ? 150 : kind === 'thrower' ? 50 : 70;
-  return addEnt({ type: 'clan', kind, p, g: p.g, x, z, yaw: 0, hp, maxhp: hp, speed: kind === 'brute' ? 3.3 : kind === 'thrower' ? 4 : 4.7,
+function spawnClan(kind, x, z, mode, fac = 'clan') {
+  const p = makePerson(kind, { fac });
+  const hp = kind === 'brute' ? 150 : kind === 'thrower' ? 50 : kind === 'soldier' ? 130 : kind === 'gunner' ? 85 : 70;
+  return addEnt({ type: 'clan', fac, kind, p, g: p.g, x, z, yaw: 0, hp, maxhp: hp, speed: kind === 'brute' ? 3.3 : kind === 'thrower' ? 4 : kind === 'gunner' || kind === 'soldier' ? 4.2 : 4.7,
     state: mode === 'raid' ? 'raid' : 'idle', mode, home: { x, z }, t: rnd() * 5, atk: 0, cool: rr(.5, 2), ph: rnd() * 6, dead: false, deadT: 0, r: .45,
     climb: mode === 'raid' && rnd() < CLIMB[UP.wall] && kind !== 'brute', stuck: 0, side: 0 });
 }
@@ -119,14 +130,14 @@ function hitSpheres(e) {
 /* ================= player ================= */
 const P = { slot: 0, ads: 0, swim: false, x: 0, z: 26, y: 0, vy: 0, yaw: Math.PI, pitch: 0, hp: 100, food: 100, onGround: true, reload: 0, fire: 0, bob: 0, kick: 0, dead: false, hurtT: 0, pd: 26, coughT: 0, stepT: 0, safe: false,
   vx: 0, vz: 0, stam: 100, stamT: 0, winded: false, runToggle: false, sprinting: false, jumpBuf: 0, coyote: 0, land: 0, eyeY: 0, bobAmp: 0, roll: 0, sway: 0, runK: 0 };
-const INV = { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 };
+const INV = { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: {}, tools: [], eq: ['arc', 'hunter', null] };
 const UP = { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 };
 const CLIMB = [.55, .3, .1, 0];
 /* the bench's rifle tiles: 1 suppressor + bigger mag, 2 swap to the scoped battle rifle, 3 its tac light + more */
 const RIFLE = [{ id: 'carbine', dmg: 28, mag: 20, rate: .115, spread: .014 }, { id: 'carbine', dmg: 34, mag: 25, rate: .11, spread: .011 }, { id: 'battle', dmg: 46, mag: 25, rate: .13, spread: .007 }, { id: 'battle', dmg: 56, mag: 30, rate: .12, spread: .005 }];
 const HUNTER = { id: 'hunter', dmg: 150, mag: 5, rate: 1.05, spread: .0015 };
 const RES_MAX = 90, RESH_MAX = 20;
-const gunStats = () => P.slot === 1 ? HUNTER : RIFLE[UP.rifle];
+const gunStats = () => curW().st;
 const input = { mx: 0, my: 0, look: [0, 0], fire: false, jump: false, sprint: false };
 
 function wallCollide(o, rad, isPlayer) {
@@ -169,7 +180,8 @@ const GUNV = {};
 let muzzle = new THREE.Object3D(), flash, flashLight, armsObj = [];
 function gunView(id) {
   const W = WEAPONS[id], g = new THREE.Group();
-  const m = modelCopy(W.model, W.len, W.axis);
+  let m = null;
+  if (W.proc) { m = new THREE.Group(); W.proc(m); } else { m = modelCopy(W.model, W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); }
   if (m) {
     if (W.yaw) m.rotation.y = W.yaw;
     const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()); m.position.sub(c);
