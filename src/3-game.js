@@ -382,7 +382,7 @@ function updClan(e, dt) {
   if (e.throwT > 0) { e.throwT -= dt; p.body.rotation.x = -.18; if (p.weapon) p.weapon.rotation.x = -2.2; if (e.throwT <= 0) { throwSpear(e); p.body.rotation.x = .25; if (p.weapon) p.weapon.rotation.x = .3; } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   p.body.position.z = 0;
-  e.ph += dt * v * 2.1; poseWalk(p, e.ph, Math.min(1, v / 3));
+  e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
   e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
 // a guard who spots you shouts: everyone near them joins in
@@ -421,16 +421,34 @@ function updNPC(e, dt) {
     spd = 0;
   } else if (e.wander) {
     const inCamp = Math.hypot(e.home.x, e.home.z) < CAMP_R;
-    e.t -= dt; if (e.t <= 0) { e.t = rr(4, 10); e.tx = e.home.x + rr(-8, 8); e.tz = e.home.z + rr(-8, 8); if (inCamp && Math.hypot(e.tx, e.tz) > CAMP_R - 6) { e.tx = e.home.x; e.tz = e.home.z; } }
-    if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = 1.3; }
+    if (inCamp) {                       // Kestrel: walk the streets, stop at shop fronts, loiter, move on
+      if (night.active) e.route = null;
+      else if (e.route && e.route.length) {
+        const n = e.route[0], wx = n.x + e.offX, wz = n.z + e.offZ;
+        if (Math.hypot(wx - e.x, wz - e.z) < .7) { e.route.shift(); if (!e.route.length) { e.route = null; e.wait = n.shop ? rr(5, 11) : rr(1.5, 5); e.at = n; } else if (rnd() < .12) e.wait = rr(1, 3); }
+        else if (e.wait > 0) e.wait -= dt;
+        else { tx = wx; tz = wz; spd = e.walkSpd; }
+      } else {
+        e.wait -= dt;
+        if (e.at && e.at.shop) e.yaw += angWrap(Math.atan2(e.at.shop.cx - e.x, e.at.shop.cz - e.z) - e.yaw) * Math.min(1, dt * 3);
+        if (e.wait <= 0) {
+          const N = WALK.nodes, shops = N.filter(n => n.shop), to = rnd() < .5 ? pick(shops) : pick(N), from = WALK.nearest(e.x, e.z);
+          e.route = [from, ...WALK.path(from, to)]; e.offX = rr(-.9, .9); e.offZ = rr(-.9, .9); e.at = null;
+        }
+      }
+    } else {                            // out in the world: short strolls round home, never into something solid
+      e.t -= dt;
+      if (e.t <= 0) { e.t = rr(4, 10); for (let k = 0; k < 6; k++) { const x = e.home.x + rr(-8, 8), z = e.home.z + rr(-8, 8); if (clearLine(e.x, e.z, x, z, e.r)) { e.tx = x; e.tz = z; break; } } }
+      if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = e.walkSpd; }
+    }
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
   if (night.active && !e.follow && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
-  e.ph += dt * v * 2.2; poseWalk(p, e.ph, Math.min(1, v / 2.5));
-  e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+  e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 2.5), v);
+  { const gy = heightAt(e.x, e.z), fy = floorAt(e.x, e.z, e.y ?? gy); e.y = Math.max(gy, fy); } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
 function updTowers(dt) {
   for (const T of towers) {
@@ -869,6 +887,13 @@ $('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 if (isTouch) document.body.classList.add('touch');
 
 /* ================= input ================= */
+// audio unlocks on the events browsers actually count as a tap (touchend / pointerup / click / key), anywhere on the page
+for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) addEventListener(ev, () => initAudio(), { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (!AC) return;
+  if (document.hidden) { music.pauseAll(); AC.suspend().catch(() => {}); }
+  else { AC.resume().catch(() => {}); music.resume(); }
+});
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true; initAudio();
@@ -980,8 +1005,9 @@ function adaptRes(raw) {
   if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
   prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
-  if (fps < 48) { n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) n = Math.min(PR_MAX, prNow + .1);
+  // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
+  if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {
@@ -1016,6 +1042,7 @@ function frame(now) {
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
       const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .45, 140, 320);
+      if (e.p && e.p.lo) { const near = d < (e.p.near ? 27 : 23); if (near !== e.p.near) { e.p.near = near; e.p.hi.visible = near; e.p.lo.visible = !near; } }
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -1031,9 +1058,34 @@ function frame(now) {
     }
     saveT += dt; if (saveT > 15) { saveT = 0; save(); }
   }
-  updParts(dt); updTracers(dt);
+  updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
   composer.render(dt);
+}
+
+/* light pool: the world has a dozen point lights (camp fire, hull lamp, village fires, placed lamps, muzzle flash…) and
+   three.js makes every lit pixel loop over all of them, near or not — the biggest per-pixel cost on phones. They stay in
+   the scene graph (so the code that flickers/moves them keeps working) but invisible, and each frame the few real
+   lights below copy the ones that actually reach the camera. The light count never changes, so no shader recompiles. */
+const LPOOL = [], LSRC = [], _lv = new THREE.Vector3();
+function buildLightPool() {
+  scene.traverse(o => { if (o.isPointLight) LSRC.push(o); });
+  for (const l of LSRC) l.visible = false;
+  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 0); scene.add(l); LPOOL.push(l); }
+}
+function updLightPool() {
+  const cx = camera.position.x, cz = camera.position.z, pick3 = [];
+  for (const l of LSRC) {
+    if (!(l.intensity > 0)) continue;
+    // what matters is how close the lit patch (the light's reach) comes to the camera, not the light itself:
+    // a fire 40 m off still visibly lights the ground around it
+    l.getWorldPosition(_lv); const reach = l.distance || 300, d = Math.hypot(_lv.x - cx, _lv.z - cz) - reach;
+    if (d > 70) continue;
+    pick3.push({ l, k: l === flashLight ? -1e9 : d - l.intensity * 2, x: _lv.x, y: _lv.y, z: _lv.z });
+  }
+  pick3.sort((a, b) => a.k - b.k);
+  LPOOL.forEach((P, i) => { const s = pick3[i]; if (!s) { P.intensity = 0; return; }
+    P.color.copy(s.l.color); P.intensity = s.l.intensity; P.distance = s.l.distance; P.decay = s.l.decay; P.position.set(s.x, s.y, s.z); });
 }
 
 /* ================= regions + the valley map ================= */
@@ -1041,6 +1093,72 @@ function frame(now) {
    call — twice with the sun's shadow — even when they're a few pixels on the horizon. Each prop group gets a draw distance
    from its size (small things fade out first, never past the haze); hidden ones go to layer 1, which neither the camera nor
    the shadow pass draws. Terrain, the forest, people and animals have their own streaming/culling. */
+/* static bake: the settlement, towns and camps are built from thousands of little boxes and cylinders, each its own draw
+   call (twice with shadows). Inside each top-level group, meshes that share a look (same material settings, same shadow
+   flags, same ~30 m cell) are merged into one. Anything that moves, hides, flickers or gets rebuilt is left alone:
+   doors, tower guns/lamps, crates, caches, scrap, the smokehouse, placed buildings, flames/glows (basic or transparent). */
+const _bkm = new THREE.Matrix4(), _bkv = new THREE.Vector3(), MAT_BAKE = new Map();
+const matSig = m => [m.type, m.color && m.color.getHex(), m.map && m.map.uuid, m.normalMap && m.normalMap.uuid, m.normalScale && m.normalScale.x, m.emissive && m.emissive.getHex(), m.emissiveMap && m.emissiveMap.uuid,
+  m.emissiveIntensity, m.flatShading, m.side, m.vertexColors, m.roughness, m.metalness, m.roughnessMap && m.roughnessMap.uuid, m.metalnessMap && m.metalnessMap.uuid, m.aoMap && m.aoMap.uuid,
+  m.envMapIntensity, m.fog, m.toneMapped, m.polygonOffset, m.wireframe].join('|');
+function bakeable(o) {
+  const m = o.material, g = o.geometry;
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.visible || o.layers.mask !== 1 || o.renderOrder || !o.frustumCulled) return false;
+  if (Array.isArray(m) || !m.visible || m.transparent || m.alphaTest > 0 || m.isMeshBasicMaterial || m.isShaderMaterial || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return false;
+  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || Object.keys(o.userData).length) return false;
+  return true;
+}
+function bakeGroup(root, dyn, cellSize = 30) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), buckets = new Map();
+  (function walk(o) {
+    if (dyn.has(o) || !o.visible) return;
+    if (o !== root && bakeable(o)) {
+      _bkm.multiplyMatrices(inv, o.matrixWorld); if (_bkm.determinant() <= 0) return;
+      o.getWorldPosition(_bkv);
+      const names = Object.keys(o.geometry.attributes).filter(n => ['position', 'normal', 'uv', 'color'].includes(n)).sort();
+      const key = [matSig(o.material), names.join(','), o.castShadow, o.receiveShadow, Math.floor(_bkv.x / cellSize), Math.floor(_bkv.z / cellSize)].join('#');
+      let B = buckets.get(key); if (!B) buckets.set(key, B = { mat: o.material, names, list: [] });
+      B.list.push({ o, m: _bkm.clone() }); return;
+    }
+    for (const c of o.children) walk(c);
+  })(root);
+  let saved = 0;
+  for (const B of buckets.values()) {
+    if (B.list.length < 2) continue;
+    const geos = B.list.map(({ o, m }) => {
+      const src = o.geometry, g = new THREE.BufferGeometry();
+      for (const n of B.names) { const a = src.attributes[n], f = new Float32Array(a.count * a.itemSize);
+        for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) f[i * a.itemSize + k] = a.getComponent(i, k);
+        g.setAttribute(n, new THREE.BufferAttribute(f, a.itemSize)); }
+      if (src.index) g.setIndex(Array.from(src.index.array)); else g.setIndex([...Array(src.attributes.position.count).keys()]);
+      if (src.groups.length) { const gr = src.groups[0]; if (src.groups.length === 1) g.setDrawRange(gr.start, gr.count); }
+      g.applyMatrix4(m); return g;
+    });
+    const merged = mergeGeometries(geos, false); if (!merged) continue;
+    const k = matSig(B.mat); if (!MAT_BAKE.has(k)) MAT_BAKE.set(k, B.mat);
+    const mm = new THREE.Mesh(merged, MAT_BAKE.get(k)); mm.castShadow = B.list[0].o.castShadow; mm.receiveShadow = B.list[0].o.receiveShadow;
+    root.add(mm);
+    for (const { o } of B.list) o.parent.remove(o);
+    saved += B.list.length - 1;
+  }
+  return saved;
+}
+function bakeDyn() {
+  const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g)]);
+  d.delete(undefined); d.delete(null); return d;
+}
+function bakeWorld() {
+  const dyn = bakeDyn(); let saved = 0;
+  for (const o of [...world.children]) if (!dyn.has(o) && o.isGroup) saved += bakeGroup(o, dyn);
+  // loose meshes added straight to the world (barrels, rubble, debris): gather them per 40 m cell into one group each
+  const loose = new Map();
+  for (const o of [...world.children]) if (!dyn.has(o) && bakeable(o)) { const k = Math.floor(o.position.x / 40) + ',' + Math.floor(o.position.z / 40); if (!loose.has(k)) loose.set(k, []); loose.get(k).push(o); }
+  for (const L of loose.values()) { if (L.length < 3) continue; const g = new THREE.Group(); world.add(g); for (const o of L) g.attach(o); saved += bakeGroup(g, dyn, 40); }
+  console.log('bake: merged away', saved, 'meshes');
+}
+
 const CULL = []; let cullT = 0;
 function buildCull() {
   const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
@@ -1231,7 +1349,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate']);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'gun-night-lo', 'gun-desert-lo']);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
@@ -1245,9 +1363,10 @@ async function boot() {
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
-  for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
-  SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
-  ensureWildlife(); villageGuards(); buildCull();
+  WALK.settle();
+  for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
+  SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
+  ensureWildlife(); villageGuards(); bakeWorld(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

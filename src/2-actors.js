@@ -17,8 +17,13 @@ function makePerson(kind, o = {}) {
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
   const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
   const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
+  const walkU = { ph: { value: 0 }, amp: { value: 0 } };
+  // the survivor models face their own +x, but people move along +z — turn them, or everyone walks sideways
   const m = modelCopy(model, H, 'y', tint);
-  if (m) body.add(m);
+  if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
+  // far away: the ~1.5k-triangle copy (the full ones are 10-19k each, and there can be dozens on screen)
+  const lo = m && MODELS[model + '-lo'] ? modelCopy(model + '-lo', H, 'y', tint) : null;
+  if (lo) { lo.rotation.y = -Math.PI / 2; walkify(lo, H, walkU); lo.visible = false; body.add(lo); }
   else { mesh(new THREE.BoxGeometry(.5, H * .55, .3), M(0x4a4a4a), 0, H * .62, 0, body); mesh(new THREE.BoxGeometry(.28, .3, .28), M(0xc68e6a), 0, H * .93, 0, body); }
   let weapon = null;
   if (clan) {
@@ -44,7 +49,7 @@ function makePerson(kind, o = {}) {
   }
   if (armed) {
     weapon = new THREE.Group(); weapon.position.set(.22, H * .58, .22); body.add(weapon);
-    const gm = modelCopy(kind === 'soldier' ? 'gun-desert' : 'gun-night', .72, 'z'); if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
+    const gn = kind === 'soldier' ? 'gun-desert' : 'gun-night', gm = modelCopy(MODELS[gn + '-lo'] ? gn + '-lo' : gn, .72, 'z');   // a 13k-triangle gun is wasted at arm's length if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
     if (kind === 'soldier') {                                     // Greyhold: helmet + gas mask
       mesh(new THREE.SphereGeometry(.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(0x4a5056), 0, H * .95, 0, body);
       mesh(new THREE.BoxGeometry(.2, .14, .1), M(0x1a1a1a), 0, H * .9, .12, body); for (const sx of [-1, 1]) mesh(new THREE.CylinderGeometry(.045, .05, .08, 8), M(0x2a2a2a), sx * .08, H * .87, .17, body).rotation.x = Math.PI / 2;
@@ -54,17 +59,90 @@ function makePerson(kind, o = {}) {
     }
   }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
-  return { g, body, weapon, H, kind };
+  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true };
 }
-/* stride: bob, side sway, forward lean with speed */
-function poseWalk(p, ph, amt) {
-  p.body.position.y = Math.abs(Math.sin(ph)) * .07 * amt;
-  p.body.rotation.z = Math.sin(ph) * .045 * amt;
+/* stride: bob, side sway, forward lean with speed, and the legs + arms swinging (walkU, done in the vertex shader) */
+function poseWalk(p, ph, amt, v = amt * 2.5) {
+  p.body.position.y = Math.abs(Math.sin(ph)) * .05 * amt;
+  p.body.rotation.z = Math.sin(ph) * .03 * amt;
   p.body.rotation.x = .07 * amt;
-  if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .25 * amt;
+  if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .12 * amt;
+  if (p.walkU) { const tgt = v > .08 ? Math.min(.5, .24 + v * .055) : 0; p.walkU.amp.value += (tgt - p.walkU.amp.value) * .2; p.walkU.ph.value = ph; }
+}
+// one full stride (left + right step) per ~1.4 m walking, stretching to ~3 m at a run
+const strideRate = v => v * 6.283 / clamp(1.05 + v * .42, 1.35, 3.1);
+
+/* The survivor models are single rigid meshes, so legs and arms are bent in the vertex shader: below the hip, each side
+   swings about the hip by ±amp (left/right by the sign of x); the arms (outside the torso, shoulder to hand height)
+   swing the other way about the shoulder. Done in the person's own frame (feet at 0, height H, facing +z). */
+const WALK_GEO = new Map();
+/* Tripo bodies have the legs (and arms) fused to each other/the torso, so bending them by a smooth "which side" weight
+   stretches a web of triangles between them. Instead each triangle is given to one side (left/right leg, arm or not) by
+   its centre; vertices shared across the split are duplicated, so the legs part cleanly (the cut is inside the legs). */
+function walkGeo(geo, toP, H) {
+  if (WALK_GEO.has(geo)) return WALK_GEO.get(geo);
+  const idx = geo.index, nTri = (idx ? idx.count : geo.attributes.position.count) / 3, P = geo.attributes.position, v = new THREE.Vector3();
+  const pp = new Float32Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(toP); pp[i * 3] = v.x / H; pp[i * 3 + 1] = v.y / H; pp[i * 3 + 2] = v.z / H; }
+  const names = Object.keys(geo.attributes), out = Object.fromEntries(names.map(n => [n, []])), sa = [], remap = new Map(), newIdx = [];
+  for (let t = 0; t < nTri; t++) {
+    const vi = [0, 1, 2].map(k => idx ? idx.getX(t * 3 + k) : t * 3 + k);
+    const cx = (pp[vi[0] * 3] + pp[vi[1] * 3] + pp[vi[2] * 3]) / 3, cy = (pp[vi[0] * 3 + 1] + pp[vi[1] * 3 + 1] + pp[vi[2] * 3 + 1]) / 3;
+    const side = cx < 0 ? -1 : 1, arm = Math.abs(cx) > .125 && cy > .42 && cy < .82 ? 1 : 0, leg = cy < .5 ? 1 : 0;
+    for (const a of vi) {
+      const key = a * 8 + (side + 1) * 2 + arm * 1 + leg * 4; let n = remap.get(key);
+      if (n === undefined) { n = sa.length / 2; remap.set(key, n); sa.push(side, arm); for (const nm of names) { const A = geo.attributes[nm]; for (let k = 0; k < A.itemSize; k++) out[nm].push(A.getComponent(a, k)); } }
+      newIdx.push(n);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  for (const nm of names) g.setAttribute(nm, new THREE.BufferAttribute(new Float32Array(out[nm]), geo.attributes[nm].itemSize));
+  g.setAttribute('wSA', new THREE.BufferAttribute(new Float32Array(sa), 2)); g.setIndex(newIdx);
+  g.boundingBox = geo.boundingBox; g.boundingSphere = geo.boundingSphere; if (!g.boundingSphere) g.computeBoundingSphere();
+  WALK_GEO.set(geo, g); return g;
+}
+function walkify(wrap, H, U) {
+  wrap.updateMatrixWorld(true);
+  wrap.traverse(m => {
+    if (!m.isMesh) return;
+    const toP = m.matrixWorld.clone(), fromP = toP.clone().invert();
+    m.geometry = walkGeo(m.geometry, toP, H);
+    m.material = [].concat(m.material).map(x => {
+      const c = x.clone();
+      c.onBeforeCompile = sh => {
+        sh.uniforms.wPh = U.ph; sh.uniforms.wAmp = U.amp; sh.uniforms.wH = { value: H };
+        sh.uniforms.wTo = { value: toP }; sh.uniforms.wFrom = { value: fromP };
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+attribute vec2 wSA; uniform float wPh, wAmp, wH; uniform mat4 wTo, wFrom;
+vec3 wSwing(vec3 p, float a, vec3 piv) { vec3 q = p - piv; float c = cos(a), s = sin(a); return piv + vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c); }`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+if (wAmp > .002) {
+  vec3 p = (wTo * vec4(transformed, 1.0)).xyz; float h = wH, sw = sin(wPh) * wAmp, side = wSA.x;
+  float leg = 1.0 - smoothstep(.4 * h, .5 * h, p.y);                           // full below the hip, fading out over it
+  vec3 q = wSwing(p, sw * side * leg, vec3(0.0, .5 * h, 0.0));
+  float knee = (1.0 - smoothstep(.22 * h, .3 * h, p.y)) * max(0.0, -sw * side) * .8 * leg;   // the trailing leg bends a little
+  q = wSwing(q, -knee, vec3(q.x, .27 * h, q.z));
+  float arm = wSA.y * (1.0 - smoothstep(.74 * h, .8 * h, p.y));
+  q = mix(q, wSwing(p, -sw * side * .6, vec3(p.x, .8 * h, 0.0)), arm);
+  transformed = (wFrom * vec4(q, 1.0)).xyz;
+}`);
+      };
+      c.customProgramCacheKey = () => 'walk';
+      return c;
+    });
+    if (m.material.length === 1) m.material = m.material[0];
+  });
 }
 
 /* ================= animals ================= */
+// an animal is a dozen-plus plain coloured boxes; the ones that move together (body, neck, head) become one mesh each
+function fuseKids(grp) {
+  const ms = grp.children.filter(o => o.isMesh && !o.children.length && o.material.isMeshLambertMaterial && !o.material.map && !o.material.vertexColors);
+  if (ms.length < 2) return;
+  const parts = ms.map(o => { o.updateMatrix(); return { geo: o.geometry, color: o.material.color, m: o.matrix }; });   // Color(color) copies, so no colour-space round trip
+  for (const o of ms) grp.remove(o);
+  mesh(merge(parts), VCOL, 0, 0, 0, grp);
+}
 function makeDeer(stag) {
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const c = 0x8a6440, d = 0x5a4028;
@@ -83,6 +161,7 @@ function makeDeer(stag) {
   mesh(new THREE.BoxGeometry(.12, .16, .06), M(0xf0ece0), 0, 1.2, -.62, body);
   const legs = [];
   for (const [x, z] of [[-.16, .45], [.16, .45], [-.16, -.45], [.16, -.45]]) legs.push(limb(.09, .82, .09, d, body, x, .82, z));
+  fuseKids(body); fuseKids(neck); fuseKids(head);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { g, body, neck, head, legs };
 }
@@ -97,6 +176,7 @@ function makeBoar() {
   for (const s of [-1, 1]) { const t = mesh(new THREE.ConeGeometry(.03, .18, 4), M(0xe8e0cc), s * .12, -.08, .4, head); t.rotation.set(-1, 0, s * .4); }
   const legs = [];
   for (const [x, z] of [[-.17, .35], [.17, .35], [-.17, -.35], [.17, -.35]]) legs.push(limb(.12, .42, .12, 0x2a201a, body, x, .42, z));
+  fuseKids(body); fuseKids(head);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { g, body, head, legs };
 }
@@ -117,7 +197,8 @@ function spawnDeer(x, z) { const stag = rnd() < .35, p = makeDeer(stag); return 
 function spawnBoar(x, z) { const p = makeBoar(); return addEnt({ type: 'boar', p, g: p.g, x, z, yaw: rnd() * 6, hp: 80, state: 'root', t: rr(1, 4), ph: 0, dead: false, deadT: 0, r: .5, cool: 0, home: { x, z } }); }
 function spawnNPC(name, x, z, o) {
   const p = makePerson('arc', o);
-  return addEnt({ type: 'npc', name, p, g: p.g, x, z, yaw: o.yaw ?? 0, home: { x, z }, wander: !!o.wander, t: rr(1, 6), ph: 0, r: .4, tx: x, tz: z, follow: false });
+  return addEnt({ type: 'npc', name, p, g: p.g, x, z, yaw: o.yaw ?? 0, home: { x, z }, wander: !!o.wander, t: rr(1, 6), ph: rnd() * 6, r: .4, tx: x, tz: z, follow: false,
+    stuck: 0, side: 0, route: null, wait: rr(0, 3), walkSpd: rr(1.15, 1.5), offX: rr(-.9, .9), offZ: rr(-.9, .9) });
 }
 function hitSpheres(e) {
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
@@ -166,6 +247,16 @@ function collide(o, rad, isPlayer) {
   if (!o.climbing) wallCollide(o, rad, isPlayer);
   hullCollide(o, rad);
   const d = Math.hypot(o.x, o.z); if (d > WORLD) { o.x *= WORLD / d; o.z *= WORLD / d; }
+}
+/* is the straight walk from a to b free of anything solid (and not across the wall)? */
+function clearLine(x0, z0, x1, z1, rad) {
+  const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(L / .8));
+  if ((Math.hypot(x0, z0) < CAMP_R) !== (Math.hypot(x1, z1) < CAMP_R)) return false;
+  for (let k = 1; k <= n; k++) {
+    const x = lerp(x0, x1, k / n), z = lerp(z0, z1, k / n), cl = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (cl) for (const c of cl) if (Math.hypot(x - c.x, z - c.z) < c.r + rad) return false;
+  }
+  return true;
 }
 
 /* ================= first-person guns: ELYRA's real-world models only =================
@@ -302,9 +393,16 @@ const SAMPLES = ['rifle-m16-a', 'rifle-m16-b', 'gun-shot-heavy', 'machine-gun-cl
   'casing-1', 'casing-2', 'casing-3', 'shell-drop-1', 'shell-drop-2', 'distant-shot-a', 'distant-shot-b', 'distant-shot-c', 'distant-burst', 'expl-boom',
   ...[1, 2, 3, 4, 5, 6, 7, 8].map(i => 'step-trail-' + i), ...[1, 2, 3, 4].map(i => 'step-gravel-' + i), ...[1, 2, 3, 4].map(i => 'step-metal-' + i), ...[1, 2, 3, 4].map(i => 'step-snow-' + i), ...[1, 2, 3, 4].map(i => 'step-sand-' + i)];
 try { muted = localStorage.getItem('the-arc-mute') === '1'; } catch (e) {}
+/* phones: iOS mutes Web Audio with the ringer switch unless the page says it plays media; the context and the music
+   players only unlock inside a real tap (touchend/click, not touchstart), and iOS suspends/"interrupts" the context when
+   the app is backgrounded — so every tap re-checks, and coming back to the tab resumes it. */
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
 function initAudio() {
-  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
-  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  if (AC) { if (AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => {}); music.unlock(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); } catch (e) { return; }
+  if (AC.state !== 'running') AC.resume().catch(() => {});
+  // a one-sample silent buffer started inside the gesture is what finally opens the output on older iOS
+  try { const s = AC.createBufferSource(); s.buffer = AC.createBuffer(1, 1, 22050); s.connect(AC.destination); s.start(0); } catch (e) {}
   master = AC.createGain(); master.gain.value = muted ? 0 : .9; master.connect(AC.destination);
   sfxGain = AC.createGain(); sfxGain.gain.value = 1; sfxGain.connect(master);
   const len = AC.sampleRate * 2, buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
@@ -326,16 +424,30 @@ function play(name, vol = 1, rate = 1, when = 0) {
 /* music: two players crossfading. moods: day / night / raid / intro / dawn */
 const music = (() => {
   const TR = { day: ['quiet-bones', 'quiet-bones-drift'], night: ['dark-bones-abyss'], raid: ['dark-bones-pulse', 'drive-total-war'], intro: ['quiet-bones-deep'], dawn: ['awe-bones-dark'], tense: ['dark-bones-pulse'] };
-  const A = [new Audio(), new Audio()]; A.forEach(a => { a.loop = true; a.preload = 'none'; a.volume = 0; });
-  let cur = 0, mood = '', ok = false, mute = muted, fade = null;
+  // iOS only lets an <audio> element play from code after it has played once inside a tap, and ignores .volume
+  // (always full) — so both players are "blessed" in the first tap, and the stings reuse one blessed player too.
+  const A = [new Audio(), new Audio()], STING = new Audio(); [...A, STING].forEach(a => { a.preload = 'auto'; a.setAttribute('playsinline', ''); }); A.forEach(a => { a.loop = true; a.volume = 0; });
+  const SILENT = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+  let cur = 0, mood = '', ok = false, mute = muted, fade = null, blessed = false;
   function go(m, force) {
     if (m === mood && !force) return; mood = m; if (!ok) return;
     const nx = 1 - cur, a = A[nx], b = A[cur], list = TR[m] || TR.day;
-    a.src = `assets/music/${list[Math.floor(Math.random() * list.length)]}.mp3`; a.currentTime = 0; a.volume = 0; a.play().catch(() => {});
+    a.src = `assets/music/${list[Math.floor(Math.random() * list.length)]}.mp3`; a.volume = 0;
+    if (!mute) a.play().catch(() => {});
     cur = nx; clearInterval(fade); let t = 0;
     fade = setInterval(() => { t += .05; const k = Math.min(1, t / 2.5), v = mute ? 0 : musicVol; a.volume = v * k; b.volume = v * (1 - k); if (k >= 1) { b.pause(); clearInterval(fade); } }, 50);
   }
-  return { go, unlock() { if (ok) return; ok = true; if (mood) go(mood, true); }, setMute(m) { mute = m; A[cur].volume = m ? 0 : musicVol; }, sting(n, v = .5) { if (!ok || mute) return; const s = new Audio(`assets/music/${n}.mp3`); s.volume = v; s.play().catch(() => {}); } };
+  function bless() {      // inside a tap: play every element once (silently) so later play() calls are allowed
+    if (blessed) return; blessed = true;
+    for (const a of [...A, STING]) { if (!a.src) { a.src = SILENT; const p = a.play(); if (p) p.then(() => { if (a.src === SILENT) a.pause(); }).catch(() => { blessed = false; }); } }
+  }
+  return { go, unlock() {
+      if (!ok) { ok = true; go(mood || 'day', true); bless(); return; }
+      bless(); if (!mute && A[cur].paused && A[cur].src && !A[cur].src.startsWith('data:')) A[cur].play().catch(() => {});   // iOS paused it (call, app switch)
+    },
+    setMute(m) { mute = m; A[cur].volume = m ? 0 : musicVol; if (m) A.forEach(a => a.pause()); else if (ok) A[cur].play().catch(() => {}); },
+    pauseAll() { A.forEach(a => a.pause()); }, resume() { if (ok && !mute && A[cur].src) A[cur].play().catch(() => {}); },
+    sting(n, v = .5) { if (!ok || mute) return; STING.src = `assets/music/${n}.mp3`; STING.volume = v; STING.play().catch(() => {}); } };
 })();
 let STEP_SURF = 'trail';
 function noiseBurst(dur, freq, q, vol, type = 'lowpass', when = 0) {

@@ -9,7 +9,7 @@ import { EffectComposer } from './vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
+import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -301,10 +301,13 @@ const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, t: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, contrast: { value: 1.04 }, sat: { value: 1.06 }, vig: { value: .36 },
     grain: { value: .03 }, fringe: { value: .0018 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  // tone mapping (ACES) + sRGB happen here too (three puts those functions + toneMappingExposure in every shader's prefix),
+  // so the separate OutputPass — a whole extra full-screen pass — is gone
   fragmentShader: `uniform sampler2D tDiffuse;uniform float t,contrast,sat,vig,grain,fringe,lift,gain,hurt;uniform vec2 res;uniform vec3 shadow,high;varying vec2 vUv;
+    vec3 om(vec3 c){return sRGBTransferOETF(vec4(ACESFilmicToneMapping(c),1.0)).rgb;}
     float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
     void main(){vec2 d=vUv-.5;float r2=dot(d,d);vec2 o=d*fringe*r2*4.0;
-      vec3 c=vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b);
+      vec3 c=om(vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b));
       float l=dot(c,vec3(.2126,.7152,.0722));
       c+=shadow*(1.0-smoothstep(.0,.45,l))+high*smoothstep(.45,1.0,l);
       c=mix(vec3(l),c,sat*(1.0-hurt*.6));
@@ -318,7 +321,6 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
 composer.addPass(bloom);
-composer.addPass(new OutputPass());
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 

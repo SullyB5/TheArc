@@ -208,6 +208,7 @@ function buildWall(level) {
     const p = mesh(new THREE.CylinderGeometry(.22, .28, H + 1.4, 6), new THREE.MeshLambertMaterial({ map: texWood, color: 0xb59a7e }), x, y + (H + 1.4) / 2 - .4, z, wallGroup);
     p.rotation.z = rr(-.04, .04);
   }
+  if (typeof bakeGroup === 'function') bakeGroup(wallGroup, new Set(), 40);
 }
 const GATE_X = Math.sin(GATE_HALF) * CAMP_R;
 function buildGate() {
@@ -313,6 +314,48 @@ const SHOP_DEFS = [
 function shopL2W(D, lx, lz) { const c = Math.cos(D.ry), s = Math.sin(D.ry); return { x: D.cx + lx * c + lz * s, z: D.cz - lx * s + lz * c }; }
 for (const D of SHOP_DEFS) { D.cx = D.x; D.cz = D.z; D.bw = D.bw || 11; D.bd = D.bd || 8; D.keeper = shopL2W(D, 0, -1.1); D.spot = shopL2W(D, -3.9, 1.9); D.front = shopL2W(D, 0, 2.1); D.forge = shopL2W(D, 3.9, 2.6); }
 const SHOP = Object.fromEntries(SHOP_DEFS.map(D => [D.id, D]));
+/* the walkers' network: settlers and extras walk the streets node to node (junctions, street ends, a spot in front of each
+   shop) instead of picking a random point in the yard, which put them inside walls and shops. */
+const WALK = (() => {
+  const nodes = [], onSt = STREETS.map(() => []);
+  const node = (x, z) => { for (const n of nodes) if (Math.hypot(n.x - x, n.z - z) < 1.5) return n; const n = { x, z, id: nodes.length, nb: new Set(), shop: null }; nodes.push(n); return n; };
+  const proj = (S, x, z) => { const [ax, az] = S.a, [bx, bz] = S.b, dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0, 1); return { t, x: ax + dx * t, z: az + dz * t }; };
+  STREETS.forEach((S, i) => { onSt[i].push({ t: 0, n: node(...S.a) }, { t: 1, n: node(...S.b) }); });
+  // junctions: wherever two streets touch (within their widths), sample along A and take the closest point on B
+  for (let i = 0; i < STREETS.length; i++) for (let j = i + 1; j < STREETS.length; j++) {
+    const A = STREETS[i], B = STREETS[j]; let best = null;
+    for (let k = 0; k <= 60; k++) { const t = k / 60, x = lerp(A.a[0], A.b[0], t), z = lerp(A.a[1], A.b[1], t), q = proj(B, x, z), d = Math.hypot(q.x - x, q.z - z); if (!best || d < best.d) best = { d, t, x, z, q }; }
+    if (best.d > (A.w + B.w) / 2 + 1) continue;
+    const na = node(best.x, best.z), nb = node(best.q.x, best.q.z); onSt[i].push({ t: best.t, n: na }); onSt[j].push({ t: best.q.t, n: nb });
+    if (na !== nb) { na.nb.add(nb); nb.nb.add(na); }
+  }
+  // a spot in front of each shop, tied to the nearest street
+  for (const D of SHOP_DEFS) {
+    const f = shopL2W(D, 0, D.bd / 2 + (D.id === 'cook' ? 6.4 : 2.6)); let bi = 0, bq = null;
+    STREETS.forEach((S, i) => { const q = proj(S, f.x, f.z); if (!bq || Math.hypot(q.x - f.x, q.z - f.z) < Math.hypot(bq.x - f.x, bq.z - f.z)) { bq = q; bi = i; } });
+    const sn = node(bq.x, bq.z), fn = node(f.x, f.z); fn.shop = D; onSt[bi].push({ t: bq.t, n: sn }); if (sn !== fn) { sn.nb.add(fn); fn.nb.add(sn); }
+  }
+  onSt.forEach(L => { L.sort((a, b) => a.t - b.t); for (let k = 1; k < L.length; k++) if (L[k].n !== L[k - 1].n) { L[k].n.nb.add(L[k - 1].n); L[k - 1].n.nb.add(L[k].n); } });
+  const nearest = (x, z) => { let b = nodes[0], bd = 1e9; for (const n of nodes) { const d = Math.hypot(n.x - x, n.z - z); if (d < bd) { bd = d; b = n; } } return b; };
+  function path(from, to) {          // BFS by distance (Dijkstra, tiny graph)
+    const dist = new Map([[from, 0]]), prev = new Map(), open = [from];
+    while (open.length) {
+      open.sort((a, b) => dist.get(a) - dist.get(b)); const n = open.shift(); if (n === to) break;
+      for (const m of n.nb) { const d = dist.get(n) + Math.hypot(m.x - n.x, m.z - n.z); if (d < (dist.get(m) ?? 1e9)) { dist.set(m, d); prev.set(m, n); open.push(m); } }
+    }
+    const out = []; for (let n = to; n && n !== from; n = prev.get(n)) out.unshift(n); return out;
+  }
+  /* after the town is built (piles, tables, posts all have collision): move any node that landed on something to the
+     nearest clear spot, and cut links that would walk through something */
+  function settle() {
+    const free = (x, z) => { const L = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL))) || []; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const c of grid.get(gkey(Math.floor(x / CELL) + i, Math.floor(z / CELL) + j)) || []) if (Math.hypot(x - c.x, z - c.z) < c.r + .9) return false; return true; };
+    for (const n of nodes) if (!free(n.x, n.z)) {
+      let done = false; for (let r = .5; r <= 6 && !done; r += .5) for (let a = 0; a < 6.28 && !done; a += .4) { const x = n.x + Math.sin(a) * r, z = n.z + Math.cos(a) * r; if (free(x, z)) { n.x = x; n.z = z; done = true; } }
+    }
+    for (const n of nodes) for (const m of [...n.nb]) if (n.nb.size > 1 && m.nb.size > 1 && !clearLine(n.x, n.z, m.x, m.z, .55)) { n.nb.delete(m); m.nb.delete(n); }
+  }
+  return { nodes, nearest, path, settle };
+})();
 const SPOTS = {
   bench: SHOP.craft.spot, fire: { x: 24, z: 9 }, smoke: shopL2W(SHOP.cook, 7.6, 1.5), med: SHOP.med.spot, armory: SHOP.guns.spot,
 };

@@ -32,6 +32,11 @@ Open world: no chapters. Tier keys: clan insignia (2), Arc ID chip (3), Greyhold
 Movement has momentum (accelerate/brake over a fraction of a second, slide along trees, steep climbs slow you), jump buffering + coyote time, and a stamina-limited sprint (bar above health; run it dry and you're winded until a third comes back).
 
 Performance: hand-placed props are distance-culled by size (`buildCull`/`updCull` in `3-game.js`, hidden ones go to layer 1 so neither the camera nor the shadow pass draws them); tiny props don't cast shadows; resolution adapts to hold frame rate (`adaptRes`).
+More performance: `bakeWorld` (3-game.js) merges static props that share a look into one mesh per group (~1,900 fewer draw calls; anything that moves, hides or flickers is skipped, and the wall bakes itself in `buildWall`). The point lights stay in the scene but invisible, and a pool of 4 real lights copies whichever ones reach the camera (`buildLightPool`/`updLightPool`) — the light count is fixed, so no shader recompiles. People swap to `*-lo.glb` (~1.5k triangles) past ~25 m, and enemies carry the low-poly guns. Deer/boar parts are fused per moving piece. Tone mapping happens in the grade pass (no OutputPass), and `adaptRes` drops bloom if the floor resolution still isn't enough.
+
+People: the survivor models face their own +x, so `makePerson` turns them to face +z (the way they move). They walk with legs/arms swung in the vertex shader (`walkify` / `walkGeo` in 2-actors.js — each triangle is assigned to a side so fused legs part cleanly). Settlers and yard extras walk the street network (`WALK` in 1c-camp.js: junctions, street ends and a spot in front of each shop; `WALK.settle()` nudges nodes off anything solid once the town is built).
+
+Audio on phones: `navigator.audioSession.type = 'playback'` (iOS ringer switch), the context + both music players unlock on touchend/pointerup/click/key anywhere, and the music pauses/resumes with the tab.
 
 HUD: health (bottom-left), toolbar 1–5 (bottom: 1–2 guns, 3 melee/bow, 4 eat, 5 treat), gun + ammo (bottom-right), minimap (top-right, tap for the full map), bag (inventory).
 

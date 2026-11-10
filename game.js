@@ -9,7 +9,7 @@ import { EffectComposer } from './vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
+import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -301,10 +301,13 @@ const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, t: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, contrast: { value: 1.04 }, sat: { value: 1.06 }, vig: { value: .36 },
     grain: { value: .03 }, fringe: { value: .0018 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  // tone mapping (ACES) + sRGB happen here too (three puts those functions + toneMappingExposure in every shader's prefix),
+  // so the separate OutputPass — a whole extra full-screen pass — is gone
   fragmentShader: `uniform sampler2D tDiffuse;uniform float t,contrast,sat,vig,grain,fringe,lift,gain,hurt;uniform vec2 res;uniform vec3 shadow,high;varying vec2 vUv;
+    vec3 om(vec3 c){return sRGBTransferOETF(vec4(ACESFilmicToneMapping(c),1.0)).rgb;}
     float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
     void main(){vec2 d=vUv-.5;float r2=dot(d,d);vec2 o=d*fringe*r2*4.0;
-      vec3 c=vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b);
+      vec3 c=om(vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b));
       float l=dot(c,vec3(.2126,.7152,.0722));
       c+=shadow*(1.0-smoothstep(.0,.45,l))+high*smoothstep(.45,1.0,l);
       c=mix(vec3(l),c,sat*(1.0-hurt*.6));
@@ -318,7 +321,6 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
 composer.addPass(bloom);
-composer.addPass(new OutputPass());
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 
@@ -1182,6 +1184,7 @@ function buildWall(level) {
     const p = mesh(new THREE.CylinderGeometry(.22, .28, H + 1.4, 6), new THREE.MeshLambertMaterial({ map: texWood, color: 0xb59a7e }), x, y + (H + 1.4) / 2 - .4, z, wallGroup);
     p.rotation.z = rr(-.04, .04);
   }
+  if (typeof bakeGroup === 'function') bakeGroup(wallGroup, new Set(), 40);
 }
 const GATE_X = Math.sin(GATE_HALF) * CAMP_R;
 function buildGate() {
@@ -1287,6 +1290,48 @@ const SHOP_DEFS = [
 function shopL2W(D, lx, lz) { const c = Math.cos(D.ry), s = Math.sin(D.ry); return { x: D.cx + lx * c + lz * s, z: D.cz - lx * s + lz * c }; }
 for (const D of SHOP_DEFS) { D.cx = D.x; D.cz = D.z; D.bw = D.bw || 11; D.bd = D.bd || 8; D.keeper = shopL2W(D, 0, -1.1); D.spot = shopL2W(D, -3.9, 1.9); D.front = shopL2W(D, 0, 2.1); D.forge = shopL2W(D, 3.9, 2.6); }
 const SHOP = Object.fromEntries(SHOP_DEFS.map(D => [D.id, D]));
+/* the walkers' network: settlers and extras walk the streets node to node (junctions, street ends, a spot in front of each
+   shop) instead of picking a random point in the yard, which put them inside walls and shops. */
+const WALK = (() => {
+  const nodes = [], onSt = STREETS.map(() => []);
+  const node = (x, z) => { for (const n of nodes) if (Math.hypot(n.x - x, n.z - z) < 1.5) return n; const n = { x, z, id: nodes.length, nb: new Set(), shop: null }; nodes.push(n); return n; };
+  const proj = (S, x, z) => { const [ax, az] = S.a, [bx, bz] = S.b, dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0, 1); return { t, x: ax + dx * t, z: az + dz * t }; };
+  STREETS.forEach((S, i) => { onSt[i].push({ t: 0, n: node(...S.a) }, { t: 1, n: node(...S.b) }); });
+  // junctions: wherever two streets touch (within their widths), sample along A and take the closest point on B
+  for (let i = 0; i < STREETS.length; i++) for (let j = i + 1; j < STREETS.length; j++) {
+    const A = STREETS[i], B = STREETS[j]; let best = null;
+    for (let k = 0; k <= 60; k++) { const t = k / 60, x = lerp(A.a[0], A.b[0], t), z = lerp(A.a[1], A.b[1], t), q = proj(B, x, z), d = Math.hypot(q.x - x, q.z - z); if (!best || d < best.d) best = { d, t, x, z, q }; }
+    if (best.d > (A.w + B.w) / 2 + 1) continue;
+    const na = node(best.x, best.z), nb = node(best.q.x, best.q.z); onSt[i].push({ t: best.t, n: na }); onSt[j].push({ t: best.q.t, n: nb });
+    if (na !== nb) { na.nb.add(nb); nb.nb.add(na); }
+  }
+  // a spot in front of each shop, tied to the nearest street
+  for (const D of SHOP_DEFS) {
+    const f = shopL2W(D, 0, D.bd / 2 + (D.id === 'cook' ? 6.4 : 2.6)); let bi = 0, bq = null;
+    STREETS.forEach((S, i) => { const q = proj(S, f.x, f.z); if (!bq || Math.hypot(q.x - f.x, q.z - f.z) < Math.hypot(bq.x - f.x, bq.z - f.z)) { bq = q; bi = i; } });
+    const sn = node(bq.x, bq.z), fn = node(f.x, f.z); fn.shop = D; onSt[bi].push({ t: bq.t, n: sn }); if (sn !== fn) { sn.nb.add(fn); fn.nb.add(sn); }
+  }
+  onSt.forEach(L => { L.sort((a, b) => a.t - b.t); for (let k = 1; k < L.length; k++) if (L[k].n !== L[k - 1].n) { L[k].n.nb.add(L[k - 1].n); L[k - 1].n.nb.add(L[k].n); } });
+  const nearest = (x, z) => { let b = nodes[0], bd = 1e9; for (const n of nodes) { const d = Math.hypot(n.x - x, n.z - z); if (d < bd) { bd = d; b = n; } } return b; };
+  function path(from, to) {          // BFS by distance (Dijkstra, tiny graph)
+    const dist = new Map([[from, 0]]), prev = new Map(), open = [from];
+    while (open.length) {
+      open.sort((a, b) => dist.get(a) - dist.get(b)); const n = open.shift(); if (n === to) break;
+      for (const m of n.nb) { const d = dist.get(n) + Math.hypot(m.x - n.x, m.z - n.z); if (d < (dist.get(m) ?? 1e9)) { dist.set(m, d); prev.set(m, n); open.push(m); } }
+    }
+    const out = []; for (let n = to; n && n !== from; n = prev.get(n)) out.unshift(n); return out;
+  }
+  /* after the town is built (piles, tables, posts all have collision): move any node that landed on something to the
+     nearest clear spot, and cut links that would walk through something */
+  function settle() {
+    const free = (x, z) => { const L = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL))) || []; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const c of grid.get(gkey(Math.floor(x / CELL) + i, Math.floor(z / CELL) + j)) || []) if (Math.hypot(x - c.x, z - c.z) < c.r + .9) return false; return true; };
+    for (const n of nodes) if (!free(n.x, n.z)) {
+      let done = false; for (let r = .5; r <= 6 && !done; r += .5) for (let a = 0; a < 6.28 && !done; a += .4) { const x = n.x + Math.sin(a) * r, z = n.z + Math.cos(a) * r; if (free(x, z)) { n.x = x; n.z = z; done = true; } }
+    }
+    for (const n of nodes) for (const m of [...n.nb]) if (n.nb.size > 1 && m.nb.size > 1 && !clearLine(n.x, n.z, m.x, m.z, .55)) { n.nb.delete(m); m.nb.delete(n); }
+  }
+  return { nodes, nearest, path, settle };
+})();
 const SPOTS = {
   bench: SHOP.craft.spot, fire: { x: 24, z: 9 }, smoke: shopL2W(SHOP.cook, 7.6, 1.5), med: SHOP.med.spot, armory: SHOP.guns.spot,
 };
@@ -2457,8 +2502,13 @@ function makePerson(kind, o = {}) {
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
   const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
   const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
+  const walkU = { ph: { value: 0 }, amp: { value: 0 } };
+  // the survivor models face their own +x, but people move along +z — turn them, or everyone walks sideways
   const m = modelCopy(model, H, 'y', tint);
-  if (m) body.add(m);
+  if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
+  // far away: the ~1.5k-triangle copy (the full ones are 10-19k each, and there can be dozens on screen)
+  const lo = m && MODELS[model + '-lo'] ? modelCopy(model + '-lo', H, 'y', tint) : null;
+  if (lo) { lo.rotation.y = -Math.PI / 2; walkify(lo, H, walkU); lo.visible = false; body.add(lo); }
   else { mesh(new THREE.BoxGeometry(.5, H * .55, .3), M(0x4a4a4a), 0, H * .62, 0, body); mesh(new THREE.BoxGeometry(.28, .3, .28), M(0xc68e6a), 0, H * .93, 0, body); }
   let weapon = null;
   if (clan) {
@@ -2484,7 +2534,7 @@ function makePerson(kind, o = {}) {
   }
   if (armed) {
     weapon = new THREE.Group(); weapon.position.set(.22, H * .58, .22); body.add(weapon);
-    const gm = modelCopy(kind === 'soldier' ? 'gun-desert' : 'gun-night', .72, 'z'); if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
+    const gn = kind === 'soldier' ? 'gun-desert' : 'gun-night', gm = modelCopy(MODELS[gn + '-lo'] ? gn + '-lo' : gn, .72, 'z');   // a 13k-triangle gun is wasted at arm's length if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
     if (kind === 'soldier') {                                     // Greyhold: helmet + gas mask
       mesh(new THREE.SphereGeometry(.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(0x4a5056), 0, H * .95, 0, body);
       mesh(new THREE.BoxGeometry(.2, .14, .1), M(0x1a1a1a), 0, H * .9, .12, body); for (const sx of [-1, 1]) mesh(new THREE.CylinderGeometry(.045, .05, .08, 8), M(0x2a2a2a), sx * .08, H * .87, .17, body).rotation.x = Math.PI / 2;
@@ -2494,17 +2544,90 @@ function makePerson(kind, o = {}) {
     }
   }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
-  return { g, body, weapon, H, kind };
+  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true };
 }
-/* stride: bob, side sway, forward lean with speed */
-function poseWalk(p, ph, amt) {
-  p.body.position.y = Math.abs(Math.sin(ph)) * .07 * amt;
-  p.body.rotation.z = Math.sin(ph) * .045 * amt;
+/* stride: bob, side sway, forward lean with speed, and the legs + arms swinging (walkU, done in the vertex shader) */
+function poseWalk(p, ph, amt, v = amt * 2.5) {
+  p.body.position.y = Math.abs(Math.sin(ph)) * .05 * amt;
+  p.body.rotation.z = Math.sin(ph) * .03 * amt;
   p.body.rotation.x = .07 * amt;
-  if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .25 * amt;
+  if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .12 * amt;
+  if (p.walkU) { const tgt = v > .08 ? Math.min(.5, .24 + v * .055) : 0; p.walkU.amp.value += (tgt - p.walkU.amp.value) * .2; p.walkU.ph.value = ph; }
+}
+// one full stride (left + right step) per ~1.4 m walking, stretching to ~3 m at a run
+const strideRate = v => v * 6.283 / clamp(1.05 + v * .42, 1.35, 3.1);
+
+/* The survivor models are single rigid meshes, so legs and arms are bent in the vertex shader: below the hip, each side
+   swings about the hip by ±amp (left/right by the sign of x); the arms (outside the torso, shoulder to hand height)
+   swing the other way about the shoulder. Done in the person's own frame (feet at 0, height H, facing +z). */
+const WALK_GEO = new Map();
+/* Tripo bodies have the legs (and arms) fused to each other/the torso, so bending them by a smooth "which side" weight
+   stretches a web of triangles between them. Instead each triangle is given to one side (left/right leg, arm or not) by
+   its centre; vertices shared across the split are duplicated, so the legs part cleanly (the cut is inside the legs). */
+function walkGeo(geo, toP, H) {
+  if (WALK_GEO.has(geo)) return WALK_GEO.get(geo);
+  const idx = geo.index, nTri = (idx ? idx.count : geo.attributes.position.count) / 3, P = geo.attributes.position, v = new THREE.Vector3();
+  const pp = new Float32Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(toP); pp[i * 3] = v.x / H; pp[i * 3 + 1] = v.y / H; pp[i * 3 + 2] = v.z / H; }
+  const names = Object.keys(geo.attributes), out = Object.fromEntries(names.map(n => [n, []])), sa = [], remap = new Map(), newIdx = [];
+  for (let t = 0; t < nTri; t++) {
+    const vi = [0, 1, 2].map(k => idx ? idx.getX(t * 3 + k) : t * 3 + k);
+    const cx = (pp[vi[0] * 3] + pp[vi[1] * 3] + pp[vi[2] * 3]) / 3, cy = (pp[vi[0] * 3 + 1] + pp[vi[1] * 3 + 1] + pp[vi[2] * 3 + 1]) / 3;
+    const side = cx < 0 ? -1 : 1, arm = Math.abs(cx) > .125 && cy > .42 && cy < .82 ? 1 : 0, leg = cy < .5 ? 1 : 0;
+    for (const a of vi) {
+      const key = a * 8 + (side + 1) * 2 + arm * 1 + leg * 4; let n = remap.get(key);
+      if (n === undefined) { n = sa.length / 2; remap.set(key, n); sa.push(side, arm); for (const nm of names) { const A = geo.attributes[nm]; for (let k = 0; k < A.itemSize; k++) out[nm].push(A.getComponent(a, k)); } }
+      newIdx.push(n);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  for (const nm of names) g.setAttribute(nm, new THREE.BufferAttribute(new Float32Array(out[nm]), geo.attributes[nm].itemSize));
+  g.setAttribute('wSA', new THREE.BufferAttribute(new Float32Array(sa), 2)); g.setIndex(newIdx);
+  g.boundingBox = geo.boundingBox; g.boundingSphere = geo.boundingSphere; if (!g.boundingSphere) g.computeBoundingSphere();
+  WALK_GEO.set(geo, g); return g;
+}
+function walkify(wrap, H, U) {
+  wrap.updateMatrixWorld(true);
+  wrap.traverse(m => {
+    if (!m.isMesh) return;
+    const toP = m.matrixWorld.clone(), fromP = toP.clone().invert();
+    m.geometry = walkGeo(m.geometry, toP, H);
+    m.material = [].concat(m.material).map(x => {
+      const c = x.clone();
+      c.onBeforeCompile = sh => {
+        sh.uniforms.wPh = U.ph; sh.uniforms.wAmp = U.amp; sh.uniforms.wH = { value: H };
+        sh.uniforms.wTo = { value: toP }; sh.uniforms.wFrom = { value: fromP };
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+attribute vec2 wSA; uniform float wPh, wAmp, wH; uniform mat4 wTo, wFrom;
+vec3 wSwing(vec3 p, float a, vec3 piv) { vec3 q = p - piv; float c = cos(a), s = sin(a); return piv + vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c); }`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+if (wAmp > .002) {
+  vec3 p = (wTo * vec4(transformed, 1.0)).xyz; float h = wH, sw = sin(wPh) * wAmp, side = wSA.x;
+  float leg = 1.0 - smoothstep(.4 * h, .5 * h, p.y);                           // full below the hip, fading out over it
+  vec3 q = wSwing(p, sw * side * leg, vec3(0.0, .5 * h, 0.0));
+  float knee = (1.0 - smoothstep(.22 * h, .3 * h, p.y)) * max(0.0, -sw * side) * .8 * leg;   // the trailing leg bends a little
+  q = wSwing(q, -knee, vec3(q.x, .27 * h, q.z));
+  float arm = wSA.y * (1.0 - smoothstep(.74 * h, .8 * h, p.y));
+  q = mix(q, wSwing(p, -sw * side * .6, vec3(p.x, .8 * h, 0.0)), arm);
+  transformed = (wFrom * vec4(q, 1.0)).xyz;
+}`);
+      };
+      c.customProgramCacheKey = () => 'walk';
+      return c;
+    });
+    if (m.material.length === 1) m.material = m.material[0];
+  });
 }
 
 /* ================= animals ================= */
+// an animal is a dozen-plus plain coloured boxes; the ones that move together (body, neck, head) become one mesh each
+function fuseKids(grp) {
+  const ms = grp.children.filter(o => o.isMesh && !o.children.length && o.material.isMeshLambertMaterial && !o.material.map && !o.material.vertexColors);
+  if (ms.length < 2) return;
+  const parts = ms.map(o => { o.updateMatrix(); return { geo: o.geometry, color: o.material.color, m: o.matrix }; });   // Color(color) copies, so no colour-space round trip
+  for (const o of ms) grp.remove(o);
+  mesh(merge(parts), VCOL, 0, 0, 0, grp);
+}
 function makeDeer(stag) {
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const c = 0x8a6440, d = 0x5a4028;
@@ -2523,6 +2646,7 @@ function makeDeer(stag) {
   mesh(new THREE.BoxGeometry(.12, .16, .06), M(0xf0ece0), 0, 1.2, -.62, body);
   const legs = [];
   for (const [x, z] of [[-.16, .45], [.16, .45], [-.16, -.45], [.16, -.45]]) legs.push(limb(.09, .82, .09, d, body, x, .82, z));
+  fuseKids(body); fuseKids(neck); fuseKids(head);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { g, body, neck, head, legs };
 }
@@ -2537,6 +2661,7 @@ function makeBoar() {
   for (const s of [-1, 1]) { const t = mesh(new THREE.ConeGeometry(.03, .18, 4), M(0xe8e0cc), s * .12, -.08, .4, head); t.rotation.set(-1, 0, s * .4); }
   const legs = [];
   for (const [x, z] of [[-.17, .35], [.17, .35], [-.17, -.35], [.17, -.35]]) legs.push(limb(.12, .42, .12, 0x2a201a, body, x, .42, z));
+  fuseKids(body); fuseKids(head);
   g.traverse(m => { if (m.isMesh) m.castShadow = true; });
   return { g, body, head, legs };
 }
@@ -2557,7 +2682,8 @@ function spawnDeer(x, z) { const stag = rnd() < .35, p = makeDeer(stag); return 
 function spawnBoar(x, z) { const p = makeBoar(); return addEnt({ type: 'boar', p, g: p.g, x, z, yaw: rnd() * 6, hp: 80, state: 'root', t: rr(1, 4), ph: 0, dead: false, deadT: 0, r: .5, cool: 0, home: { x, z } }); }
 function spawnNPC(name, x, z, o) {
   const p = makePerson('arc', o);
-  return addEnt({ type: 'npc', name, p, g: p.g, x, z, yaw: o.yaw ?? 0, home: { x, z }, wander: !!o.wander, t: rr(1, 6), ph: 0, r: .4, tx: x, tz: z, follow: false });
+  return addEnt({ type: 'npc', name, p, g: p.g, x, z, yaw: o.yaw ?? 0, home: { x, z }, wander: !!o.wander, t: rr(1, 6), ph: rnd() * 6, r: .4, tx: x, tz: z, follow: false,
+    stuck: 0, side: 0, route: null, wait: rr(0, 3), walkSpd: rr(1.15, 1.5), offX: rr(-.9, .9), offZ: rr(-.9, .9) });
 }
 function hitSpheres(e) {
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
@@ -2606,6 +2732,16 @@ function collide(o, rad, isPlayer) {
   if (!o.climbing) wallCollide(o, rad, isPlayer);
   hullCollide(o, rad);
   const d = Math.hypot(o.x, o.z); if (d > WORLD) { o.x *= WORLD / d; o.z *= WORLD / d; }
+}
+/* is the straight walk from a to b free of anything solid (and not across the wall)? */
+function clearLine(x0, z0, x1, z1, rad) {
+  const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(L / .8));
+  if ((Math.hypot(x0, z0) < CAMP_R) !== (Math.hypot(x1, z1) < CAMP_R)) return false;
+  for (let k = 1; k <= n; k++) {
+    const x = lerp(x0, x1, k / n), z = lerp(z0, z1, k / n), cl = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (cl) for (const c of cl) if (Math.hypot(x - c.x, z - c.z) < c.r + rad) return false;
+  }
+  return true;
 }
 
 /* ================= first-person guns: ELYRA's real-world models only =================
@@ -2742,9 +2878,16 @@ const SAMPLES = ['rifle-m16-a', 'rifle-m16-b', 'gun-shot-heavy', 'machine-gun-cl
   'casing-1', 'casing-2', 'casing-3', 'shell-drop-1', 'shell-drop-2', 'distant-shot-a', 'distant-shot-b', 'distant-shot-c', 'distant-burst', 'expl-boom',
   ...[1, 2, 3, 4, 5, 6, 7, 8].map(i => 'step-trail-' + i), ...[1, 2, 3, 4].map(i => 'step-gravel-' + i), ...[1, 2, 3, 4].map(i => 'step-metal-' + i), ...[1, 2, 3, 4].map(i => 'step-snow-' + i), ...[1, 2, 3, 4].map(i => 'step-sand-' + i)];
 try { muted = localStorage.getItem('the-arc-mute') === '1'; } catch (e) {}
+/* phones: iOS mutes Web Audio with the ringer switch unless the page says it plays media; the context and the music
+   players only unlock inside a real tap (touchend/click, not touchstart), and iOS suspends/"interrupts" the context when
+   the app is backgrounded — so every tap re-checks, and coming back to the tab resumes it. */
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
 function initAudio() {
-  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
-  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  if (AC) { if (AC.state !== 'running' && AC.state !== 'closed') AC.resume().catch(() => {}); music.unlock(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); } catch (e) { return; }
+  if (AC.state !== 'running') AC.resume().catch(() => {});
+  // a one-sample silent buffer started inside the gesture is what finally opens the output on older iOS
+  try { const s = AC.createBufferSource(); s.buffer = AC.createBuffer(1, 1, 22050); s.connect(AC.destination); s.start(0); } catch (e) {}
   master = AC.createGain(); master.gain.value = muted ? 0 : .9; master.connect(AC.destination);
   sfxGain = AC.createGain(); sfxGain.gain.value = 1; sfxGain.connect(master);
   const len = AC.sampleRate * 2, buf = AC.createBuffer(1, len, AC.sampleRate), d = buf.getChannelData(0);
@@ -2766,16 +2909,30 @@ function play(name, vol = 1, rate = 1, when = 0) {
 /* music: two players crossfading. moods: day / night / raid / intro / dawn */
 const music = (() => {
   const TR = { day: ['quiet-bones', 'quiet-bones-drift'], night: ['dark-bones-abyss'], raid: ['dark-bones-pulse', 'drive-total-war'], intro: ['quiet-bones-deep'], dawn: ['awe-bones-dark'], tense: ['dark-bones-pulse'] };
-  const A = [new Audio(), new Audio()]; A.forEach(a => { a.loop = true; a.preload = 'none'; a.volume = 0; });
-  let cur = 0, mood = '', ok = false, mute = muted, fade = null;
+  // iOS only lets an <audio> element play from code after it has played once inside a tap, and ignores .volume
+  // (always full) — so both players are "blessed" in the first tap, and the stings reuse one blessed player too.
+  const A = [new Audio(), new Audio()], STING = new Audio(); [...A, STING].forEach(a => { a.preload = 'auto'; a.setAttribute('playsinline', ''); }); A.forEach(a => { a.loop = true; a.volume = 0; });
+  const SILENT = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAIwUdkRgQbFAZC1CQEwTJ9mjRvBA4UOLD8nKVOWfh+UlK3z/177OXrfOdKl7pyn3Xf//WreyTRUoAWgBgkOAGbZHBgG1OF6zM82DWbZaUmMBptgQhGjsyYqc9ae9XFz280948NMBWInljyzsNRFLPWdnZGWrddDsjK1unuSrVN9jJsK8KuQtQCtMBjCEtImISdNKJOopIpBFpNSMbIHCSRpRR5iakjTiyzLhchUUBwCgyKiweBv/7UsQbg8isVNoMPMjAAAA0gAAABEVFGmgqK////9bP/6XCykxBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+  let cur = 0, mood = '', ok = false, mute = muted, fade = null, blessed = false;
   function go(m, force) {
     if (m === mood && !force) return; mood = m; if (!ok) return;
     const nx = 1 - cur, a = A[nx], b = A[cur], list = TR[m] || TR.day;
-    a.src = `assets/music/${list[Math.floor(Math.random() * list.length)]}.mp3`; a.currentTime = 0; a.volume = 0; a.play().catch(() => {});
+    a.src = `assets/music/${list[Math.floor(Math.random() * list.length)]}.mp3`; a.volume = 0;
+    if (!mute) a.play().catch(() => {});
     cur = nx; clearInterval(fade); let t = 0;
     fade = setInterval(() => { t += .05; const k = Math.min(1, t / 2.5), v = mute ? 0 : musicVol; a.volume = v * k; b.volume = v * (1 - k); if (k >= 1) { b.pause(); clearInterval(fade); } }, 50);
   }
-  return { go, unlock() { if (ok) return; ok = true; if (mood) go(mood, true); }, setMute(m) { mute = m; A[cur].volume = m ? 0 : musicVol; }, sting(n, v = .5) { if (!ok || mute) return; const s = new Audio(`assets/music/${n}.mp3`); s.volume = v; s.play().catch(() => {}); } };
+  function bless() {      // inside a tap: play every element once (silently) so later play() calls are allowed
+    if (blessed) return; blessed = true;
+    for (const a of [...A, STING]) { if (!a.src) { a.src = SILENT; const p = a.play(); if (p) p.then(() => { if (a.src === SILENT) a.pause(); }).catch(() => { blessed = false; }); } }
+  }
+  return { go, unlock() {
+      if (!ok) { ok = true; go(mood || 'day', true); bless(); return; }
+      bless(); if (!mute && A[cur].paused && A[cur].src && !A[cur].src.startsWith('data:')) A[cur].play().catch(() => {});   // iOS paused it (call, app switch)
+    },
+    setMute(m) { mute = m; A[cur].volume = m ? 0 : musicVol; if (m) A.forEach(a => a.pause()); else if (ok) A[cur].play().catch(() => {}); },
+    pauseAll() { A.forEach(a => a.pause()); }, resume() { if (ok && !mute && A[cur].src) A[cur].play().catch(() => {}); },
+    sting(n, v = .5) { if (!ok || mute) return; STING.src = `assets/music/${n}.mp3`; STING.volume = v; STING.play().catch(() => {}); } };
 })();
 let STEP_SURF = 'trail';
 function noiseBurst(dur, freq, q, vol, type = 'lowpass', when = 0) {
@@ -4401,7 +4558,7 @@ function updClan(e, dt) {
   if (e.throwT > 0) { e.throwT -= dt; p.body.rotation.x = -.18; if (p.weapon) p.weapon.rotation.x = -2.2; if (e.throwT <= 0) { throwSpear(e); p.body.rotation.x = .25; if (p.weapon) p.weapon.rotation.x = .3; } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   p.body.position.z = 0;
-  e.ph += dt * v * 2.1; poseWalk(p, e.ph, Math.min(1, v / 3));
+  e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
   e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
 // a guard who spots you shouts: everyone near them joins in
@@ -4440,16 +4597,34 @@ function updNPC(e, dt) {
     spd = 0;
   } else if (e.wander) {
     const inCamp = Math.hypot(e.home.x, e.home.z) < CAMP_R;
-    e.t -= dt; if (e.t <= 0) { e.t = rr(4, 10); e.tx = e.home.x + rr(-8, 8); e.tz = e.home.z + rr(-8, 8); if (inCamp && Math.hypot(e.tx, e.tz) > CAMP_R - 6) { e.tx = e.home.x; e.tz = e.home.z; } }
-    if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = 1.3; }
+    if (inCamp) {                       // Kestrel: walk the streets, stop at shop fronts, loiter, move on
+      if (night.active) e.route = null;
+      else if (e.route && e.route.length) {
+        const n = e.route[0], wx = n.x + e.offX, wz = n.z + e.offZ;
+        if (Math.hypot(wx - e.x, wz - e.z) < .7) { e.route.shift(); if (!e.route.length) { e.route = null; e.wait = n.shop ? rr(5, 11) : rr(1.5, 5); e.at = n; } else if (rnd() < .12) e.wait = rr(1, 3); }
+        else if (e.wait > 0) e.wait -= dt;
+        else { tx = wx; tz = wz; spd = e.walkSpd; }
+      } else {
+        e.wait -= dt;
+        if (e.at && e.at.shop) e.yaw += angWrap(Math.atan2(e.at.shop.cx - e.x, e.at.shop.cz - e.z) - e.yaw) * Math.min(1, dt * 3);
+        if (e.wait <= 0) {
+          const N = WALK.nodes, shops = N.filter(n => n.shop), to = rnd() < .5 ? pick(shops) : pick(N), from = WALK.nearest(e.x, e.z);
+          e.route = [from, ...WALK.path(from, to)]; e.offX = rr(-.9, .9); e.offZ = rr(-.9, .9); e.at = null;
+        }
+      }
+    } else {                            // out in the world: short strolls round home, never into something solid
+      e.t -= dt;
+      if (e.t <= 0) { e.t = rr(4, 10); for (let k = 0; k < 6; k++) { const x = e.home.x + rr(-8, 8), z = e.home.z + rr(-8, 8); if (clearLine(e.x, e.z, x, z, e.r)) { e.tx = x; e.tz = z; break; } } }
+      if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = e.walkSpd; }
+    }
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
   if (night.active && !e.follow && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
-  e.ph += dt * v * 2.2; poseWalk(p, e.ph, Math.min(1, v / 2.5));
-  e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+  e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 2.5), v);
+  { const gy = heightAt(e.x, e.z), fy = floorAt(e.x, e.z, e.y ?? gy); e.y = Math.max(gy, fy); } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
 function updTowers(dt) {
   for (const T of towers) {
@@ -4888,6 +5063,13 @@ $('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 if (isTouch) document.body.classList.add('touch');
 
 /* ================= input ================= */
+// audio unlocks on the events browsers actually count as a tap (touchend / pointerup / click / key), anywhere on the page
+for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) addEventListener(ev, () => initAudio(), { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (!AC) return;
+  if (document.hidden) { music.pauseAll(); AC.suspend().catch(() => {}); }
+  else { AC.resume().catch(() => {}); music.resume(); }
+});
 const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true; initAudio();
@@ -4999,8 +5181,9 @@ function adaptRes(raw) {
   if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
   prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
-  if (fps < 48) { n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) n = Math.min(PR_MAX, prNow + .1);
+  // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
+  if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {
@@ -5035,6 +5218,7 @@ function frame(now) {
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
       const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .45, 140, 320);
+      if (e.p && e.p.lo) { const near = d < (e.p.near ? 27 : 23); if (near !== e.p.near) { e.p.near = near; e.p.hi.visible = near; e.p.lo.visible = !near; } }
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -5050,9 +5234,34 @@ function frame(now) {
     }
     saveT += dt; if (saveT > 15) { saveT = 0; save(); }
   }
-  updParts(dt); updTracers(dt);
+  updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
   composer.render(dt);
+}
+
+/* light pool: the world has a dozen point lights (camp fire, hull lamp, village fires, placed lamps, muzzle flash…) and
+   three.js makes every lit pixel loop over all of them, near or not — the biggest per-pixel cost on phones. They stay in
+   the scene graph (so the code that flickers/moves them keeps working) but invisible, and each frame the few real
+   lights below copy the ones that actually reach the camera. The light count never changes, so no shader recompiles. */
+const LPOOL = [], LSRC = [], _lv = new THREE.Vector3();
+function buildLightPool() {
+  scene.traverse(o => { if (o.isPointLight) LSRC.push(o); });
+  for (const l of LSRC) l.visible = false;
+  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 0); scene.add(l); LPOOL.push(l); }
+}
+function updLightPool() {
+  const cx = camera.position.x, cz = camera.position.z, pick3 = [];
+  for (const l of LSRC) {
+    if (!(l.intensity > 0)) continue;
+    // what matters is how close the lit patch (the light's reach) comes to the camera, not the light itself:
+    // a fire 40 m off still visibly lights the ground around it
+    l.getWorldPosition(_lv); const reach = l.distance || 300, d = Math.hypot(_lv.x - cx, _lv.z - cz) - reach;
+    if (d > 70) continue;
+    pick3.push({ l, k: l === flashLight ? -1e9 : d - l.intensity * 2, x: _lv.x, y: _lv.y, z: _lv.z });
+  }
+  pick3.sort((a, b) => a.k - b.k);
+  LPOOL.forEach((P, i) => { const s = pick3[i]; if (!s) { P.intensity = 0; return; }
+    P.color.copy(s.l.color); P.intensity = s.l.intensity; P.distance = s.l.distance; P.decay = s.l.decay; P.position.set(s.x, s.y, s.z); });
 }
 
 /* ================= regions + the valley map ================= */
@@ -5060,6 +5269,72 @@ function frame(now) {
    call — twice with the sun's shadow — even when they're a few pixels on the horizon. Each prop group gets a draw distance
    from its size (small things fade out first, never past the haze); hidden ones go to layer 1, which neither the camera nor
    the shadow pass draws. Terrain, the forest, people and animals have their own streaming/culling. */
+/* static bake: the settlement, towns and camps are built from thousands of little boxes and cylinders, each its own draw
+   call (twice with shadows). Inside each top-level group, meshes that share a look (same material settings, same shadow
+   flags, same ~30 m cell) are merged into one. Anything that moves, hides, flickers or gets rebuilt is left alone:
+   doors, tower guns/lamps, crates, caches, scrap, the smokehouse, placed buildings, flames/glows (basic or transparent). */
+const _bkm = new THREE.Matrix4(), _bkv = new THREE.Vector3(), MAT_BAKE = new Map();
+const matSig = m => [m.type, m.color && m.color.getHex(), m.map && m.map.uuid, m.normalMap && m.normalMap.uuid, m.normalScale && m.normalScale.x, m.emissive && m.emissive.getHex(), m.emissiveMap && m.emissiveMap.uuid,
+  m.emissiveIntensity, m.flatShading, m.side, m.vertexColors, m.roughness, m.metalness, m.roughnessMap && m.roughnessMap.uuid, m.metalnessMap && m.metalnessMap.uuid, m.aoMap && m.aoMap.uuid,
+  m.envMapIntensity, m.fog, m.toneMapped, m.polygonOffset, m.wireframe].join('|');
+function bakeable(o) {
+  const m = o.material, g = o.geometry;
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.visible || o.layers.mask !== 1 || o.renderOrder || !o.frustumCulled) return false;
+  if (Array.isArray(m) || !m.visible || m.transparent || m.alphaTest > 0 || m.isMeshBasicMaterial || m.isShaderMaterial || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return false;
+  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || Object.keys(o.userData).length) return false;
+  return true;
+}
+function bakeGroup(root, dyn, cellSize = 30) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), buckets = new Map();
+  (function walk(o) {
+    if (dyn.has(o) || !o.visible) return;
+    if (o !== root && bakeable(o)) {
+      _bkm.multiplyMatrices(inv, o.matrixWorld); if (_bkm.determinant() <= 0) return;
+      o.getWorldPosition(_bkv);
+      const names = Object.keys(o.geometry.attributes).filter(n => ['position', 'normal', 'uv', 'color'].includes(n)).sort();
+      const key = [matSig(o.material), names.join(','), o.castShadow, o.receiveShadow, Math.floor(_bkv.x / cellSize), Math.floor(_bkv.z / cellSize)].join('#');
+      let B = buckets.get(key); if (!B) buckets.set(key, B = { mat: o.material, names, list: [] });
+      B.list.push({ o, m: _bkm.clone() }); return;
+    }
+    for (const c of o.children) walk(c);
+  })(root);
+  let saved = 0;
+  for (const B of buckets.values()) {
+    if (B.list.length < 2) continue;
+    const geos = B.list.map(({ o, m }) => {
+      const src = o.geometry, g = new THREE.BufferGeometry();
+      for (const n of B.names) { const a = src.attributes[n], f = new Float32Array(a.count * a.itemSize);
+        for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) f[i * a.itemSize + k] = a.getComponent(i, k);
+        g.setAttribute(n, new THREE.BufferAttribute(f, a.itemSize)); }
+      if (src.index) g.setIndex(Array.from(src.index.array)); else g.setIndex([...Array(src.attributes.position.count).keys()]);
+      if (src.groups.length) { const gr = src.groups[0]; if (src.groups.length === 1) g.setDrawRange(gr.start, gr.count); }
+      g.applyMatrix4(m); return g;
+    });
+    const merged = mergeGeometries(geos, false); if (!merged) continue;
+    const k = matSig(B.mat); if (!MAT_BAKE.has(k)) MAT_BAKE.set(k, B.mat);
+    const mm = new THREE.Mesh(merged, MAT_BAKE.get(k)); mm.castShadow = B.list[0].o.castShadow; mm.receiveShadow = B.list[0].o.receiveShadow;
+    root.add(mm);
+    for (const { o } of B.list) o.parent.remove(o);
+    saved += B.list.length - 1;
+  }
+  return saved;
+}
+function bakeDyn() {
+  const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g)]);
+  d.delete(undefined); d.delete(null); return d;
+}
+function bakeWorld() {
+  const dyn = bakeDyn(); let saved = 0;
+  for (const o of [...world.children]) if (!dyn.has(o) && o.isGroup) saved += bakeGroup(o, dyn);
+  // loose meshes added straight to the world (barrels, rubble, debris): gather them per 40 m cell into one group each
+  const loose = new Map();
+  for (const o of [...world.children]) if (!dyn.has(o) && bakeable(o)) { const k = Math.floor(o.position.x / 40) + ',' + Math.floor(o.position.z / 40); if (!loose.has(k)) loose.set(k, []); loose.get(k).push(o); }
+  for (const L of loose.values()) { if (L.length < 3) continue; const g = new THREE.Group(); world.add(g); for (const o of L) g.attach(o); saved += bakeGroup(g, dyn, 40); }
+  console.log('bake: merged away', saved, 'meshes');
+}
+
 const CULL = []; let cullT = 0;
 function buildCull() {
   const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
@@ -5250,7 +5525,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate']);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'gun-night-lo', 'gun-desert-lo']);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
@@ -5264,9 +5539,10 @@ async function boot() {
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
-  for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
-  SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
-  ensureWildlife(); villageGuards(); buildCull();
+  WALK.settle();
+  for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
+  SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
+  ensureWildlife(); villageGuards(); bakeWorld(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
