@@ -46,6 +46,9 @@ body.cine .touch,body.title .touch,body:not(.touch) .touch{display:none}
 #mini i{position:absolute;left:50%;top:-1px;transform:translateX(-50%);font:700 11px/1 "Barlow Condensed",sans-serif;font-style:normal;color:var(--ink);background:#000a;border-radius:6px;padding:1px 4px}
 #bInv{position:absolute;left:var(--l);top:var(--t);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;display:grid;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
 #bInv svg{width:24px;height:24px}
+#bFly{position:absolute;left:var(--l);top:calc(var(--t) + 50px);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;color:#efe9dc;font:800 11px/1 system-ui,sans-serif;letter-spacing:.06em;display:none;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
+#bFly.on{background:#e8a83acc;color:#1a1a1a}
+#hp{pointer-events:auto}
 #alert{position:absolute;left:50%;top:var(--t);transform:translateX(-50%);padding:5px 14px;border-radius:99px;background:#000a;font-size:15px;white-space:nowrap;display:none;text-shadow:0 1px 2px #000}
 #alert.on{display:block}
 #alert.rust{background:#6d1d0ccc;box-shadow:0 0 0 1px #ff8a5a88}
@@ -214,6 +217,7 @@ body.touch #sub{bottom:calc(var(--b) + 78px);font-size:15px;max-width:46vw}
   <div id="tool"></div>
   <div id="gun"><span id="gunn">Carbine</span><b id="mag">20</b> <small id="res">/ 60</small></div>
   <div id="mini"><canvas id="minic"></canvas><i>N</i></div>
+  <button id="bFly" aria-label="Fly">FLY</button>
   <button id="bInv" aria-label="Inventory"><svg viewBox="0 0 24 24" fill="none" stroke="#efe9dc" stroke-width="1.8" stroke-linejoin="round"><path d="M5 9h14l-1 11H6z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><path d="M9 13h6"/></svg></button>
   <div id="alert"></div>
   <div id="toast"></div>

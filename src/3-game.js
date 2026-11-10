@@ -483,9 +483,26 @@ function damage(e, n, byPlayer, at) {
 let touchUp = false;
 function toggleFly(v = !P.fly) {
   if (G.mode !== 'play' || cine || P.dead) return;
-  P.fly = v; P.vy = 0; toast(v ? (isTouch ? 'Flying · look where you want to go · hold JUMP to climb · tap the bag twice fast to land' : 'Flying · WASD + look · Space up · C down · Shift fast · F to land') : 'Landed', 3.5);
+  if (v && !G.flags.dev) return;
+  P.fly = v; P.vy = 0; $('bFly').classList.toggle('on', v); toast(v ? (isTouch ? 'Flying · look where you want to go · hold JUMP to climb · tap FLY to land' : 'Flying · WASD + look · Space up · C down · Shift fast · Esc, then click FLY to land') : 'Landed', 3.5);
 }
-window.fly = toggleFly;
+/* the secret: tap the heart 7 times fast (or type "floombus" on a keyboard) — every item in the game, a bottomless bag,
+   and the FLY button. Do it again any time to top everything back up. */
+let secretTaps = [], secretKeys = '';
+function secretTap() { const now = performance.now(); secretTaps = secretTaps.filter(t => now - t < 2500); secretTaps.push(now); if (secretTaps.length >= 7) { secretTaps = []; unlockEverything(); } }
+function unlockEverything() {
+  if (G.mode !== 'play') return;
+  const first = !G.flags.dev; G.flags.dev = 1;
+  for (const id in ITEMS) { const I = ITEMS[id], want = I.c === 'story' ? 1 : I.c === 'ammo' ? 500 : I.c === 'build' ? 10 : 99; if (cnt(id) < want) give(id, want - cnt(id)); }
+  for (const id in GEAR_DEFS) if (!INV.tools.some(t => t.id === id)) give(id, 1, 2);
+  INV.scrap = Math.max(INV.scrap, 9999); INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX);
+  G.flags.tier = 6; showFlyBtn(); sfx('buy'); toast(first ? 'Everything unlocked · every item, a bottomless bag, and the FLY button' : 'Topped up · every item restocked', 4);
+  if (invOpen) renderInv(); save();
+}
+function showFlyBtn() { $('bFly').style.display = G.flags.dev ? 'grid' : 'none'; }
+$('bFly').addEventListener('click', e => { e.stopPropagation(); if (G.flags.dev) toggleFly(); });
+$('hp').addEventListener('click', e => { e.stopPropagation(); secretTap(); });
+addEventListener('keydown', e => { if (G.mode !== 'play' || e.key.length !== 1) return; secretKeys = (secretKeys + e.key.toLowerCase()).slice(-8); if (secretKeys === 'floombus') { secretKeys = ''; unlockEverything(); } });
 function updPlayer(dt) {
   if (P.dead) return;
   // look (slower while aiming)
@@ -857,7 +874,6 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
-  if (e.code === 'KeyF') toggleFly();
   if (e.code === 'KeyG') throwNext();
   if (e.code === 'KeyB') { if (has('binoc')) { P.binoc = !P.binoc; toast(P.binoc ? 'Binoculars' : 'Binoculars away', 1); } }
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
@@ -894,8 +910,10 @@ function tStart(e) {
   for (const t of e.changedTouches) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
     if (el && (el.closest('.tile') || el.closest('#shopx') || el.closest('#arcade-home'))) continue;
+    if (el && el.closest('#hp')) { e.preventDefault(); secretTap(); continue; }
+    if (el && el.closest('#bFly')) { e.preventDefault(); if (G.flags.dev) toggleFly(); continue; }
     if (el && el.closest('.slot')) { e.preventDefault(); useSlot(+el.closest('.slot').dataset.i); continue; }
-    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else { const now = performance.now(); if (now - (window.__bagT || 0) < 350) { toggleInv(false); toggleFly(); } else toggleInv(); window.__bagT = now; } continue; }
+    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else { const now = performance.now(); toggleInv(); window.__bagT = now; } continue; }
     const btn = el && el.closest('.btn');
     if (btn) {
       btn.classList.add('on');
@@ -1130,6 +1148,7 @@ function startGame(fresh) {
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
+  showFlyBtn(); P.fly = false;
   gate.hp = gate.max;
   document.body.classList.remove('title'); G.mode = 'play';
   const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
@@ -1143,7 +1162,7 @@ function startGame(fresh) {
 function menu() {
   const s = load();
   $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · F fly · N sound';
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
   $('bNew').onclick = () => { if (s && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };

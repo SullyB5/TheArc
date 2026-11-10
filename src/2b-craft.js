@@ -57,7 +57,7 @@ function toggleWear(g) {
 function hurtWear(n) { for (const t of wornAll()) if (GEAR_DEFS[t.id].prot) wearTool(t, n); }
 
 /* ---------- carry weight ---------- */
-const carryCap = () => 45 + wearStat('cap');
+const carryCap = () => G.flags.dev ? 1e9 : 45 + wearStat('cap');
 function carryLoad() {
   let w = 0;
   for (const [id, n] of Object.entries(INV.items)) w += (ITEMS[id]?.w ?? .2) * n;

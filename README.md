@@ -31,6 +31,6 @@ Movement has momentum (accelerate/brake over a fraction of a second, slide along
 
 HUD: health (bottom-left), toolbar 1–5 (bottom: 1–2 guns, 3 melee/bow, 4 eat, 5 treat), gun + ammo (bottom-right), minimap (top-right, tap for the full map), bag (inventory).
 
-Controls — PC: WASD, hold Shift to run, mouse, click fire/swing, right-click aim, R reload, 1–5 toolbar (Q / wheel cycle weapons), E use, Q next action / dismantle, G throw, B binoculars, Space jump/swim, I bag + craft, M map, F fly (Space up, C down, Shift fast), N sound.
-Phone: double-tap the bag to fly; hold JUMP to climb. Controls follow the device (phones/tablets: touch; computers, including touchscreen laptops: keyboard + mouse).
+Controls — PC: WASD, hold Shift to run, mouse, click fire/swing, right-click aim, R reload, 1–5 toolbar (Q / wheel cycle weapons), E use, Q next action / dismantle, G throw, B binoculars, Space jump/swim, I bag + craft, M map, N sound.
+Secret: tap the heart (health bar) 7 times fast, or type "floombus" — every item in the game, a bottomless bag, all tiers, and a FLY button under the bag (Space/JUMP up, C down). Do it again to top up. Controls follow the device (phones/tablets: touch; computers, including touchscreen laptops: keyboard + mouse).
 Phone: left thumb move (push to the edge, or tap RUN, to run), right thumb look, crosshair button fires, AIM; tap toolbar slots, the minimap, or the bag.
