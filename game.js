@@ -12,12 +12,10 @@ import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
 
 const $ = id => document.getElementById(id);
-/* controls: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops.
-   The title screen has a switch that overrides this (saved in localStorage as 'arc-controls'). */
-const CTRL_PREF = (() => { try { return new URLSearchParams(location.search).get('controls') || localStorage.getItem('arc-controls'); } catch (e) { return null; } })();
-const isTouch = CTRL_PREF === 'pc' ? false : CTRL_PREF === 'phone' ? true
-  : /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-    || (matchMedia('(pointer:coarse)').matches && !matchMedia('(any-pointer:fine)').matches);
+/* controls follow the device: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops. */
+const isTouch = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  || (matchMedia('(pointer:coarse)').matches && !matchMedia('(any-pointer:fine)').matches);
+try { localStorage.removeItem('arc-controls'); } catch (e) {}   // clear the old title-screen override
 const LOW = isTouch;                       // phones: fewer trees/grass, smaller textures, cheaper post
 const SFX = LOW ? 'phone' : 'pc';
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -3050,11 +3048,10 @@ function startGame(fresh) {
 }
 function menu() {
   const s = load();
-  $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button><button class="sec" id="bCtrl">Controls: ${isTouch ? 'Phone' : 'Computer'}</button>`;
+  $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
   $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · F fly · N sound';
   $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
-  $('bCtrl').onclick = () => { try { localStorage.setItem('arc-controls', isTouch ? 'pc' : 'phone'); } catch (e) {} location.reload(); };
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
 }
 let newArmed = false;
