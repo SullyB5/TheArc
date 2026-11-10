@@ -52,6 +52,7 @@ function endCine() {
 }
 function skipCine() { if (cine) nextShot(); }
 function updCine(dt) {
+  vm.visible = false;
   const s = cine.shots[cine.i]; cine.t += dt;
   const k = smooth(0, 1, cine.t / s.dur);
   const f = s.from, t = s.to || s.from, la = s.look, lb = s.look2 || s.look;
@@ -102,7 +103,10 @@ function talk(who) {
   }
   if (who === 'juno' && s === 5) {
     say([['Juno', "Four hundred people and we're splitting ration paste."], ['Juno', "There's deer in the east meadow. Bring back meat — two will do."]]);
-    setStep(6); spawnHerd(POI.meadow, 5); return true;
+    setStep(6); spawnHerd(POI.meadow, 5);
+    G.flags.hunter = 1; INV.mags.hunter = 5; INV.resH = 15; selectGunView('hunter'); selectGunView(RIFLE[UP.rifle].id);
+    setTimeout(() => { say([['Juno', "Take the long rifle from the med crate. It drops a deer where it stands."]]); toast(isTouch ? 'Hunting rifle: tap SWAP' : 'Hunting rifle: Q to swap, right mouse to aim', 4.5); }, 7000);
+    return true;
   }
   if (who === 'vos') { say([['Vos', pick(["Keep your rifle clean. It's the only one we've got that shoots straight.", "If the mast horn sounds, get under a roof. Don't stop to ask why.", 'The painted ones test the wall at night. Make it tall.'])]]); return true; }
   if (who === 'wren') { say([['Wren', "I'm fine. I'm right behind you."]]); return true; }
@@ -117,7 +121,9 @@ const INTERACT = [
   { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 ? 'Get patched up' : null, act: () => talk('juno') },
   { id: 'vos', at: () => named.vos, r: 2.8, label: () => G.step > 1 && G.step !== 11 ? 'Talk to Vos' : null, act: () => talk('vos') },
   { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 ? `Cook & eat (${INV.meat} meat)` : null, act: () => eat() },
-  { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.mag < RIFLE[UP.rifle].mag ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.mag = RIFLE[UP.rifle].mag; sfx('reload'); toast('Ammo restocked'); } },
+  { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.resH = G.flags.hunter ? RESH_MAX : INV.resH; sfx('reload'); toast('Ammo restocked'); } },
+  { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
+  { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
   { id: 'pod', at: () => POI.pod, r: 7, label: () => G.step === 8 ? 'Check the pod' : null, act: () => podScene() },
   { id: 'vault', at: () => POI.vaultFront || POI.vault, r: 8, label: () => 'Sealed door', act: () => { say([['', 'Sealed tight. Something hums on the other side.'], ['', 'Chapter 2: Greyhold — coming soon.']]); if (G.step === 12) setStep(13); } },
 ];
@@ -201,7 +207,7 @@ function applyUpgrades(only) {
   if (!only || only === 'wall') buildWall(UP.wall);
   if (!only || only === 'gate') { dressGate(UP.gate); const m = gateMaxFor(UP.gate); gate.hp = Math.min(m, gate.hp + (m - gate.max)); gate.max = m; if (!only) gate.hp = m; }
   if (!only || only === 'tur' || only === 'light') dressTowers(UP.tur, UP.light);
-  if (!only || only === 'rifle') { buildRifle(UP.rifle); INV.mag = Math.min(INV.mag + 2, RIFLE[UP.rifle].mag); }
+  if (!only || only === 'rifle') { const id = RIFLE[UP.rifle].id; if (P.slot === 0) selectGunView(id); else if (!GUNV[id]) { selectGunView(id); selectGunView('hunter'); } dressGun('carbine', Math.min(UP.rifle, 1)); dressGun('battle', UP.rifle); INV.mags[id] = Math.max(INV.mags[id] || 0, RIFLE[UP.rifle].mag); }
   if (!only || only === 'smoke') dressSmokehouse(UP.smoke);
 }
 
@@ -209,7 +215,7 @@ function applyUpgrades(only) {
 function spawnHerd(c, n) { for (let i = 0; i < n; i++) spawnDeer(c.x + rr(-16, 16), c.z + rr(-16, 16)); }
 function podScene() {
   const p = POI.pod;
-  if (!named.wren) named.wren = spawnNPC('wren', p.x + 3, p.z + 2, { jacket: 0x6a5a7a, hair: 0x2a1d14, skin: 0xc68e6a, pack: false });
+  if (!named.wren) named.wren = spawnNPC('wren', p.x + 3, p.z + 2, WREN_LOOK(false));
   face(named.wren, P.x, P.z);
   const w = named.wren;
   playCine([
@@ -329,7 +335,7 @@ function moveEnt(e, tx, tz, speed, dt) {
 function updClan(e, dt) {
   const p = e.p;
   if (e.dead) {
-    e.deadT += dt; p.g.rotation.x = Math.min(Math.PI / 2, e.deadT * 5) * -1; e.g.position.y = e.y - (e.deadT > 6 ? (e.deadT - 6) * .4 : 0);
+    e.deadT += dt; p.g.rotation.x = -Math.min(Math.PI / 2, e.deadT * 4.5); p.body.rotation.set(0, 0, 0); p.body.position.set(0, 0, 0); e.g.position.y = e.y - (e.deadT > 6 ? (e.deadT - 6) * .4 : 0);
     if (e.deadT > 9) removeEnt(e); return;
   }
   e.t += dt; e.cool -= dt;
@@ -338,7 +344,7 @@ function updClan(e, dt) {
   const walled = insideP !== insideE && gate.hp > 0 && !gate.open;
   let tx = e.x, tz = e.z, spd = 0;
   if (e.atk > 0) { // attack swing in progress
-    e.atk -= dt; p.armR.rotation.x = e.atk > .25 ? -2.4 : .5; p.legL.rotation.x = p.legR.rotation.x = 0;
+    e.atk -= dt; const wind = e.atk > .25; p.body.rotation.x = wind ? -.12 : .35; p.body.position.z = wind ? -.1 : .35; if (p.weapon) p.weapon.rotation.x = wind ? -1.6 : .6;
     if (e.atk <= .25 && !e.struck) { e.struck = true; sfx('swing');
       if (e.target === 'gate') { gate.hp -= e.kind === 'brute' ? 34 : 14; sfx('thud'); puff(e.x + Math.sin(e.yaw) * 1.2, e.y + 1.4, e.z + Math.cos(e.yaw) * 1.2, 0x8a7a6a, 3, 2, .1, .4); if (gate.hp <= 0) { gate.hp = 0; toast('The gate is down!', 3); sfx('gate'); } }
       else if (dp < 2.7 && !P.dead) hurtPlayer(e.kind === 'brute' ? 24 : 13, e.x, e.z); }
@@ -346,7 +352,7 @@ function updClan(e, dt) {
   }
   if (e.climbing) {
     e.climbT -= dt; e.climbY = (1 - Math.abs(e.climbT / e.climbDur * 2 - 1)) * (WALL_H[UP.wall] + .3);
-    p.armL.rotation.x = p.armR.rotation.x = -2.8 + Math.sin(e.t * 9) * .4;
+    p.body.rotation.x = -.25 + Math.sin(e.t * 9) * .08;
     if (e.climbT <= 0) { e.climbing = false; e.climbY = 0; const d = Math.hypot(e.x, e.z); e.x *= (CAMP_R - 1.6) / d; e.z *= (CAMP_R - 1.6) / d; e.pd = CAMP_R - 1.6; e.state = 'chase'; }
     e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y + e.climbY, e.z); e.g.rotation.y = e.yaw; return;
   }
@@ -380,8 +386,9 @@ function updClan(e, dt) {
     else if (e.kind === 'thrower' && dp < 12) { tx = e.x - dxp; tz = e.z - dzp; }
     if (dp < 2.1 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.atk = .7; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.1; }
   }
-  if (e.throwT > 0) { e.throwT -= dt; p.armR.rotation.x = -2.6; if (e.throwT <= 0) { throwSpear(e); p.armR.rotation.x = .4; } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return; }
+  if (e.throwT > 0) { e.throwT -= dt; p.body.rotation.x = -.18; if (p.weapon) p.weapon.rotation.x = -2.2; if (e.throwT <= 0) { throwSpear(e); p.body.rotation.x = .25; if (p.weapon) p.weapon.rotation.x = .3; } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
+  p.body.position.z = 0;
   e.ph += dt * v * 2.1; poseWalk(p, e.ph, Math.min(1, v / 3));
   e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
@@ -454,7 +461,7 @@ function die() {
   setTimeout(() => {
     $('dead').style.display = 'none'; P.dead = false; P.hp = 70; P.food = Math.max(P.food, 50);
     P.x = SPOTS.med.x + 2.5; P.z = SPOTS.med.z + 2.5; P.pd = Math.hypot(P.x, P.z); P.yaw = Math.atan2(-(0 - P.x), -(10 - P.z)); P.pitch = 0;
-    const lost = Math.floor(INV.scrap * .25); INV.scrap -= lost; INV.meat = 0; if (INV.res < 16) INV.res = 16;
+    const lost = Math.floor(INV.scrap * .25); INV.scrap -= lost; INV.meat = 0; if (INV.res < 30) INV.res = 30;
     if (G.step === 9 && named.wren) { named.wren.x = P.x + 1; named.wren.z = P.z + 1; }
     toast(lost ? `Juno patched you up. Lost ${lost} scrap.` : 'Juno patched you up.', 3.5);
   }, 2600);
@@ -473,18 +480,22 @@ function damage(e, n, byPlayer, at) {
   }
 }
 const ray = new THREE.Vector3(), rayO = new THREE.Vector3();
+const gunId = () => P.slot === 1 ? 'hunter' : RIFLE[UP.rifle].id;
+const resOf = () => P.slot === 1 ? 'resH' : 'res';
 function shoot() {
-  const R = RIFLE[UP.rifle];
-  if (P.reload > 0 || P.fire > 0 || P.dead) return;
-  if (INV.mag <= 0) { sfx('dry'); P.fire = .25; if (INV.res > 0) reload(); else toast('Out of ammo — restock at the armory'); return; }
-  INV.mag--; P.fire = R.rate; P.kick = Math.min(P.kick + .045, .12);
-  sfx('shot'); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 45);
+  const R = gunStats(), id = gunId();
+  if (P.reload > 0 || P.fire > 0 || P.dead || P.swapT > 0) return;
+  if (INV.mags[id] <= 0) { sfx('dry'); P.fire = .25; if (INV[resOf()] > 0) reload(); else toast('Out of ammo — restock at the armory'); return; }
+  INV.mags[id]--; P.fire = R.rate; P.kick = Math.min(P.kick + (P.slot ? .09 : .028), .14);
+  if (!WEAPONS[id].auto) input.fire = false;
+  sfx('shot'); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 40);
   camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
-  ray.x += rr(-R.spread, R.spread); ray.y += rr(-R.spread, R.spread); ray.normalize();
-  let best = null, bt = 260, mult = 1;
+  const sp = R.spread * (1 - P.ads * .7) * (P.onGround ? 1 : 2.5);
+  ray.x += rr(-sp, sp); ray.y += rr(-sp, sp); ray.normalize();
+  let best = null, bt = 400, mult = 1;
   for (const e of ents) {
     if (e.dead || e.type === 'npc') continue;
-    if (Math.hypot(e.x - P.x, e.z - P.z) > 260) continue;
+    if (Math.hypot(e.x - P.x, e.z - P.z) > 400) continue;
     for (const [cx, cy, cz, r, m] of hitSpheres(e)) {
       const ox = rayO.x - cx, oy = rayO.y - cy, oz = rayO.z - cz;
       const b = ox * ray.x + oy * ray.y + oz * ray.z, c = ox * ox + oy * oy + oz * oz - r * r, h = b * b - c;
@@ -492,74 +503,116 @@ function shoot() {
       if (t > 0 && t < bt) { bt = t; best = e; mult = m; }
     }
   }
-  // terrain occlusion: march the ray
-  let tHit = bt;
-  for (let t = 1; t < bt; t += 1.5) { const x = rayO.x + ray.x * t, y = rayO.y + ray.y * t, z = rayO.z + ray.z * t; if (y < heightAt(x, z)) { tHit = t; best = null; break; } }
+  let tHit = bt, hitTree = false;
+  for (let t = .8; t < bt; t += 1) {
+    const x = rayO.x + ray.x * t, y = rayO.y + ray.y * t, z = rayO.z + ray.z * t;
+    if (y < heightAt(x, z)) { tHit = t; best = null; break; }
+    if (t > 2 && (t | 0) % 2 === 0) for (const c of nearCols(x, z)) if (Math.hypot(x - c.x, z - c.z) < c.r * .8 && y < heightAt(c.x, c.z) + 8) { tHit = t; best = null; hitTree = true; break; }
+    if (hitTree) break;
+  }
   const end = rayO.clone().addScaledVector(ray, tHit);
   const mz = new THREE.Vector3(); muzzle.getWorldPosition(mz); tracer(mz, end);
   if (best) {
     damage(best, R.dmg * mult, true, end); sfx(mult > 1.5 ? 'head' : 'hit');
     hud.hitm.classList.add('on'); setTimeout(() => hud.hitm.classList.remove('on'), 90);
-    if (mult > 1.5) hud.hitm.style.filter = 'drop-shadow(0 0 3px #f44)'; else hud.hitm.style.filter = '';
-  } else if (tHit < 259) puff(end.x, end.y + .1, end.z, 0x6a5a48, 4, 1.5, .1, .4);
-  if (INV.mag === 0 && INV.res > 0) setTimeout(reload, 220);
+    hud.hitm.style.filter = mult > 1.5 ? 'drop-shadow(0 0 3px #f44)' : '';
+  } else if (tHit < 399) { puff(end.x, end.y + .1, end.z, hitTree ? 0x5a4a38 : 0x6a5a48, 4, 1.5, .1, .4); sfx(hitTree ? 'impact' : 'impact', .7); }
+  if (INV.mags[id] === 0 && INV[resOf()] > 0) setTimeout(reload, 240);
 }
 function reload() {
-  const R = RIFLE[UP.rifle];
-  if (P.reload > 0 || INV.mag >= R.mag || INV.res <= 0) return;
-  P.reload = 1.5; sfx('reload');
+  const R = gunStats(), id = gunId();
+  if (P.reload > 0 || INV.mags[id] >= R.mag || INV[resOf()] <= 0) return;
+  P.reload = P.slot ? 2.2 : 1.7; P.reloadMax = P.reload; sfx('reload');
 }
-function finishReload() { const R = RIFLE[UP.rifle], n = Math.min(R.mag - INV.mag, INV.res); INV.mag += n; INV.res -= n; }
+function finishReload() { const R = gunStats(), id = gunId(), k = resOf(), n = Math.min(R.mag - INV.mags[id], INV[k]); INV.mags[id] += n; INV[k] -= n; }
+function swapGun() {
+  if (!G.flags.hunter || P.reload > 0) return;
+  P.slot = 1 - P.slot; P.swapT = .45; selectGunView(gunId()); sfx('reload'); toast(WEAPONS[gunId()].name, 1.2);
+}
 
 function updPlayer(dt) {
   if (P.dead) return;
-  // look
-  P.yaw -= input.look[0]; P.pitch = clamp(P.pitch - input.look[1], -1.45, 1.45); input.look[0] = input.look[1] = 0;
+  // look (slower while aiming)
+  const lk = 1 / (1 + (WEAPONS[gunId()].scope - 1) * P.ads * .8);
+  P.yaw -= input.look[0] * lk; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
   // move
   let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
-  const sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen;
-  const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1);
+  const wl = waterAt(P.x, P.z), depth = wl - P.y;
+  P.swim = depth > 1.25;
+  const sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
+  const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
   const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
   P.x += vx * dt; P.z += vz * dt;
   collide(P, .42, true);
-  const gy = heightAt(P.x, P.z);
-  if (input.jump && P.onGround) { P.vy = 6.8; P.onGround = false; }
+  let gy = heightAt(P.x, P.z);
+  const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
+  if (P.swim) gy = Math.max(gy, wl - 1.3);
+  if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
   input.jump = false;
-  P.vy -= 22 * dt; P.y += P.vy * dt;
-  if (P.y <= gy) { if (!P.onGround && P.vy < -9) sfx('thud'); P.y = gy; P.vy = 0; P.onGround = true; }
-  else if (P.onGround && P.y - gy < .5) P.y = gy; else P.onGround = false;
-  const moving = Math.hypot(vx, vz) > .5 && P.onGround;
+  P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
+  if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
+  else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
+  const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
   P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
-  P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); }
+  STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
+  P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); if (moving && depth > -.05) sfx('splash'); }
   input.sprint = sprint;
   // survival
-  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08));
+  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1));
   if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
   else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (P.hp <= 0 && !P.dead) die();
   P.hurtT -= dt;
   // weapon
-  P.fire -= dt; if (P.reload > 0) { P.reload -= dt; if (P.reload <= 0) finishReload(); }
-  if (input.fire && !shopOpen) shoot();
-  P.kick = Math.max(0, P.kick - dt * .45);
+  const W = WEAPONS[gunId()];
+  P.ads = lerp(P.ads, input.ads && !P.swim && P.reload <= 0 && !sprint ? 1 : 0, Math.min(1, dt * 12));
+  P.fire -= dt; P.swapT = Math.max(0, (P.swapT || 0) - dt);
+  if (P.reload > 0) { P.reload -= dt; if (P.reload <= 0) finishReload(); }
+  if (input.fire && !shopOpen && !P.swim) shoot();
+  P.kick = Math.max(0, P.kick - dt * .5);
   // camera
-  const bobY = Math.sin(P.bob) * .045, bobX = Math.cos(P.bob * .5) * .03;
-  camera.position.set(P.x, P.y + 1.62 + bobY, P.z);
-  camera.rotation.set(P.pitch + P.kick, P.yaw, 0);
-  vm.position.set(.26 + bobX, -.25 + bobY * .6 - (P.reload > 0 ? Math.sin(P.reload / 1.5 * Math.PI) * .18 : 0), -.5 + P.kick * 1.2);
-  vm.rotation.set(P.reload > 0 ? Math.sin(P.reload / 1.5 * Math.PI) * .6 : P.kick * 2, 0, 0);
-  // sheltered under a roof? (mostly for the Rust)
+  const bk = 1 - P.ads * .85, bobY = Math.sin(P.bob) * .045 * bk, bobX = Math.cos(P.bob * .5) * .03 * bk;
+  camera.position.set(P.x, P.y + (P.swim ? 1.45 : 1.62) + bobY, P.z);
+  camera.rotation.set(P.pitch + P.kick * .35, P.yaw, 0);
+  const fov = BASE_FOV / (1 + (W.scope - 1) * P.ads);
+  if (Math.abs(camera.fov - fov) > .05) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  const scoped = gunId() === 'hunter' && P.ads > .85;
+  $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim;
+  // viewmodel: bob, kick, reload dip, swap drop; aiming slides it to the centre
+  const rl = P.reload > 0 ? Math.sin((1 - P.reload / P.reloadMax) * Math.PI) : 0, sw = (P.swapT || 0) / .45;
+  vm.position.set(bobX - P.ads * W.at[0], bobY * .6 - rl * .16 - sw * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1);
+  vm.rotation.set(rl * .5 + P.kick * 1.4, 0, -rl * .3);
   if (G.step === 9 && named.wren && Math.hypot(P.x, P.z) < 160) ambushCheck();
 }
+function climbLookout() {
+  if (P.y < POI.lookoutTop - 3) { P.x = POI.lookout.x + .5; P.z = POI.lookout.z + .5; P.y = POI.lookoutTop; P.vy = 0; toast('The whole valley, laid out', 2.5); }
+  else { P.x = POI.lookout.x - 4; P.z = POI.lookout.z + 4; P.y = heightAt(P.x, P.z); P.vy = 0; }
+  sfx('step'); sfx('step');
+}
+const nearCrate = () => { let b = null, bd = 3; for (const c of CRATES) if (!c.opened) { const d = Math.hypot(c.x - P.x, c.z - P.z); if (d < bd) { bd = d; b = c; } } return b; };
+function openCrate(c) {
+  if (!c || c.opened) return; c.opened = true; c.g.scale.y *= .5;
+  const msg = [];
+  if (c.loot === 'ammo' || c.loot === 'mixed') { const n = 18 + Math.floor(rnd() * 20); INV.res = Math.min(RES_MAX + 30, INV.res + n); msg.push(`+${n} rounds`); if (G.flags.hunter) { INV.resH += 4; msg.push('+4 rifle rounds'); } }
+  if (c.loot === 'scrap' || c.loot === 'mixed') { const n = 2 + Math.floor(rnd() * 4); INV.scrap += n; msg.push(`+${n} scrap`); }
+  if (rnd() < .3) { INV.meat++; msg.push('+1 dried meat'); }
+  sfx('pickup'); toast(msg.join(' · '), 2.6);
+}
 
-/* ================= wildlife ================= */
+/* ================= wildlife + the clans in the wider valley ================= */
 function ensureWildlife() {
   const deer = ents.filter(e => e.type === 'deer' && !e.dead).length, boar = ents.filter(e => e.type === 'boar' && !e.dead).length;
-  for (let i = deer; i < 14; i++) { const m = pick(MEADOWS); spawnDeer(m.x + rr(-18, 18), m.z + rr(-18, 18)); }
-  for (let i = boar; i < 6; i++) { const a = rnd() * 6.28, r = rr(90, 300); spawnBoar(Math.cos(a) * r, Math.sin(a) * r); }
+  for (let i = deer; i < 26; i++) { const m = MEADOWS[i % MEADOWS.length]; spawnDeer(m.x + rr(-18, 18), m.z + rr(-18, 18)); }
+  for (let i = boar; i < 10; i++) { const a = rnd() * 6.28, r = rr(90, WORLD - 60); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnBoar(x, z); }
 }
-function villageGuards() { for (let i = 0; i < 5; i++) spawnClan(i === 4 ? 'brute' : i % 2 ? 'thrower' : 'warrior', POI.village.x + rr(-12, 12), POI.village.z + rr(-12, 12), 'guard'); }
+function clanGroup(c, n, spread, mix) { for (let i = 0; i < n; i++) spawnClan(mix[i % mix.length], c.x + rr(-spread, spread), c.z + rr(-spread, spread), 'guard'); }
+function villageGuards() {
+  clanGroup(POI.village, 5, 12, ['warrior', 'thrower', 'warrior', 'thrower', 'brute']);
+  clanGroup(POI.ashmere, 11, 26, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
+  clanGroup(POI.burn, 4, 22, ['warrior', 'thrower']);
+  for (const s of SCOUTS) clanGroup(s, 3, 7, ['warrior', 'thrower', 'warrior']);
+}
 
 /* ================= time + atmosphere ================= */
 const isNight = () => G.tod > .8 || G.tod < .22;
@@ -587,14 +640,23 @@ function updTime(dt) {
   const ld = sd.y > 0 ? sd : sd.clone().negate();
   sun.position.set(P.x + ld.x * 160, P.y + ld.y * 160, P.z + ld.z * 160); sun.target.position.set(P.x, P.y, P.z);
   sun.color.copy(s.sun); sun.intensity = s.sunI * (1 - rk * .6);
-  hemi.intensity = s.hemiI * (1 - rk * .3); hemi.color.copy(s.top).lerp(_cb.set(0xcfd8dc), .5);
+  hemi.intensity = s.hemiI * 1.45 * (1 - rk * .3); hemi.color.copy(s.top).lerp(_cb.set(0xcfd8dc), .5);
   stars.material.opacity = clamp((isNight() ? 1 : 0) - rk, 0, 1) * smooth(.15, .3, Math.abs(G.tod - .5) * 2 - .3) * 1.2;
-  sky.position.copy(camera.position); stars.position.copy(camera.position);
+  const camFar = Math.max(220, scene.fog.far * 1.25); if (Math.abs(camera.far - camFar) > 10) { camera.far = camFar; camera.updateProjectionMatrix(); }
+  sky.position.copy(camera.position); sky.scale.setScalar(camFar * .92); stars.position.copy(camera.position); stars.scale.setScalar(camFar * .9);
+  clouds.position.set(camera.position.x, camera.position.y + 420, camera.position.z); clouds.material.map.offset.x += dt * .0016; clouds.material.map.offset.y += dt * .0007;
+  clouds.material.color.copy(s.hor).lerp(_cb.set(0xffffff), .35).multiplyScalar(clamp(s.sunI / 2, .12, 1)); clouds.material.opacity = .75 * (1 - rk * .5);
+  refreshEnv(G.tod, rk);
+  grade.uniforms.hurt.value = clamp(+hud.hurt.style.opacity || 0, 0, 1) * .8 + (P.dead ? 1 : 0);
+  grade.uniforms.shadow.value.set(rk * .04, .012 - rk * .01, .03 - rk * .03);
   const nightK = clamp(1 - s.sunI / 1.2, 0, 1);
   torch.intensity = nightK * 2.6;
   campLight.intensity = nightK * (.35 + UP.light * .55);
   fireLight.intensity = 1.2 + nightK * 2 + Math.sin(G.t * 17) * .3;
-  renderer.toneMappingExposure = 1.08 + nightK * .35;
+  renderer.toneMappingExposure = 1.0 + nightK * .4;
+  for (const M0 of MIST) { M0.m.material.opacity = (.26 + Math.sin(G.t * .2 + M0.ph) * .06) * (1 - rk) * clamp(s.sunI, .25, 1); M0.m.material.color.copy(s.fog).lerp(_cb.set(0xffffff), .3); M0.m.position.x = M0.x + Math.sin(G.t * .03 + M0.ph) * 12; }
+  if (relayLamp) relayLamp.visible = Math.sin(G.t * 2.4) > .2;
+  if (waterMat) { texWaterN.offset.y -= dt * .02; texWaterN.offset.x += dt * .004; }
   if (windGain) windGain.gain.value = .04 + rk * .12;
   hud.rustv.style.opacity = rk > .4 && !P.safe ? 1 : rk * .6;
   if (vaultLamp) vaultLamp.visible = Math.sin(G.t * 3) > 0;
@@ -606,7 +668,7 @@ const _p = new THREE.Vector3();
 function updHUD(dt) {
   hud.hp.style.width = Math.max(0, P.hp) + '%'; hud.fd.style.width = P.food + '%';
   hud.scrap.textContent = INV.scrap; hud.meat.textContent = INV.meat;
-  hud.mag.textContent = P.reload > 0 ? '··' : INV.mag; hud.res.textContent = '/ ' + INV.res;
+  hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
   hud.clock.textContent = `Day ${G.day} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   // objective
@@ -651,7 +713,9 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyE') { if (shopOpen) closeShop(); else useInteract(); }
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
-  if (e.code === 'KeyM') setMute(!muted);
+  if (e.code === 'KeyN') setMute(!muted);
+  if (e.code === 'KeyM' || e.code === 'Tab') { e.preventDefault(); toggleMap(); }
+  if (e.code === 'KeyQ' || e.code === 'Digit2' || e.code === 'Digit1') swapGun();
   if (e.code === 'Escape' && shopOpen) closeShop();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -668,8 +732,10 @@ canvas.addEventListener('mousedown', e => {
   if (isTouch) return;
   if (!document.pointerLockElement) { if (!shopOpen) canvas.requestPointerLock?.(); return; }
   if (e.button === 0) input.fire = true;
+  if (e.button === 2) input.ads = true;
 });
-addEventListener('mouseup', e => { if (e.button === 0 && !isTouch) input.fire = false; });
+addEventListener('contextmenu', e => { if (G.mode === 'play') e.preventDefault(); });
+addEventListener('mouseup', e => { if (e.button === 0 && !isTouch) input.fire = false; if (e.button === 2) input.ads = false; });
 addEventListener('mousemove', e => { if (document.pointerLockElement === canvas && !cine) { input.look[0] += e.movementX * .0022; input.look[1] += e.movementY * .0022; } });
 
 // touch: left half = floating stick, right half = look; fire button also looks while held
@@ -686,7 +752,8 @@ function tStart(e) {
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
-      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') input.jump = true; if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract(); }
+      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') input.jump = true; if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
+        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } if (btn.id === 'bSwap') swapGun(); if (btn.id === 'bMap') toggleMap(); }
       continue;
     }
     if (t.clientX < innerWidth * .42 && ![...touches.values()].some(v => v.kind === 'stick')) {
@@ -722,7 +789,7 @@ for (const el of [canvas, $('touch')]) { el.addEventListener('touchstart', tStar
 document.addEventListener('touchmove', e => { if (G.mode === 'play' && !e.target.closest('#shop')) e.preventDefault(); }, { passive: false });
 
 /* ================= save ================= */
-const SAVE = 'the-arc-save-v1';
+const SAVE = 'the-arc-save-v2';
 function save() {
   if (G.mode !== 'play') return;
   try { localStorage.setItem(SAVE, JSON.stringify({ step: G.step, day: G.day, tod: G.tod, chapterDone: G.chapterDone, flags: G.flags, inv: INV, up: UP, hp: P.hp, food: P.food })); } catch (e) {}
@@ -730,7 +797,7 @@ function save() {
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
 /* ================= main loop ================= */
-let last = performance.now(), saveT = 0, titleT = 0;
+let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
@@ -743,16 +810,24 @@ function frame(now) {
   gate.ang = lerp(gate.ang, gTarget, dt * 2.5);
   for (const d of gateDoors) { d.pivot.rotation.y = d.s * gate.ang * 1.65; d.door.rotation.z = gate.hp <= 0 ? d.s * .4 : 0; }
 
+  updSmoke(G.t); grassU.uTime.value = G.t;
   if (G.mode === 'title') {
-    titleT += dt * .04;
-    camera.position.set(Math.sin(titleT) * 70, H0 + 22, Math.cos(titleT) * 70 + 10);
-    camera.lookAt(0, H0 + 8, 0);
-    updTime(dt);
+    vm.visible = false; titleT += dt * .03;
+    camera.position.set(Math.sin(titleT) * 80, H0 + 20, Math.cos(titleT) * 80 + 20);
+    camera.lookAt(0, H0 + 14, -30);
+    updGrass(camera.position.x, camera.position.z);
+    updTime(dt); music.go('dawn');
   } else {
     keyMove();
     if (cine) updCine(dt); else { updPlayer(dt); }
+    updGrass(camera.position.x, camera.position.z);
+    music.go(cine && G.step === 0 ? 'intro' : night.active ? 'raid' : rust.state === 'active' || rust.state === 'warn' ? 'tense' : isNight() ? 'night' : 'day');
+    regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
+    if (mapOpen) drawMap();
     for (const e of [...ents]) {
-      if (Math.hypot(e.x - P.x, e.z - P.z) > 240 && e.type !== 'clan') continue;
+      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < Math.max(160, scene.fog.far * 1.1);
+      if (d > 260 && e.type !== 'clan') continue;
+      if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
     }
     updTowers(dt); updSpears(dt);
@@ -766,14 +841,63 @@ function frame(now) {
     saveT += dt; if (saveT > 15) { saveT = 0; save(); }
   }
   updParts(dt); updTracers(dt);
-  renderer.render(scene, camera);
+  grade.uniforms.t.value = G.t;
+  composer.render(dt);
 }
+
+/* ================= regions + the valley map ================= */
+function checkRegions() {
+  const seen = G.flags.seen = G.flags.seen || {};
+  for (const R of REGIONS) {
+    if (seen[R.id]) continue;
+    const inside = R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
+    if (inside && !cine) { seen[R.id] = 1; card(R.name, R.sub, 3.6); music.sting('sting-drum-hit', .35); save(); return; }
+  }
+}
+let mapOpen = false, mapBase = null;
+const MAPPX = 440, MAPR = WORLD + 60;
+function buildMapCanvas() {
+  const c = document.createElement('canvas'); c.width = c.height = MAPPX; const g = c.getContext('2d'), img = g.createImageData(MAPPX, MAPPX), col = new THREE.Color();
+  for (let j = 0; j < MAPPX; j++) for (let i = 0; i < MAPPX; i++) {
+    const x = (i / MAPPX * 2 - 1) * MAPR, z = (j / MAPPX * 2 - 1) * MAPR, h = heightAt(x, z), k = (j * MAPPX + i) * 4;
+    const sl = (heightAt(x - 2, z) - heightAt(x + 2, z)) * .06;
+    terrainColor(x, z, h, slopeAt(x, z), col);
+    let r = col.r, gg = col.g, b = col.b;
+    if (waterAt(x, z) > h) { r = .12; gg = .24; b = .28; }
+    const sh = clamp(1 + sl + (h - 20) * .002, .55, 1.4), edge = Math.hypot(x, z) > WORLD ? .45 : 1;
+    img.data[k] = Math.pow(r * sh * edge, 1 / 2.2) * 255; img.data[k + 1] = Math.pow(gg * sh * edge, 1 / 2.2) * 255; img.data[k + 2] = Math.pow(b * sh * edge, 1 / 2.2) * 255; img.data[k + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  mapBase = c;
+}
+const toMap = (x, z, S) => [(x / MAPR + 1) / 2 * S, (z / MAPR + 1) / 2 * S];
+function drawMap() {
+  const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 40, innerWidth - 40, 560) * (devicePixelRatio > 1 ? 2 : 1));
+  if (cv.width !== S) cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  g.drawImage(mapBase, 0, 0, S, S);
+  const k = S / 440, seen = G.flags.seen || {};
+  g.font = `700 ${12 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
+  for (const R of REGIONS) {
+    if (R.river) continue; const [x, y] = toMap(R.x, R.z, S);
+    if (!seen[R.id]) { g.fillStyle = '#0006'; g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill(); continue; }
+    g.fillStyle = R.id === 'kestrel' ? '#f0a640' : R.id === 'ashmere' || R.id === 'outpost' ? '#e0573d' : '#efe9dc';
+    g.beginPath(); g.arc(x, y, 3.5 * k, 0, 7); g.fill();
+    g.fillStyle = '#000a'; g.fillText(R.name, x + k, y - 5 * k); g.fillStyle = '#efe9dc'; g.fillText(R.name, x, y - 6 * k);
+  }
+  const at = STEPS[G.step]?.at?.(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 7 * k, 0, 7); g.stroke(); }
+  const [px, py] = toMap(P.x, P.z, S); g.save(); g.translate(px, py); g.rotate(-P.yaw + Math.PI);
+  g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5 * k; g.beginPath(); g.moveTo(0, -8 * k); g.lineTo(5 * k, 6 * k); g.lineTo(0, 3 * k); g.lineTo(-5 * k, 6 * k); g.closePath(); g.fill(); g.stroke(); g.restore();
+}
+$('map').addEventListener('click', () => toggleMap());
+$('map').addEventListener('touchstart', e => { e.stopPropagation(); }, { passive: true });
+function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOpen); if (mapOpen) drawMap(); }
 
 /* ================= start ================= */
 function startGame(fresh) {
   initAudio();
   const s = !fresh && load();
-  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, mag: 8, res: 24 });
+  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 });
   G.step = 0; G.day = 1; G.tod = .34; G.chapterDone = false; G.flags = {};
   if (s) {
     Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.chapterDone = s.chapterDone; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
@@ -782,15 +906,18 @@ function startGame(fresh) {
     if (G.step === 10 || G.step === 11) { G.step = 10; }
     if (G.step >= 12) G.tod = clamp(s.tod, .26, .7); else G.tod = G.step >= 8 ? .58 : G.step >= 5 ? .45 : .36;
     if (G.step === 6) spawnHerd(POI.meadow, 4);
+    if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
   }
+  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1;
+  P.slot = 0; selectGunView(RIFLE[UP.rifle].id);
   applyUpgrades();
   gate.hp = gate.max;
   document.body.classList.remove('title'); G.mode = 'play';
   if (!s || G.step === 0) introCine();
   else {
     P.x = SPOTS.vosPost.x + 1.5; P.z = SPOTS.vosPost.z - 3; P.pd = Math.hypot(P.x, P.z); P.yaw = 0; P.pitch = 0;
-    if (G.step === 10) { night.prep = 60; G.todTarget = .74; if (named.wren) { named.wren.wander = true; } else { named.wren = spawnNPC('wren', -14, 10, { jacket: 0x6a5a7a, hair: 0x2a1d14, skin: 0xc68e6a, pack: false, wander: true }); } }
-    if (G.step >= 12 && !named.wren) named.wren = spawnNPC('wren', -14, 10, { jacket: 0x6a5a7a, hair: 0x2a1d14, skin: 0xc68e6a, pack: false, wander: true });
+    if (G.step === 10) { night.prep = 60; G.todTarget = .74; if (named.wren) { named.wren.wander = true; } else { named.wren = spawnNPC('wren', -14, 10, WREN_LOOK(true)); } }
+    if (G.step >= 12 && !named.wren) named.wren = spawnNPC('wren', -14, 10, WREN_LOOK(true));
     toast(`Day ${G.day} · Kestrel`, 3);
   }
   if (!isTouch) setTimeout(() => canvas.requestPointerLock?.(), 50);
@@ -798,7 +925,7 @@ function startGame(fresh) {
 function menu() {
   const s = load();
   $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire and aim.' : 'WASD move · Shift sprint · mouse look · click fire · R reload · E use · Space jump · M sound';
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire and aim · AIM to scope · MAP for the valley.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · Q swap · E use · Space jump/swim · M map · N sound';
   $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
@@ -806,17 +933,32 @@ function menu() {
 let newArmed = false;
 function confirmNew() { if (newArmed) return true; newArmed = true; $('bNew').textContent = 'Tap again to wipe save'; setTimeout(() => { newArmed = false; if ($('bNew')) $('bNew').textContent = 'New game'; }, 2500); return false; }
 
+const WREN_LOOK = wander => ({ model: 'civilian', tint: 0xb8aac8, pack: false, wander });
 async function boot() {
   try { await Promise.race([document.fonts.load('900 70px "Big Shoulders Stencil Display"'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
-  buildTerrainAndForest(); buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildOutside(); seedScraps(); buildRifle(0);
-  named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { jacket: 0x5a4a3a, hair: 0x161616, skin: 0x8d5a3c, yaw: -2.2 });
-  named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { jacket: 0xdedad0, hair: 0x8a6a3a, skin: 0xf0c8a8, yaw: 1 });
-  named.vos = spawnNPC('vos', SPOTS.vosPost.x, SPOTS.vosPost.z, { jacket: 0x2f3d4c, hair: 0x9a9a92, skin: 0xc68e6a, yaw: Math.PI, scale: 1.05 });
-  for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2]]) spawnNPC('extra', x, z, { wander: true });
+  setLoad('READING THE RIVER'); await nextFrame();
+  prepWater(); prepFlats();
+  await buildHeightmap(); H0 = heightAt(0, 0);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate']);
+  await buildTerrain(); buildWater();
+  setLoad('UNPACKING THE ARMORY'); await mp;
+  setLoad('GROWING THE FOREST'); await nextFrame();
+  await buildForest(); buildGrass(); buildMist();
+  setLoad('RAISING KESTREL'); await nextFrame();
+  buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
+  setLoad('WALKING THE VALLEY'); await nextFrame();
+  buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
+  seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
+  named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
+  named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
+  named.vos = spawnNPC('vos', SPOTS.vosPost.x, SPOTS.vosPost.z, { model: 'elias', yaw: Math.PI, h: 1.86 });
+  for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2], [-8, -4], [12, 22]]) spawnNPC('extra', x, z, { wander: true });
   ensureWildlife(); villageGuards();
-  sky.position.copy(camera.position);
+  buildMapCanvas();
+  updTime(0); refreshEnv(G.tod, 0);
   menu();
   requestAnimationFrame(frame);
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
+window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE };

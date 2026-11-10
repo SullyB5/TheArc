@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
-
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=Barlow+Condensed:wght@500;600;700&display=swap">
@@ -33,7 +33,7 @@ body.cine .touch,body.title .touch{display:none}
 .inv svg{width:14px;height:14px}
 
 /* top-right: ammo + clock */
-#ammo{position:absolute;right:calc(var(--r) + 44px);top:var(--t);text-align:right;padding:6px 8px;border-radius:8px;background:linear-gradient(270deg,#0008,#0000);text-shadow:0 1px 2px #000}
+#ammo{position:absolute;right:calc(var(--r) + 60px);top:var(--t);text-align:right;padding:6px 8px;border-radius:8px;background:linear-gradient(270deg,#0008,#0000);text-shadow:0 1px 2px #000}
 #ammo b{font-size:22px;font-weight:700;letter-spacing:.02em}
 #ammo small{color:var(--dim);font-size:14px}
 #clock{font-size:13px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
@@ -119,6 +119,21 @@ body.title #title{display:flex}
 #dead h2{margin:0;font:900 52px/1 "Big Shoulders Stencil Display",Impact,sans-serif;letter-spacing:.06em}
 #dead p{color:var(--dim);font-size:18px}
 
+#scope{position:fixed;inset:0;pointer-events:none;display:none;background:radial-gradient(circle at center,#0000 0,#0000 31vh,#000 31.4vh)}
+#scope.on{display:block}
+#scope i{position:absolute;left:50%;top:50%;width:62vh;height:62vh;margin:-31vh;border-radius:50%;box-shadow:inset 0 0 40px #000c}
+#scope i::before,#scope i::after{content:"";position:absolute;background:#000c}
+#scope i::before{left:0;right:0;top:50%;height:1.5px;margin-top:-.75px}
+#scope i::after{top:0;bottom:0;left:50%;width:1.5px;margin-left:-.75px}
+#map{position:fixed;inset:0;z-index:7;display:none;place-items:center;align-content:center;background:#05080bdd}
+#map.on{display:grid}
+#map canvas{width:min(calc(100vh - 60px),calc(100vw - 40px),560px);aspect-ratio:1;border-radius:12px;box-shadow:0 0 0 2px #ffffff22,0 10px 40px #000}
+#map p{margin:8px 0 0;font-size:14px;letter-spacing:.2em;color:var(--dim);text-align:center}
+.btn.sm{width:46px;height:34px;border-radius:17px;font-size:12px}
+.btn.lit{background:#f0a640aa;color:#1a1208}
+#bAim{right:calc(var(--r) + 110px);bottom:calc(var(--b) + 132px)}
+#bSwap{right:calc(var(--r) + 166px);bottom:calc(var(--b) + 20px)}
+#bMap{right:calc(var(--r) + 6px);top:calc(var(--t) + 2px)}
 #rot{position:fixed;inset:0;z-index:20;background:#0b0f0d;display:grid;place-items:center;text-align:center;font-size:20px;color:var(--dim)}
 #rot[hidden]{display:none}
 #rot svg{width:64px;height:64px;margin-bottom:12px;stroke:var(--amber)}
@@ -144,6 +159,8 @@ body.title #title{display:flex}
   <svg id="hitm" viewBox="0 0 22 22"><path d="M3 3l5 5M19 3l-5 5M3 19l5-5M19 19l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
   <div id="prompt"></div>
 </div>
+<div id="scope"><i></i></div>
+<div id="map"><canvas id="mapc"></canvas><p>THE VALLEY · <b>M</b> / tap to close</p></div>
 <div id="hurt"></div><div id="rustv"></div>
 <div class="lb" id="lbt"></div><div class="lb" id="lbb"></div>
 <div id="sub"></div>
@@ -158,6 +175,9 @@ body.title #title{display:flex}
   <div class="btn" id="bJump">JUMP</div>
   <div class="btn" id="bRel">RELOAD</div>
   <div class="btn" id="bUse">USE</div>
+  <div class="btn sm" id="bAim">AIM</div>
+  <div class="btn sm" id="bSwap">SWAP</div>
+  <div class="btn sm" id="bMap">MAP</div>
 </div>
 
 <div id="title">
@@ -169,6 +189,7 @@ body.title #title{display:flex}
 <div id="dead"><div><h2>YOU WENT DOWN</h2><p>Juno drags you back to the med tent…</p></div></div>
 <div id="rot" hidden><div><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2" transform="rotate(90 12 12)"/><path d="M4 7a8 8 0 0 1 5-4M20 17a8 8 0 0 1-5 4"/></svg><br>Turn your phone sideways</div></div>
 
+<script type="importmap">{"imports":{"three":"./three.module.min.js"}}</script>
 <script type="module" src="./game.js"></script>
 
 </body>
