@@ -56,7 +56,7 @@ function fbm(x, z) { let s = 0, a = 1, f = 1, n = 0; for (let i = 0; i < 4; i++)
 /* ================= the map =================
    Kestrel camp at the origin, gate facing +z (south). A big forested mountain looms right behind it (north).
    East: the Coldwater river in its gorge, the old-world town of Halvard past the broken span, and the Burn where the Arc's
-   lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. South-west: Lake Ilse. South: the fire
+   lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. Lake Ilse sits just outside the gate, to the west. South-west: the dropsite, where you come to. South: the fire
    lookout. North-west: the grey mountain and the sealed door of Greyhold. */
 const VALLEY = 640;                         // the Chapter 1 valley (Kestrel and everything around it)
 const WORLD = 2200;                         // walkable radius of the whole map
@@ -68,7 +68,7 @@ const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 114 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
-  lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
   cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
@@ -88,7 +88,7 @@ const BASES = [
 ];
 const inCity = (x, z, pad = 0) => Math.hypot(x - CITY.x, z - CITY.z) < CITY.R + pad;
 const inBase = (x, z, pad = 0) => BASES.some(B => Math.hypot(x - B.x, z - B.z) < B.R + pad);
-const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
+const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 25, L: 0, near: true, wob: .2 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
 const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
 const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 },
@@ -181,7 +181,8 @@ function rawH(x, z) {
   return h;
 }
 let LAKE_L = 0;
-function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * .4); }
+function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * (L.wob ?? .4)); }
+function lakeCut(L, x, z, h) { const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) return h; const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; return hc < h ? hc : h; }
 function riverWL(z) { const f = clamp((z - RIV_Z0) / RIV_STEP, 0, RIV_N - 1.001), i = Math.floor(f); return lerp(RIVWL[i], RIVWL[i + 1], f - i); }
 function carved(x, z) {
   let h = rawH(x, z);
@@ -189,10 +190,7 @@ function carved(x, z) {
   // inside the valley the gorge stops 150m out (as built); out past the rim it cuts a full valley through the hills
   const cap = 150 + 600 * smooth(560, 780, Math.hypot(x, z));
   if (dr < cap) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = dr < 150 ? hc : lerp(h, hc, 1 - smooth(cap * .8, cap, dr)); }
-  for (const L of LAKES) {
-    const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
-    const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
-  }
+  for (const L of LAKES) if (!L.near) h = lakeCut(L, x, z, h);   // the near lake (Lake Ilse, by the gate) is cut after the camp is levelled
   // the world's edge: ridged ranges rather than a smooth bowl (added after the river so it doesn't cut a slot through them)
   const d = Math.hypot(x, z), e = Math.max(0, d - 2060);
   if (e > 0) { const rg = 1 - Math.abs(fbm(x * .0019 + 41, z * .0019 - 7) * 2 - 1), rg2 = 1 - Math.abs(fbm(x * .006 + 3, z * .006 + 9) * 2 - 1); h += smooth(0, 340, e) * (160 + 760 * rg * rg + 220 * rg2 * rg2) + e * .25; }
@@ -204,8 +202,7 @@ function prepWater() {
   for (let k = 0; k < RIV_N; k++) { const z = RIV_Z0 + k * RIV_STEP, rx = riverX(z); let m = 1e9; for (let dx = -40; dx <= 40; dx += 8) m = Math.min(m, rawH(rx + dx, z)); RIVWL[k] = m - 1.4; }
   for (let pass = 0; pass < 4; pass++) { const c = RIVWL.slice(); for (let k = 2; k < RIV_N - 2; k++) RIVWL[k] = (c[k - 2] + c[k - 1] + c[k] + c[k + 1] + c[k + 2]) / 5; }
   for (let k = 1; k < RIV_N; k++) RIVWL[k] = Math.min(RIVWL[k], RIVWL[k - 1]);        // flows downhill, north to south
-  for (const L of LAKES) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
-  LAKE_L = LAKES[0].L;
+  for (const L of LAKES) if (!L.near) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
 }
 const FLATS = [];
 /* a level site for a building: its height is the average of the centre and the surrounding ground, and the blend out to
@@ -217,10 +214,20 @@ function addFlat(x, z, r0, r1, h) {
   for (const v of ring) dev = Math.max(dev, Math.abs(v - H));
   FLATS.push({ x, z, r0, r1: Math.max(r1, r0 + dev * 2.6), h: H });
 }
-function fullH(x, z) {
+function flatH(x, z) {
   let h = carved(x, z);
   for (const f of FLATS) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r1) h = f.h + (h - f.h) * smooth(f.r0, f.r1, d); }
   return h;
+}
+function fullH(x, z) {
+  let h = flatH(x, z);
+  for (const L of LAKES) if (L.near) h = lakeCut(L, x, z, h);
+  return h;
+}
+/* the near lake sits in the levelled ground in front of the gate, so its level comes from that ground */
+function prepNearLakes() {
+  for (const L of LAKES) if (L.near) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, flatH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.1; }
+  LAKE_L = LAKES[0].L;
 }
 const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(IN_HALF * 2 / HM_STEP) + 1;        // fine: the valley
 const HO_STEP = LOW ? 5 : 4, HO_N = Math.round(HALF * 2 / HO_STEP) + 1;              // coarse: the whole map
@@ -270,6 +277,8 @@ function prepFlats() {
   addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
   for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
+  addFlat(POI.dropsite.x, POI.dropsite.z, 34, 60);                                  // the dropsite: open, level ground to build on
+  prepNearLakes();
 }
 
 /* ---------- renderer / scene / post ---------- */
@@ -277,7 +286,7 @@ const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
@@ -574,7 +583,8 @@ const REGIONS = [
   { id: 'halvard', name: 'HALVARD', sub: 'A town from before the fire', x: POI.halvard.x, z: POI.halvard.z, r: 95 },
   { id: 'burn', name: 'THE BURN', sub: 'Where the lander Tern came down', x: POI.burn.x, z: POI.burn.z, r: 70 },
   { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80, hostile: true },
-  { id: 'lake', name: 'LAKE ILSE', sub: 'Still water', x: POI.lake.x, z: POI.lake.z, r: 100 },
+  { id: 'lake', name: 'LAKE ILSE', sub: 'Still water, a stone’s throw from the gate', x: POI.lake.x, z: POI.lake.z, r: 34 },
+  { id: 'dropsite', name: 'THE DROPSITE', sub: 'A piece of the Arc, torn off on the way down · where you woke', x: POI.dropsite.x, z: POI.dropsite.z, r: 60 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
   // past the rim
@@ -757,7 +767,7 @@ function treeOK(x, z) {
   if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
   if (inCity(x, z, 30) || inBase(x, z, 14)) return false;
   for (const p of [[POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
-  for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
+  for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14], [POI.dropsite, 40], [POI.lake, LAKES[0].R + 6]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   if (Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 24) return false;
   if (SHELTERS.some(s => Math.hypot(x - s.x, z - s.z) < 12) || SCOUTS.some(s => Math.hypot(x - s.x, z - s.z) < 16)) return false;
   if (Math.abs(x) < 46 && z > 50 && z < 130 && rnd() < .8) return false;
@@ -1458,7 +1468,7 @@ function dressSmokehouse(lv) {
 function buildNearby() {
   // hull fragments in the debris field
   for (let i = 0; i < 16; i++) {
-    const x = rr(-46, 46), z = rr(82, 150); if (pathDist(x, z) < 4) continue;
+    const x = rr(-46, 46), z = rr(82, 150); if (pathDist(x, z) < 4 || Math.hypot(x - POI.lake.x, z - POI.lake.z) < LAKES[0].R * 1.3) continue;
     const y = heightAt(x, z);
     const t = texPanel.clone(); t.needsUpdate = true; t.repeat.set(1, 1);
     const kind = rnd();
@@ -1555,7 +1565,7 @@ function spawnScrap(x, z, tag) {
   SCRAPS.push(S); return S;
 }
 function seedScraps() {
-  for (let i = 0; i < 9; i++) spawnScrap(rr(-40, 40), rr(82, 146), 'field');
+  for (let i = 0; i < 9; i++) { const x = rr(-40, 40), z = rr(82, 146); if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'field'); }
   for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(96, VALLEY - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
 }
 
@@ -1738,8 +1748,8 @@ function buildAshmere() {
 }
 
 function buildLake() {
-  const L = POI.lake, a = Math.atan2(-L.z, -L.x) + .4;                // dock on the camp side
-  const sx = L.x + Math.cos(a) * 66, sz = L.z + Math.sin(a) * 66, yaw = -a + Math.PI / 2;
+  const L = POI.lake, R = LAKES[0].R, a = Math.atan2(64 - L.z, 6 - L.x);   // dock on the gate side, facing the road out
+  const sx = L.x + Math.cos(a) * R * .92, sz = L.z + Math.sin(a) * R * .92, yaw = -a + Math.PI / 2;
   const g = new THREE.Group(), w = new THREE.MeshLambertMaterial({ map: texWood, color: 0x8a7258 });
   const deckY = LAKE_L + .5, gy = heightAt(sx, sz);
   for (let k = 0; k < 16; k++) { const p = mesh(new THREE.BoxGeometry(2.6, .14, .5), w, 0, 0, -k * .55, g); p.rotation.z = rr(-.03, .03); }
@@ -1747,8 +1757,87 @@ function buildLake() {
   g.position.set(sx, deckY, sz); g.rotation.y = yaw; world.add(g);
   const [cx, cz] = rotXZ(0, -4.2, yaw); addFloor(sx + cx, sz + cz, yaw, 1.3, 4.6, deckY + .07);
   // boathouse + canoe + fishing shack
-  { const bx = L.x + Math.cos(a + .25) * 82, bz = L.z + Math.sin(a + .25) * 82; house(bx, bz, -a, 7, 6); supplyCrate(bx, bz, 'mixed'); }
-  { const cx2 = L.x + Math.cos(a - .2) * 70, cz2 = L.z + Math.sin(a - .2) * 70, c = new THREE.Group(); const hull = mesh(new THREE.CylinderGeometry(.5, .5, 4.4, 10, 1, false, 0, Math.PI), M(0x8a3a2a, { side: THREE.DoubleSide }), 0, .5, 0, c); hull.rotation.set(Math.PI / 2, 0, Math.PI); place(c, cx2, cz2, rnd() * 6); }
+  { const b = a + 2.2, bx = L.x + Math.cos(b) * (R + 9), bz = L.z + Math.sin(b) * (R + 9); house(bx, bz, -b, 7, 6); supplyCrate(bx, bz, 'mixed'); }   // boathouse on the far shore
+  { const cx2 = L.x + Math.cos(a + .5) * (R + 2.5), cz2 = L.z + Math.sin(a + .5) * (R + 2.5), c = new THREE.Group(); const hull = mesh(new THREE.CylinderGeometry(.5, .5, 4.4, 10, 1, false, 0, Math.PI), M(0x8a3a2a, { side: THREE.DoubleSide }), 0, .5, 0, c); hull.rotation.set(Math.PI / 2, 0, Math.PI); place(c, cx2, cz2, rnd() * 6); }
+}
+
+/* the dropsite: where the drop ship came down and where you wake. Salvage in the wreck and around it, and level open
+   ground to dig in and build on if you'd rather not walk to Kestrel (the old road north-east goes there). */
+function buildDropsite() {
+  const D = POI.dropsite, y0 = heightAt(D.x, D.z), toCamp = Math.atan2(-D.z, -D.x);
+  const ax = Math.cos(toCamp), az = Math.sin(toCamp);                       // the hull's axis points at Kestrel
+  const W = (along, side) => [D.x + ax * along - az * side, D.z + az * along + ax * side];
+  const inWreck = (x, z) => { const dx = x - D.x, dz = z - D.z, al = dx * ax + dz * az, sd = -dx * az + dz * ax; return Math.abs(al) < 12.5 && Math.abs(sd) < 6.5; };
+  // scorched ground and a long gouge where it skidded in from the south-west
+  const scorch = new THREE.Mesh(new THREE.CircleGeometry(18, 28), new THREE.MeshLambertMaterial({ color: 0x1e1b18, transparent: true, opacity: .75, depthWrite: false }));
+  scorch.rotation.x = -Math.PI / 2; scorch.position.set(D.x, y0 + .06, D.z); scorch.renderOrder = 1; world.add(scorch);
+  const gouge = new THREE.Mesh(new THREE.PlaneGeometry(9, 46), new THREE.MeshLambertMaterial({ color: 0x2a231c, transparent: true, opacity: .7, depthWrite: false }));
+  gouge.rotation.set(-Math.PI / 2, 0, toCamp + Math.PI / 2); const [gx, gz] = W(-30, 0); gouge.position.set(gx, y0 + .07, gz); gouge.renderOrder = 1; world.add(gouge);
+
+  /* the wreck: a section of the Arc itself, torn off the station when it came down — one end still sealed with its
+     airlock, the other ripped open on a dark, gutted corridor, ribs sprung, cables hanging, a snapped truss beside it */
+  const g = new THREE.Group(); g.position.set(D.x, y0 + 2.6, D.z); g.rotation.set(0, -toCamp, -.07); world.add(g);
+  const R = 5, L = 22;
+  const t = texPanel.clone(); t.needsUpdate = true; t.repeat.set(L / 8, 3);
+  const skin = new THREE.MeshStandardMaterial({ map: t, normalMap: TX.metal2N, normalScale: new THREE.Vector2(.8, .8), color: 0xb4b2ab, metalness: .45, roughness: .66, side: THREE.DoubleSide });
+  const hull = mesh(new THREE.CylinderGeometry(R, R, L, 24, 1, true), skin, 0, 0, 0, g); hull.rotation.z = Math.PI / 2;
+  const burnt = S(0x2a2724, { roughness: .9 }), bright = S(0xd8d8d0, { metalness: .5, roughness: .45 });
+  // sealed end (toward Kestrel): cap, airlock ring, hatch
+  { const cap = mesh(new THREE.CylinderGeometry(R * .92, R, 1, 24), S(0x6d6e6c, { map: TX.metal, metalness: .5 }), L / 2 + .3, 0, 0, g); cap.rotation.z = Math.PI / 2;
+    const ring = mesh(new THREE.TorusGeometry(R * .42, .35, 6, 18), M(0x3a3a38), L / 2 + .85, -R * .25, 0, g); ring.rotation.y = Math.PI / 2;
+    const hatch = mesh(new THREE.CircleGeometry(R * .4, 18), M(0x4a4c4e), L / 2 + .82, -R * .25, 0, g); hatch.rotation.y = Math.PI / 2; }
+  // the torn end: a dark gutted interior, a deck, and a ragged lip of bent plates
+  { const dark = mesh(new THREE.CircleGeometry(R * .98, 24), M(0x0b0a09), -L / 2 + 5, 0, 0, g); dark.rotation.y = Math.PI / 2;
+    mesh(new THREE.BoxGeometry(6, .25, R * 1.6), S(0x4a4846, { map: TX.metal, metalness: .5 }), -L / 2 + 2.6, -R * .55, 0, g);
+    for (let i = 0; i < 18; i++) {
+      const a = i / 18 * Math.PI * 2, len = rr(.8, 3.6);
+      const p = mesh(new THREE.BoxGeometry(len, .12, rr(1.2, 2)), i % 3 ? skin : burnt, -L / 2 - len / 2 + .3, Math.cos(a) * R, Math.sin(a) * R, g);
+      p.rotation.set(a, rr(-.25, .25), (rnd() < .5 ? -1 : 1) * rr(.05, .45));
+    }
+    for (let i = 0; i < 6; i++) { const a = rr(.3, 2.8), c = mesh(new THREE.CylinderGeometry(.06, .06, rr(2, 4.5), 4), M(i % 2 ? 0x1a1a1a : 0x8a3a2a), -L / 2 + rr(.2, 1.5), Math.cos(a) * R * .9 - 1.6, Math.sin(a) * R * .9, g); c.rotation.set(rr(-.2, .2), 0, rr(-.3, .3)); }
+    const sprung = mesh(new THREE.TorusGeometry(R + .45, .32, 5, 14, Math.PI * .7), bright, -L / 2 - 1.2, .6, 0, g); sprung.rotation.set(.4, Math.PI / 2, .5);
+  }
+  // ribs and fins down the length, a scorched band, a few roof plates knocked askew
+  for (let x = -L / 2 + 5, k = 0; x < L / 2 - 1; x += 4.5, k++) {
+    const rib = mesh(new THREE.TorusGeometry(R + .45, .32, 5, 18, Math.PI), bright, x, 0, 0, g); rib.rotation.y = Math.PI / 2;
+    if (k !== 1) { const fin = mesh(new THREE.BoxGeometry(.35, 2.4, .8), bright, x, R + 1.4, 0, g); fin.rotation.z = rr(-.35, .35); }
+  }
+  { const band = mesh(new THREE.CylinderGeometry(R + .03, R + .03, 7, 24, 1, true, 0, Math.PI), new THREE.MeshLambertMaterial({ color: 0x1a1816, transparent: true, opacity: .55, depthWrite: false }), -L / 2 + 4, 0, 0, g); band.rotation.z = Math.PI / 2; }
+  for (let i = 0; i < 3; i++) { const p = mesh(new THREE.BoxGeometry(rr(4, 6), .35, rr(3, 5)), M(0x8e9294), rr(-4, 8), R + .2, rr(-1.5, 1.5), g); p.rotation.set(rr(-.35, .35), rnd(), rr(-.3, .3)); }
+  // a snapped truss spar that came down with it, and a curved slice of the station's outer ring
+  { const tr = mesh(lattice(1.4, 18, 0x5a5853, 2.2), VCOL, 0, 0, 0, world); const [x, z] = W(-15, -12.5), th = Math.atan2(ax, az); tr.position.set(x, heightAt(x, z) + .4, z); tr.rotation.order = 'YXZ'; tr.rotation.set(Math.PI / 2 - .12, th, 0);
+    for (let k = 1; k < 17; k += 3) addCol(x + Math.sin(th) * k, z + Math.cos(th) * k, .9); }
+  { const [x, z] = W(9, 13), arc = new THREE.Group(); arc.position.set(x, heightAt(x, z) - 3, z); arc.rotation.set(0, -toCamp + 1.1, .25); world.add(arc);
+    const seg = mesh(new THREE.TorusGeometry(16, 1.3, 8, 18, 1.0), S(0xa8a69e, { map: TX.metal, metalness: .45 }), 0, -12, 0, arc); seg.rotation.z = Math.PI / 2 - .5;
+    addCol(x, z, 2.2); }
+  for (const al of [-9, -4, 1, 6, 10]) { const [x, z] = W(al, 0); addCol(x, z, 5.2); }
+  // seats, cargo and hull plates thrown clear along the furrow
+  for (let i = 0; i < 18; i++) {
+    const k = i / 18, [x, z] = W(lerp(-50, 4, k) + rr(-4, 4), rr(-13, 13));
+    if (inWreck(x, z)) continue;
+    const t2 = texPanel.clone(); t2.needsUpdate = true;
+    const m = mesh(new THREE.BoxGeometry(rr(1.2, 4), rr(.15, .4), rr(1.2, 3)), new THREE.MeshStandardMaterial({ map: t2, color: 0x9a948a, metalness: .4, roughness: .7 }), x, heightAt(x, z) + .3, z, world);
+    m.rotation.set(rr(-1, 1), rnd() * 6, rr(-.5, .5)); if (rnd() < .35) addCol(x, z, 1.1);
+  }
+  for (let i = 0; i < 7; i++) { const a = rnd() * 6.28, r = rr(9, 17), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; }
+    const seat = new THREE.Group(); mesh(new THREE.BoxGeometry(.6, .12, .6), M(0x4a4e52), 0, .45, 0, seat); mesh(new THREE.BoxGeometry(.6, .7, .1), M(0x3a3e42), 0, .8, -.28, seat); mesh(new THREE.BoxGeometry(.08, .45, .5), M(0x2a2a2a), 0, .22, 0, seat);
+    place(seat, x, z, rnd() * 6); seat.rotation.z = rr(-1.4, 1.4); }
+  // small fires still going, and smoke out of the torn end
+  for (let i = 0; i < 3; i++) {
+    const a = rnd() * 6.28, r = rr(8, 13), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } const y = heightAt(x, z);
+    const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.4, .8), rr(1.1, 1.9), 7), new THREE.MeshBasicMaterial({ color: 0xff8a30, transparent: true, opacity: .9 }));
+    f.position.set(x, y + .7, z); world.add(f); const ph = rnd() * 6; DECOR_ANIM.push(t => { f.scale.y = 1 + Math.sin(t * 13 + ph) * .25; });
+  }
+  { const [x, z] = W(-L / 2 + 2, 0); SMOKES.push({ x, z, y: y0 + 6, k: 0 }); }
+  const bl = new THREE.PointLight(0xff8a3a, 2, 34, 0); { const [x, z] = W(-L / 2 - 2, 0); bl.position.set(x, y0 + 3, z); } world.add(bl);
+  // salvage: a locker with a starter kit, a cargo net, Arc supply crates, scrap all round
+  { const [x, z] = W(-4, 8); cache(world, x, z, -toCamp, 'none', 'arc', { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }); }
+  { const [x, z] = W(3, -8.5); cache(world, x, z, -toCamp, 'none', 'wild', { id: 'drop_cargo', name: 'Cargo net', big: 1, rolls: 2, refill: 3 }); }
+  for (const [al, sd, l] of [[-15, 4, 'mixed'], [-8, -9, 'ammo'], [8, 9, 'scrap'], [14, -5, 'mixed']]) { const [x, z] = W(al, sd); supplyCrate(x, z, l); CRATES[CRATES.length - 1].table = 'arc'; }
+  for (let i = 0; i < 14; i++) { const a = rnd() * 6.28, r = rr(8, 40), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } spawnScrap(x, z, 'wild'); }
+  // a fire ring someone started before they left for Kestrel — a place to start your own camp
+  { const [fx, fz] = W(-16, -12), fy = heightAt(fx, fz);
+    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x6a6660), fx + Math.cos(a) * .7, fy + .1, fz + Math.sin(a) * .7, world); } }
 }
 
 function buildLookout() {
@@ -3995,6 +4084,7 @@ const Y = (x, z, up = 0) => heightAt(x, z) + up;
 /* ================= open world: no chapters — goals follow what you've unlocked ================= */
 function openGoal() {
   const t = tierNow();
+  if (!G.flags.reached) return { text: 'Search the wreck, then follow the old road north-east to Kestrel — or dig in and build here', at: { x: 0, z: 70 } };
   if (!INV.tools.some(g => GEAR_DEFS[g.id].kind === 'axe')) return { text: 'Make a stone axe: sticks, stones and fiber from outside the wall (I → Craft)', at: null };
   if (t < 2) return { text: 'Tier 2: take a clan insignia — Thorn Outpost, Ashmere, or a clan hold', at: POI.village };
   if (t < 3) return { text: 'Tier 3: the lander Tern’s locker at the Burn holds an Arc ID chip', at: POI.burn };
@@ -4391,10 +4481,11 @@ function die() {
     dropBag();
     $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
     const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
-    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
+    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else if (!G.flags.reached) { P.x = POI.dropsite.x + DROP_WAKE[0]; P.z = POI.dropsite.z + DROP_WAKE[1]; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
     P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.pitch = 0; P.slot = slotWeapon(0) ? 0 : P.slot; selectGunView(gunId());
     if (INV.res < 30) INV.res = 30;
-    toast(G.flags.bag ? `${sp ? 'You wake up at your bed' : 'Juno patched you up'}. Your bag is where you fell — follow the light.` : sp ? 'You wake up at your bed.' : 'Juno patched you up.', 4);
+    const who = sp ? 'You wake up at your bed' : G.flags.reached ? 'Juno patched you up' : 'You come to by the wreck';
+    toast(G.flags.bag ? `${who}. Your bag is where you fell — follow the light.` : `${who}.`, 4);
   }, 2600);
 }
 function damage(e, n, byPlayer, at) {
@@ -4522,8 +4613,8 @@ function updPlayer(dt) {
   P.land = lerp(P.land, 0, Math.min(1, dt * 6));
   const bk = (1 - P.ads * .85) * P.bobAmp, bobY = (Math.abs(Math.sin(P.bob)) - .5) * .085 * bk * (1 + P.runK * .5), bobX = Math.cos(P.bob) * .035 * bk * (1 + P.runK * .6);
   const latV = P.vx * rx + P.vz * rz;
-  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK - dYaw * .6, Math.min(1, dt * 8));
-  P.sway = lerp(P.sway, clamp(dYaw * 1.6, -.06, .06), Math.min(1, dt * 10));
+  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK, Math.min(1, dt * 8));   // no roll from turning: the head stays level when you look side to side
+  P.sway = 0;
   camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
   camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
   const fov = (BASE_FOV + P.runK * 7) / (1 + ((W.scope || 1) - 1) * P.ads) / (P.binoc ? 4 : 1);
@@ -4580,6 +4671,11 @@ const DAY_LEN = 420;
 function updTime(dt) {
   if (night.active) { G.tod = lerp(G.tod, .92, dt * .2); }
   else if (G.todTarget != null) { G.tod = lerp(G.tod, G.todTarget, dt * .08); }
+  else if (G.chapterDone && G.step >= 12 && !G.flags.reached) {
+    // before you've reached Kestrel the raids aren't your fight: nights pass (a bit quicker) wherever you are
+    G.tod += dt * (.56 / DAY_LEN) * (isNight() ? 2 : 1);
+    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); }
+  }
   else if (G.chapterDone && G.step >= 12) {
     G.tod += dt * (.56 / DAY_LEN);
     if (G.tod > .72 && !G.flags.duskWarn) { G.flags.duskWarn = 1; say([['Kade', 'Sun is going down. Get back inside the wall.']]); }
@@ -4895,8 +4991,21 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 
 /* ================= main loop ================= */
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
+/* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
+   there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
+const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
+function adaptRes(raw) {
+  if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
+  prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
+  const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
+  if (fps < 48) { n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
+  else if (fps > 58 && prHold <= 0) n = Math.min(PR_MAX, prNow + .1);
+  if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
+}
 function frame(now) {
   requestAnimationFrame(frame);
+  adaptRes((now - last) / 1000);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
@@ -4922,9 +5031,10 @@ function frame(now) {
     if (!cine) updExplore(dt);
     music.go(cine && G.step === 0 ? 'intro' : night.active ? 'raid' : rust.state === 'active' || rust.state === 'warn' ? 'tense' : isNight() ? 'night' : 'day');
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
+    updCull(dt);
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
-      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .6, 160, 700);
+      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .45, 140, 320);
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -4946,8 +5056,40 @@ function frame(now) {
 }
 
 /* ================= regions + the valley map ================= */
+/* distance culling for the hand-placed world: thousands of small props (crates, debris, fences, shop bits) each cost a draw
+   call — twice with the sun's shadow — even when they're a few pixels on the horizon. Each prop group gets a draw distance
+   from its size (small things fade out first, never past the haze); hidden ones go to layer 1, which neither the camera nor
+   the shadow pass draws. Terrain, the forest, people and animals have their own streaming/culling. */
+const CULL = []; let cullT = 0;
+function buildCull() {
+  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
+  const box = new THREE.Box3(), sph = new THREE.Sphere();
+  for (const o of world.children) {
+    if (skip.has(o) || o.isSprite) continue;
+    let inst = false; const meshes = [];
+    o.traverse(c => { if (c.isInstancedMesh) inst = true; else if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
+    if (inst || !meshes.length) continue;
+    box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
+    if (sph.radius > 90) continue;
+    if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
+    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true });
+  }
+}
+function updCull(dt) {
+  cullT -= dt; if (cullT > 0) return; cullT = .2;
+  const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
+  for (const c of CULL) {
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, 750);
+    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+  }
+}
+const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x); return [-Math.cos(a) * 27 - Math.sin(a) * 3, -Math.sin(a) * 27 + Math.cos(a) * 3]; })();   // where you come to: in the furrow, looking into the torn end
 function checkRegions() {
   const seen = G.flags.seen = G.flags.seen || {};
+  if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
+    G.flags.reached = 1; save();
+    say([['Kade', 'You made it. We’ve got a wall, a fire and not much else.'], ['Kade', 'The shops are open — trade, craft, eat. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
+  }
   for (const R of REGIONS) {
     if (seen[R.id]) continue;
     const inside = R.area ? R.area(P.x, P.z) : R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
@@ -5073,7 +5215,8 @@ function startGame(fresh) {
     if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
   G.step = 13; G.chapterDone = true;
-  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
+  G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
+  if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
   invInit(); eqInit(); restorePlaced(); showBag(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
@@ -5082,10 +5225,12 @@ function startGame(fresh) {
   gate.hp = gate.max;
   document.body.classList.remove('title'); G.mode = 'play';
   const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
-  P.x = sp ? sp.x + 1.5 : 3; P.z = sp ? sp.z + 1.5 : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.yaw = 0; P.pitch = 0;
+  const wake = !sp && !G.flags.reached;
+  P.x = sp ? sp.x + 1.5 : wake ? POI.dropsite.x + DROP_WAKE[0] : 3; P.z = sp ? sp.z + 1.5 : wake ? POI.dropsite.z + DROP_WAKE[1] : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z);
+  P.yaw = wake ? Math.atan2(P.x - POI.dropsite.x, P.z - POI.dropsite.z) : 0; P.pitch = 0;   // you wake looking at the wreck
   if (!s) {
-    say([['Kade', 'You’re up. We’ve got a wall, a fire and not much else.'], ['Kade', 'Sticks, stones and fiber out past the gate — make yourself an axe. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
-    setTimeout(() => toast(isTouch ? 'Bag → Craft to make things · the minimap shows where to go' : 'WASD move · E use · I bag + craft · G throw · M map', 5), 2500);
+    say([['Radio', '…anyone at the drop site, this is Kestrel. If you can hear this, you made it down.'], ['Kade', 'Grab what you can from the wreck. Our walls are north-east — follow the old road.'], ['Kade', 'Or dig in where you are. Your call. Nights out there get loud.']]);
+    setTimeout(() => toast(isTouch ? 'Search the wreck · Bag → Craft to build here · the minimap shows the way to Kestrel' : 'E search the wreck · I bag + craft (build here) · M map — Kestrel is north-east', 6), 2500);
   } else toast(`Day ${G.day} · Tier ${tierNow()}`, 3);
   if (!isTouch) setTimeout(() => canvas.requestPointerLock?.(), 50);
 }
@@ -5113,7 +5258,7 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
+  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   await buildFar();
@@ -5121,7 +5266,7 @@ async function boot() {
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
   for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
   SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
-  ensureWildlife(); villageGuards();
+  ensureWildlife(); villageGuards(); buildCull();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

@@ -494,7 +494,7 @@ function dressSmokehouse(lv) {
 function buildNearby() {
   // hull fragments in the debris field
   for (let i = 0; i < 16; i++) {
-    const x = rr(-46, 46), z = rr(82, 150); if (pathDist(x, z) < 4) continue;
+    const x = rr(-46, 46), z = rr(82, 150); if (pathDist(x, z) < 4 || Math.hypot(x - POI.lake.x, z - POI.lake.z) < LAKES[0].R * 1.3) continue;
     const y = heightAt(x, z);
     const t = texPanel.clone(); t.needsUpdate = true; t.repeat.set(1, 1);
     const kind = rnd();
@@ -591,6 +591,6 @@ function spawnScrap(x, z, tag) {
   SCRAPS.push(S); return S;
 }
 function seedScraps() {
-  for (let i = 0; i < 9; i++) spawnScrap(rr(-40, 40), rr(82, 146), 'field');
+  for (let i = 0; i < 9; i++) { const x = rr(-40, 40), z = rr(82, 146); if (waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'field'); }
   for (let i = 0; i < 110; i++) { const a = rnd() * Math.PI * 2, r = rr(96, VALLEY - 20); const x = Math.cos(a) * r, z = Math.sin(a) * r; if (heightAt(x, z) > 110 || waterAt(x, z) > heightAt(x, z) - .5) { i--; continue; } spawnScrap(x, z, 'wild'); }
 }

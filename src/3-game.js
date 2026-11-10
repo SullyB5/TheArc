@@ -65,6 +65,7 @@ const Y = (x, z, up = 0) => heightAt(x, z) + up;
 /* ================= open world: no chapters — goals follow what you've unlocked ================= */
 function openGoal() {
   const t = tierNow();
+  if (!G.flags.reached) return { text: 'Search the wreck, then follow the old road north-east to Kestrel — or dig in and build here', at: { x: 0, z: 70 } };
   if (!INV.tools.some(g => GEAR_DEFS[g.id].kind === 'axe')) return { text: 'Make a stone axe: sticks, stones and fiber from outside the wall (I → Craft)', at: null };
   if (t < 2) return { text: 'Tier 2: take a clan insignia — Thorn Outpost, Ashmere, or a clan hold', at: POI.village };
   if (t < 3) return { text: 'Tier 3: the lander Tern’s locker at the Burn holds an Arc ID chip', at: POI.burn };
@@ -461,10 +462,11 @@ function die() {
     dropBag();
     $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
     const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
-    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
+    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else if (!G.flags.reached) { P.x = POI.dropsite.x + DROP_WAKE[0]; P.z = POI.dropsite.z + DROP_WAKE[1]; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
     P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.pitch = 0; P.slot = slotWeapon(0) ? 0 : P.slot; selectGunView(gunId());
     if (INV.res < 30) INV.res = 30;
-    toast(G.flags.bag ? `${sp ? 'You wake up at your bed' : 'Juno patched you up'}. Your bag is where you fell — follow the light.` : sp ? 'You wake up at your bed.' : 'Juno patched you up.', 4);
+    const who = sp ? 'You wake up at your bed' : G.flags.reached ? 'Juno patched you up' : 'You come to by the wreck';
+    toast(G.flags.bag ? `${who}. Your bag is where you fell — follow the light.` : `${who}.`, 4);
   }, 2600);
 }
 function damage(e, n, byPlayer, at) {
@@ -592,8 +594,8 @@ function updPlayer(dt) {
   P.land = lerp(P.land, 0, Math.min(1, dt * 6));
   const bk = (1 - P.ads * .85) * P.bobAmp, bobY = (Math.abs(Math.sin(P.bob)) - .5) * .085 * bk * (1 + P.runK * .5), bobX = Math.cos(P.bob) * .035 * bk * (1 + P.runK * .6);
   const latV = P.vx * rx + P.vz * rz;
-  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK - dYaw * .6, Math.min(1, dt * 8));
-  P.sway = lerp(P.sway, clamp(dYaw * 1.6, -.06, .06), Math.min(1, dt * 10));
+  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK, Math.min(1, dt * 8));   // no roll from turning: the head stays level when you look side to side
+  P.sway = 0;
   camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
   camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
   const fov = (BASE_FOV + P.runK * 7) / (1 + ((W.scope || 1) - 1) * P.ads) / (P.binoc ? 4 : 1);
@@ -650,6 +652,11 @@ const DAY_LEN = 420;
 function updTime(dt) {
   if (night.active) { G.tod = lerp(G.tod, .92, dt * .2); }
   else if (G.todTarget != null) { G.tod = lerp(G.tod, G.todTarget, dt * .08); }
+  else if (G.chapterDone && G.step >= 12 && !G.flags.reached) {
+    // before you've reached Kestrel the raids aren't your fight: nights pass (a bit quicker) wherever you are
+    G.tod += dt * (.56 / DAY_LEN) * (isNight() ? 2 : 1);
+    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); }
+  }
   else if (G.chapterDone && G.step >= 12) {
     G.tod += dt * (.56 / DAY_LEN);
     if (G.tod > .72 && !G.flags.duskWarn) { G.flags.duskWarn = 1; say([['Kade', 'Sun is going down. Get back inside the wall.']]); }
@@ -965,8 +972,21 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 
 /* ================= main loop ================= */
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
+/* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
+   there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
+const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
+function adaptRes(raw) {
+  if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
+  prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
+  const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
+  if (fps < 48) { n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
+  else if (fps > 58 && prHold <= 0) n = Math.min(PR_MAX, prNow + .1);
+  if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
+}
 function frame(now) {
   requestAnimationFrame(frame);
+  adaptRes((now - last) / 1000);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
@@ -992,9 +1012,10 @@ function frame(now) {
     if (!cine) updExplore(dt);
     music.go(cine && G.step === 0 ? 'intro' : night.active ? 'raid' : rust.state === 'active' || rust.state === 'warn' ? 'tense' : isNight() ? 'night' : 'day');
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
+    updCull(dt);
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
-      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .6, 160, 700);
+      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .45, 140, 320);
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -1016,8 +1037,40 @@ function frame(now) {
 }
 
 /* ================= regions + the valley map ================= */
+/* distance culling for the hand-placed world: thousands of small props (crates, debris, fences, shop bits) each cost a draw
+   call — twice with the sun's shadow — even when they're a few pixels on the horizon. Each prop group gets a draw distance
+   from its size (small things fade out first, never past the haze); hidden ones go to layer 1, which neither the camera nor
+   the shadow pass draws. Terrain, the forest, people and animals have their own streaming/culling. */
+const CULL = []; let cullT = 0;
+function buildCull() {
+  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
+  const box = new THREE.Box3(), sph = new THREE.Sphere();
+  for (const o of world.children) {
+    if (skip.has(o) || o.isSprite) continue;
+    let inst = false; const meshes = [];
+    o.traverse(c => { if (c.isInstancedMesh) inst = true; else if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
+    if (inst || !meshes.length) continue;
+    box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
+    if (sph.radius > 90) continue;
+    if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
+    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true });
+  }
+}
+function updCull(dt) {
+  cullT -= dt; if (cullT > 0) return; cullT = .2;
+  const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
+  for (const c of CULL) {
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, 750);
+    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+  }
+}
+const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x); return [-Math.cos(a) * 27 - Math.sin(a) * 3, -Math.sin(a) * 27 + Math.cos(a) * 3]; })();   // where you come to: in the furrow, looking into the torn end
 function checkRegions() {
   const seen = G.flags.seen = G.flags.seen || {};
+  if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
+    G.flags.reached = 1; save();
+    say([['Kade', 'You made it. We’ve got a wall, a fire and not much else.'], ['Kade', 'The shops are open — trade, craft, eat. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
+  }
   for (const R of REGIONS) {
     if (seen[R.id]) continue;
     const inside = R.area ? R.area(P.x, P.z) : R.river ? Math.abs(P.x - riverX(P.z)) < RIV_HW + 26 : Math.hypot(P.x - R.x, P.z - R.z) < R.r;
@@ -1143,7 +1196,8 @@ function startGame(fresh) {
     if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
   G.step = 13; G.chapterDone = true;
-  G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
+  G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
+  if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
   invInit(); eqInit(); restorePlaced(); showBag(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
@@ -1152,10 +1206,12 @@ function startGame(fresh) {
   gate.hp = gate.max;
   document.body.classList.remove('title'); G.mode = 'play';
   const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
-  P.x = sp ? sp.x + 1.5 : 3; P.z = sp ? sp.z + 1.5 : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.yaw = 0; P.pitch = 0;
+  const wake = !sp && !G.flags.reached;
+  P.x = sp ? sp.x + 1.5 : wake ? POI.dropsite.x + DROP_WAKE[0] : 3; P.z = sp ? sp.z + 1.5 : wake ? POI.dropsite.z + DROP_WAKE[1] : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z);
+  P.yaw = wake ? Math.atan2(P.x - POI.dropsite.x, P.z - POI.dropsite.z) : 0; P.pitch = 0;   // you wake looking at the wreck
   if (!s) {
-    say([['Kade', 'You’re up. We’ve got a wall, a fire and not much else.'], ['Kade', 'Sticks, stones and fiber out past the gate — make yourself an axe. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
-    setTimeout(() => toast(isTouch ? 'Bag → Craft to make things · the minimap shows where to go' : 'WASD move · E use · I bag + craft · G throw · M map', 5), 2500);
+    say([['Radio', '…anyone at the drop site, this is Kestrel. If you can hear this, you made it down.'], ['Kade', 'Grab what you can from the wreck. Our walls are north-east — follow the old road.'], ['Kade', 'Or dig in where you are. Your call. Nights out there get loud.']]);
+    setTimeout(() => toast(isTouch ? 'Search the wreck · Bag → Craft to build here · the minimap shows the way to Kestrel' : 'E search the wreck · I bag + craft (build here) · M map — Kestrel is north-east', 6), 2500);
   } else toast(`Day ${G.day} · Tier ${tierNow()}`, 3);
   if (!isTouch) setTimeout(() => canvas.requestPointerLock?.(), 50);
 }
@@ -1183,7 +1239,7 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
+  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   await buildFar();
@@ -1191,7 +1247,7 @@ async function boot() {
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
   for (const [x, z] of [[-3, 10], [6, 30], [-14, 4], [20, 22], [-22, 24], [8, 2], [-8, 40], [14, 40]]) spawnNPC('extra', x, z, { wander: true });
   SETTLERS.forEach((S, i) => { const a = rnd() * 6.28, r = rr(8, 34), e = spawnNPC('settler', Math.sin(a) * r, Math.cos(a) * r + 8, { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
-  ensureWildlife(); villageGuards();
+  ensureWildlife(); villageGuards(); buildCull();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

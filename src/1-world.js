@@ -56,7 +56,7 @@ function fbm(x, z) { let s = 0, a = 1, f = 1, n = 0; for (let i = 0; i < 4; i++)
 /* ================= the map =================
    Kestrel camp at the origin, gate facing +z (south). A big forested mountain looms right behind it (north).
    East: the Coldwater river in its gorge, the old-world town of Halvard past the broken span, and the Burn where the Arc's
-   lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. South-west: Lake Ilse. South: the fire
+   lander came down. West: the Thorn outpost, then Ashmere, the Thornkin stronghold. Lake Ilse sits just outside the gate, to the west. South-west: the dropsite, where you come to. South: the fire
    lookout. North-west: the grey mountain and the sealed door of Greyhold. */
 const VALLEY = 640;                         // the Chapter 1 valley (Kestrel and everything around it)
 const WORLD = 2200;                         // walkable radius of the whole map
@@ -68,7 +68,7 @@ const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 114 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
-  lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
   cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
@@ -88,7 +88,7 @@ const BASES = [
 ];
 const inCity = (x, z, pad = 0) => Math.hypot(x - CITY.x, z - CITY.z) < CITY.R + pad;
 const inBase = (x, z, pad = 0) => BASES.some(B => Math.hypot(x - B.x, z - B.z) < B.R + pad);
-const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
+const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 25, L: 0, near: true, wob: .2 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
 const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
 const SCOUTS = [{ x: -150, z: 118 }, { x: 250, z: -300 }, { x: 96, z: 430 }, { x: -460, z: 220 }, { x: 560, z: -40 },
@@ -181,7 +181,8 @@ function rawH(x, z) {
   return h;
 }
 let LAKE_L = 0;
-function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * .4); }
+function lakeRw(L, x, z) { const a = Math.atan2(z - L.z, x - L.x); return L.R * (1 + (vnoise(Math.cos(a) * 2 + 5 + L.x * .01, Math.sin(a) * 2) - .5) * (L.wob ?? .4)); }
+function lakeCut(L, x, z, h) { const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) return h; const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; return hc < h ? hc : h; }
 function riverWL(z) { const f = clamp((z - RIV_Z0) / RIV_STEP, 0, RIV_N - 1.001), i = Math.floor(f); return lerp(RIVWL[i], RIVWL[i + 1], f - i); }
 function carved(x, z) {
   let h = rawH(x, z);
@@ -189,10 +190,7 @@ function carved(x, z) {
   // inside the valley the gorge stops 150m out (as built); out past the rim it cuts a full valley through the hills
   const cap = 150 + 600 * smooth(560, 780, Math.hypot(x, z));
   if (dr < cap) { const wl = riverWL(z); const hc = dr < RIV_HW ? wl - .4 - 2.1 * (1 - (dr / RIV_HW) ** 2) : wl - .4 + (dr - RIV_HW) * .55; if (hc < h) h = dr < 150 ? hc : lerp(h, hc, 1 - smooth(cap * .8, cap, dr)); }
-  for (const L of LAKES) {
-    const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
-    const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
-  }
+  for (const L of LAKES) if (!L.near) h = lakeCut(L, x, z, h);   // the near lake (Lake Ilse, by the gate) is cut after the camp is levelled
   // the world's edge: ridged ranges rather than a smooth bowl (added after the river so it doesn't cut a slot through them)
   const d = Math.hypot(x, z), e = Math.max(0, d - 2060);
   if (e > 0) { const rg = 1 - Math.abs(fbm(x * .0019 + 41, z * .0019 - 7) * 2 - 1), rg2 = 1 - Math.abs(fbm(x * .006 + 3, z * .006 + 9) * 2 - 1); h += smooth(0, 340, e) * (160 + 760 * rg * rg + 220 * rg2 * rg2) + e * .25; }
@@ -204,8 +202,7 @@ function prepWater() {
   for (let k = 0; k < RIV_N; k++) { const z = RIV_Z0 + k * RIV_STEP, rx = riverX(z); let m = 1e9; for (let dx = -40; dx <= 40; dx += 8) m = Math.min(m, rawH(rx + dx, z)); RIVWL[k] = m - 1.4; }
   for (let pass = 0; pass < 4; pass++) { const c = RIVWL.slice(); for (let k = 2; k < RIV_N - 2; k++) RIVWL[k] = (c[k - 2] + c[k - 1] + c[k] + c[k + 1] + c[k + 2]) / 5; }
   for (let k = 1; k < RIV_N; k++) RIVWL[k] = Math.min(RIVWL[k], RIVWL[k - 1]);        // flows downhill, north to south
-  for (const L of LAKES) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
-  LAKE_L = LAKES[0].L;
+  for (const L of LAKES) if (!L.near) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, rawH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.6; }
 }
 const FLATS = [];
 /* a level site for a building: its height is the average of the centre and the surrounding ground, and the blend out to
@@ -217,10 +214,20 @@ function addFlat(x, z, r0, r1, h) {
   for (const v of ring) dev = Math.max(dev, Math.abs(v - H));
   FLATS.push({ x, z, r0, r1: Math.max(r1, r0 + dev * 2.6), h: H });
 }
-function fullH(x, z) {
+function flatH(x, z) {
   let h = carved(x, z);
   for (const f of FLATS) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r1) h = f.h + (h - f.h) * smooth(f.r0, f.r1, d); }
   return h;
+}
+function fullH(x, z) {
+  let h = flatH(x, z);
+  for (const L of LAKES) if (L.near) h = lakeCut(L, x, z, h);
+  return h;
+}
+/* the near lake sits in the levelled ground in front of the gate, so its level comes from that ground */
+function prepNearLakes() {
+  for (const L of LAKES) if (L.near) { let m = 1e9; for (let i = 0; i < 64; i++) { const a = i / 64 * Math.PI * 2; m = Math.min(m, flatH(L.x + Math.cos(a) * L.R * 1.24, L.z + Math.sin(a) * L.R * 1.24)); } L.L = m - 1.1; }
+  LAKE_L = LAKES[0].L;
 }
 const HM_STEP = LOW ? 2.5 : 2, HM_N = Math.round(IN_HALF * 2 / HM_STEP) + 1;        // fine: the valley
 const HO_STEP = LOW ? 5 : 4, HO_N = Math.round(HALF * 2 / HO_STEP) + 1;              // coarse: the whole map
@@ -270,6 +277,8 @@ function prepFlats() {
   addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
   for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
+  addFlat(POI.dropsite.x, POI.dropsite.z, 34, 60);                                  // the dropsite: open, level ground to build on
+  prepNearLakes();
 }
 
 /* ---------- renderer / scene / post ---------- */
@@ -277,7 +286,7 @@ const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
@@ -574,7 +583,8 @@ const REGIONS = [
   { id: 'halvard', name: 'HALVARD', sub: 'A town from before the fire', x: POI.halvard.x, z: POI.halvard.z, r: 95 },
   { id: 'burn', name: 'THE BURN', sub: 'Where the lander Tern came down', x: POI.burn.x, z: POI.burn.z, r: 70 },
   { id: 'ashmere', name: 'ASHMERE', sub: 'Thornkin stronghold', x: POI.ashmere.x, z: POI.ashmere.z, r: 80, hostile: true },
-  { id: 'lake', name: 'LAKE ILSE', sub: 'Still water', x: POI.lake.x, z: POI.lake.z, r: 100 },
+  { id: 'lake', name: 'LAKE ILSE', sub: 'Still water, a stone’s throw from the gate', x: POI.lake.x, z: POI.lake.z, r: 34 },
+  { id: 'dropsite', name: 'THE DROPSITE', sub: 'A piece of the Arc, torn off on the way down · where you woke', x: POI.dropsite.x, z: POI.dropsite.z, r: 60 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
   // past the rim

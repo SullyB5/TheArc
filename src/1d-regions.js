@@ -178,8 +178,8 @@ function buildAshmere() {
 }
 
 function buildLake() {
-  const L = POI.lake, a = Math.atan2(-L.z, -L.x) + .4;                // dock on the camp side
-  const sx = L.x + Math.cos(a) * 66, sz = L.z + Math.sin(a) * 66, yaw = -a + Math.PI / 2;
+  const L = POI.lake, R = LAKES[0].R, a = Math.atan2(64 - L.z, 6 - L.x);   // dock on the gate side, facing the road out
+  const sx = L.x + Math.cos(a) * R * .92, sz = L.z + Math.sin(a) * R * .92, yaw = -a + Math.PI / 2;
   const g = new THREE.Group(), w = new THREE.MeshLambertMaterial({ map: texWood, color: 0x8a7258 });
   const deckY = LAKE_L + .5, gy = heightAt(sx, sz);
   for (let k = 0; k < 16; k++) { const p = mesh(new THREE.BoxGeometry(2.6, .14, .5), w, 0, 0, -k * .55, g); p.rotation.z = rr(-.03, .03); }
@@ -187,8 +187,87 @@ function buildLake() {
   g.position.set(sx, deckY, sz); g.rotation.y = yaw; world.add(g);
   const [cx, cz] = rotXZ(0, -4.2, yaw); addFloor(sx + cx, sz + cz, yaw, 1.3, 4.6, deckY + .07);
   // boathouse + canoe + fishing shack
-  { const bx = L.x + Math.cos(a + .25) * 82, bz = L.z + Math.sin(a + .25) * 82; house(bx, bz, -a, 7, 6); supplyCrate(bx, bz, 'mixed'); }
-  { const cx2 = L.x + Math.cos(a - .2) * 70, cz2 = L.z + Math.sin(a - .2) * 70, c = new THREE.Group(); const hull = mesh(new THREE.CylinderGeometry(.5, .5, 4.4, 10, 1, false, 0, Math.PI), M(0x8a3a2a, { side: THREE.DoubleSide }), 0, .5, 0, c); hull.rotation.set(Math.PI / 2, 0, Math.PI); place(c, cx2, cz2, rnd() * 6); }
+  { const b = a + 2.2, bx = L.x + Math.cos(b) * (R + 9), bz = L.z + Math.sin(b) * (R + 9); house(bx, bz, -b, 7, 6); supplyCrate(bx, bz, 'mixed'); }   // boathouse on the far shore
+  { const cx2 = L.x + Math.cos(a + .5) * (R + 2.5), cz2 = L.z + Math.sin(a + .5) * (R + 2.5), c = new THREE.Group(); const hull = mesh(new THREE.CylinderGeometry(.5, .5, 4.4, 10, 1, false, 0, Math.PI), M(0x8a3a2a, { side: THREE.DoubleSide }), 0, .5, 0, c); hull.rotation.set(Math.PI / 2, 0, Math.PI); place(c, cx2, cz2, rnd() * 6); }
+}
+
+/* the dropsite: where the drop ship came down and where you wake. Salvage in the wreck and around it, and level open
+   ground to dig in and build on if you'd rather not walk to Kestrel (the old road north-east goes there). */
+function buildDropsite() {
+  const D = POI.dropsite, y0 = heightAt(D.x, D.z), toCamp = Math.atan2(-D.z, -D.x);
+  const ax = Math.cos(toCamp), az = Math.sin(toCamp);                       // the hull's axis points at Kestrel
+  const W = (along, side) => [D.x + ax * along - az * side, D.z + az * along + ax * side];
+  const inWreck = (x, z) => { const dx = x - D.x, dz = z - D.z, al = dx * ax + dz * az, sd = -dx * az + dz * ax; return Math.abs(al) < 12.5 && Math.abs(sd) < 6.5; };
+  // scorched ground and a long gouge where it skidded in from the south-west
+  const scorch = new THREE.Mesh(new THREE.CircleGeometry(18, 28), new THREE.MeshLambertMaterial({ color: 0x1e1b18, transparent: true, opacity: .75, depthWrite: false }));
+  scorch.rotation.x = -Math.PI / 2; scorch.position.set(D.x, y0 + .06, D.z); scorch.renderOrder = 1; world.add(scorch);
+  const gouge = new THREE.Mesh(new THREE.PlaneGeometry(9, 46), new THREE.MeshLambertMaterial({ color: 0x2a231c, transparent: true, opacity: .7, depthWrite: false }));
+  gouge.rotation.set(-Math.PI / 2, 0, toCamp + Math.PI / 2); const [gx, gz] = W(-30, 0); gouge.position.set(gx, y0 + .07, gz); gouge.renderOrder = 1; world.add(gouge);
+
+  /* the wreck: a section of the Arc itself, torn off the station when it came down — one end still sealed with its
+     airlock, the other ripped open on a dark, gutted corridor, ribs sprung, cables hanging, a snapped truss beside it */
+  const g = new THREE.Group(); g.position.set(D.x, y0 + 2.6, D.z); g.rotation.set(0, -toCamp, -.07); world.add(g);
+  const R = 5, L = 22;
+  const t = texPanel.clone(); t.needsUpdate = true; t.repeat.set(L / 8, 3);
+  const skin = new THREE.MeshStandardMaterial({ map: t, normalMap: TX.metal2N, normalScale: new THREE.Vector2(.8, .8), color: 0xb4b2ab, metalness: .45, roughness: .66, side: THREE.DoubleSide });
+  const hull = mesh(new THREE.CylinderGeometry(R, R, L, 24, 1, true), skin, 0, 0, 0, g); hull.rotation.z = Math.PI / 2;
+  const burnt = S(0x2a2724, { roughness: .9 }), bright = S(0xd8d8d0, { metalness: .5, roughness: .45 });
+  // sealed end (toward Kestrel): cap, airlock ring, hatch
+  { const cap = mesh(new THREE.CylinderGeometry(R * .92, R, 1, 24), S(0x6d6e6c, { map: TX.metal, metalness: .5 }), L / 2 + .3, 0, 0, g); cap.rotation.z = Math.PI / 2;
+    const ring = mesh(new THREE.TorusGeometry(R * .42, .35, 6, 18), M(0x3a3a38), L / 2 + .85, -R * .25, 0, g); ring.rotation.y = Math.PI / 2;
+    const hatch = mesh(new THREE.CircleGeometry(R * .4, 18), M(0x4a4c4e), L / 2 + .82, -R * .25, 0, g); hatch.rotation.y = Math.PI / 2; }
+  // the torn end: a dark gutted interior, a deck, and a ragged lip of bent plates
+  { const dark = mesh(new THREE.CircleGeometry(R * .98, 24), M(0x0b0a09), -L / 2 + 5, 0, 0, g); dark.rotation.y = Math.PI / 2;
+    mesh(new THREE.BoxGeometry(6, .25, R * 1.6), S(0x4a4846, { map: TX.metal, metalness: .5 }), -L / 2 + 2.6, -R * .55, 0, g);
+    for (let i = 0; i < 18; i++) {
+      const a = i / 18 * Math.PI * 2, len = rr(.8, 3.6);
+      const p = mesh(new THREE.BoxGeometry(len, .12, rr(1.2, 2)), i % 3 ? skin : burnt, -L / 2 - len / 2 + .3, Math.cos(a) * R, Math.sin(a) * R, g);
+      p.rotation.set(a, rr(-.25, .25), (rnd() < .5 ? -1 : 1) * rr(.05, .45));
+    }
+    for (let i = 0; i < 6; i++) { const a = rr(.3, 2.8), c = mesh(new THREE.CylinderGeometry(.06, .06, rr(2, 4.5), 4), M(i % 2 ? 0x1a1a1a : 0x8a3a2a), -L / 2 + rr(.2, 1.5), Math.cos(a) * R * .9 - 1.6, Math.sin(a) * R * .9, g); c.rotation.set(rr(-.2, .2), 0, rr(-.3, .3)); }
+    const sprung = mesh(new THREE.TorusGeometry(R + .45, .32, 5, 14, Math.PI * .7), bright, -L / 2 - 1.2, .6, 0, g); sprung.rotation.set(.4, Math.PI / 2, .5);
+  }
+  // ribs and fins down the length, a scorched band, a few roof plates knocked askew
+  for (let x = -L / 2 + 5, k = 0; x < L / 2 - 1; x += 4.5, k++) {
+    const rib = mesh(new THREE.TorusGeometry(R + .45, .32, 5, 18, Math.PI), bright, x, 0, 0, g); rib.rotation.y = Math.PI / 2;
+    if (k !== 1) { const fin = mesh(new THREE.BoxGeometry(.35, 2.4, .8), bright, x, R + 1.4, 0, g); fin.rotation.z = rr(-.35, .35); }
+  }
+  { const band = mesh(new THREE.CylinderGeometry(R + .03, R + .03, 7, 24, 1, true, 0, Math.PI), new THREE.MeshLambertMaterial({ color: 0x1a1816, transparent: true, opacity: .55, depthWrite: false }), -L / 2 + 4, 0, 0, g); band.rotation.z = Math.PI / 2; }
+  for (let i = 0; i < 3; i++) { const p = mesh(new THREE.BoxGeometry(rr(4, 6), .35, rr(3, 5)), M(0x8e9294), rr(-4, 8), R + .2, rr(-1.5, 1.5), g); p.rotation.set(rr(-.35, .35), rnd(), rr(-.3, .3)); }
+  // a snapped truss spar that came down with it, and a curved slice of the station's outer ring
+  { const tr = mesh(lattice(1.4, 18, 0x5a5853, 2.2), VCOL, 0, 0, 0, world); const [x, z] = W(-15, -12.5), th = Math.atan2(ax, az); tr.position.set(x, heightAt(x, z) + .4, z); tr.rotation.order = 'YXZ'; tr.rotation.set(Math.PI / 2 - .12, th, 0);
+    for (let k = 1; k < 17; k += 3) addCol(x + Math.sin(th) * k, z + Math.cos(th) * k, .9); }
+  { const [x, z] = W(9, 13), arc = new THREE.Group(); arc.position.set(x, heightAt(x, z) - 3, z); arc.rotation.set(0, -toCamp + 1.1, .25); world.add(arc);
+    const seg = mesh(new THREE.TorusGeometry(16, 1.3, 8, 18, 1.0), S(0xa8a69e, { map: TX.metal, metalness: .45 }), 0, -12, 0, arc); seg.rotation.z = Math.PI / 2 - .5;
+    addCol(x, z, 2.2); }
+  for (const al of [-9, -4, 1, 6, 10]) { const [x, z] = W(al, 0); addCol(x, z, 5.2); }
+  // seats, cargo and hull plates thrown clear along the furrow
+  for (let i = 0; i < 18; i++) {
+    const k = i / 18, [x, z] = W(lerp(-50, 4, k) + rr(-4, 4), rr(-13, 13));
+    if (inWreck(x, z)) continue;
+    const t2 = texPanel.clone(); t2.needsUpdate = true;
+    const m = mesh(new THREE.BoxGeometry(rr(1.2, 4), rr(.15, .4), rr(1.2, 3)), new THREE.MeshStandardMaterial({ map: t2, color: 0x9a948a, metalness: .4, roughness: .7 }), x, heightAt(x, z) + .3, z, world);
+    m.rotation.set(rr(-1, 1), rnd() * 6, rr(-.5, .5)); if (rnd() < .35) addCol(x, z, 1.1);
+  }
+  for (let i = 0; i < 7; i++) { const a = rnd() * 6.28, r = rr(9, 17), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; }
+    const seat = new THREE.Group(); mesh(new THREE.BoxGeometry(.6, .12, .6), M(0x4a4e52), 0, .45, 0, seat); mesh(new THREE.BoxGeometry(.6, .7, .1), M(0x3a3e42), 0, .8, -.28, seat); mesh(new THREE.BoxGeometry(.08, .45, .5), M(0x2a2a2a), 0, .22, 0, seat);
+    place(seat, x, z, rnd() * 6); seat.rotation.z = rr(-1.4, 1.4); }
+  // small fires still going, and smoke out of the torn end
+  for (let i = 0; i < 3; i++) {
+    const a = rnd() * 6.28, r = rr(8, 13), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } const y = heightAt(x, z);
+    const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.4, .8), rr(1.1, 1.9), 7), new THREE.MeshBasicMaterial({ color: 0xff8a30, transparent: true, opacity: .9 }));
+    f.position.set(x, y + .7, z); world.add(f); const ph = rnd() * 6; DECOR_ANIM.push(t => { f.scale.y = 1 + Math.sin(t * 13 + ph) * .25; });
+  }
+  { const [x, z] = W(-L / 2 + 2, 0); SMOKES.push({ x, z, y: y0 + 6, k: 0 }); }
+  const bl = new THREE.PointLight(0xff8a3a, 2, 34, 0); { const [x, z] = W(-L / 2 - 2, 0); bl.position.set(x, y0 + 3, z); } world.add(bl);
+  // salvage: a locker with a starter kit, a cargo net, Arc supply crates, scrap all round
+  { const [x, z] = W(-4, 8); cache(world, x, z, -toCamp, 'none', 'arc', { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }); }
+  { const [x, z] = W(3, -8.5); cache(world, x, z, -toCamp, 'none', 'wild', { id: 'drop_cargo', name: 'Cargo net', big: 1, rolls: 2, refill: 3 }); }
+  for (const [al, sd, l] of [[-15, 4, 'mixed'], [-8, -9, 'ammo'], [8, 9, 'scrap'], [14, -5, 'mixed']]) { const [x, z] = W(al, sd); supplyCrate(x, z, l); CRATES[CRATES.length - 1].table = 'arc'; }
+  for (let i = 0; i < 14; i++) { const a = rnd() * 6.28, r = rr(8, 40), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } spawnScrap(x, z, 'wild'); }
+  // a fire ring someone started before they left for Kestrel — a place to start your own camp
+  { const [fx, fz] = W(-16, -12), fy = heightAt(fx, fz);
+    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x6a6660), fx + Math.cos(a) * .7, fy + .1, fz + Math.sin(a) * .7, world); } }
 }
 
 function buildLookout() {
