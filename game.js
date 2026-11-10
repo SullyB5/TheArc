@@ -11,6 +11,20 @@ import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
 
+/* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
+   fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
+   so ridges and peaks stand out above the murk in the low ground — that's what sells the distance. */
+THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\n#endif';
+THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\nvFogDepth = - mvPosition.z;\nvFogWorld = (inverse(viewMatrix) * mvPosition).xyz;\n#endif';
+THREE.ShaderChunk.fog_pars_fragment = '#ifdef USE_FOG\nuniform vec3 fogColor;\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\nuniform float fogNear;\nuniform float fogFar;\n#endif';
+THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  float fogDist = max(0.0, length(vFogWorld - cameraPosition) - fogNear);
+  float fogHy = max(0.0, (vFogWorld.y + cameraPosition.y) * .5 - 12.0);
+  float fogDen = (3.0 / max(fogFar, 1.0)) * (.2 + .8 * exp(-fogHy * .0055));
+  float fogFactor = 1.0 - exp(-fogDist * fogDen);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor, 0.0, 1.0));
+#endif`;
+
 const $ = id => document.getElementById(id);
 /* controls follow the device: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops. */
 const isTouch = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -145,7 +159,7 @@ function rawH(x, z) {
     const r = 1 - Math.abs(fbm(x * .0045 + 30, z * .0045) * 2 - 1); oh += smooth(.55, .9, fbm(x * .0021 - 9, z * .0021 + 5)) * 210 * r;
     h += o * oh;
   }
-  const e = Math.max(0, d - 2080); h += e * e * .012 + e * .5 * fbm(x * .02 + 9, z * .02);   // the world's edge
+  // the world's edge: ridged ranges rather than a smooth bowl, so the walls of the world look like mountains from anywhere
   const gd = Math.hypot(x + 300, z + 320);
   h += 150 * Math.exp(-(gd * gd) / (2 * 95 * 95));                                   // the grey mountain (Greyhold)
   const mx = (x - 10) / 120, mz = (z + 178) / 62;
@@ -169,6 +183,9 @@ function carved(x, z) {
     const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
     const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
   }
+  // the world's edge: ridged ranges rather than a smooth bowl (added after the river so it doesn't cut a slot through them)
+  const d = Math.hypot(x, z), e = Math.max(0, d - 2060);
+  if (e > 0) { const rg = 1 - Math.abs(fbm(x * .0019 + 41, z * .0019 - 7) * 2 - 1), rg2 = 1 - Math.abs(fbm(x * .006 + 3, z * .006 + 9) * 2 - 1); h += smooth(0, 340, e) * (160 + 760 * rg * rg + 220 * rg2 * rg2) + e * .25; }
   const B = POI.burn, bd = Math.hypot(x - B.x, z - B.z);
   if (bd < 70) h += -9 * Math.exp(-((bd / 26) ** 2)) + 3 * Math.exp(-(((bd - 32) / 7) ** 2));
   return h;
@@ -254,7 +271,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xa9b8b2, 30, 260);
-const camera = new THREE.PerspectiveCamera(64, 1, .06, 1200);
+const camera = new THREE.PerspectiveCamera(64, 1, .06, 9000);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 
@@ -300,13 +317,13 @@ addEventListener('resize', resize);
 resize();
 
 /* ---------- sky, clouds, light ---------- */
-const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 } };
+const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() } };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
-  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol; uniform float rust; varying vec3 vP;
-    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); if(vP.y<0.) c = hor*.92;
-      float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06);
+  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust; varying vec3 vP;
+    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16, vP.y));
+      float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06) * (.35 + .65*smoothstep(-.05,.1,vP.y));
       c = mix(c, vec3(.42,.14,.07), rust);
       gl_FragColor = vec4(c,1.);
       #include <tonemapping_fragment>
@@ -333,8 +350,25 @@ function cloudTex() {
   g.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4); return t;
 }
-const clouds = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), new THREE.MeshBasicMaterial({ map: cloudTex(), transparent: true, opacity: .8, depthWrite: false, fog: false }));
-clouds.rotation.x = Math.PI / 2; clouds.position.y = 460; clouds.renderOrder = -1; clouds.frustumCulled = false; scene.add(clouds);
+/* two cloud decks at different heights drifting at different speeds — the parallax between them reads as real altitude.
+   They fade out toward their edges and sink into the horizon haze, so there's no visible plane edge. */
+const CLOUD_TEX = cloudTex();
+const CLOUDS = [[1500, 30000, 8, .0016, .0007, .8], [2700, 40000, 5, .0007, .0011, .5]].map(([y, size, rep, sx, sz, op]) => {
+  const u = { map: { value: CLOUD_TEX }, off: { value: new THREE.Vector2(rnd(), rnd()) }, rep: { value: rep }, col: { value: new THREE.Color(1, 1, 1) }, op: { value: op }, haze: { value: new THREE.Color() } };
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size, 1, 1), new THREE.ShaderMaterial({
+    uniforms: u, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+    vertexShader: 'varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: `uniform sampler2D map; uniform vec2 off; uniform float rep, op; uniform vec3 col, haze; varying vec2 vUv; varying vec3 vW;
+      void main(){ vec4 t = texture2D(map, vUv * rep + off); float r = length(vUv - .5) * 2.;
+        vec3 d = normalize(vW - cameraPosition); float low = smoothstep(.02, .22, abs(d.y));
+        float a = t.a * op * (1. - smoothstep(.55, 1., r));
+        gl_FragColor = vec4(mix(haze, col, low), a);
+        #include <colorspace_fragment>
+      }`,
+  }));
+  m.rotation.x = Math.PI / 2; m.renderOrder = -1; m.frustumCulled = false; scene.add(m);
+  return { m, u, y, sx, sz, op };
+});
 
 const hemi = new THREE.HemisphereLight(0xcfdce6, 0x5a5444, 1);
 scene.add(hemi);
@@ -359,16 +393,16 @@ function refreshEnv(tod, rk) {
 
 /* time-of-day palette: tod 0 = midnight, .25 sunrise, .5 noon, .75 sunset — overcast Pacific-northwest daylight */
 const TOD = [
-  [0.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
-  [0.20, '#141c30', '#4a4250', '#3a3a42', '#ffb07a', .3, .3, 120],
-  [0.25, '#3a4766', '#d29a74', '#9a8a7e', '#ffb27a', 1.2, .6, 200],
-  [0.32, '#6489ac', '#c4cec9', '#a9b6b0', '#fff0d6', 2.5, .95, 270],
-  [0.50, '#5884b2', '#ccd6d2', '#b2c0ba', '#fff6e8', 2.9, 1.05, 300],
-  [0.68, '#5c82a8', '#d6cebd', '#b4b2a4', '#ffe2b8', 2.5, .95, 270],
-  [0.76, '#30335a', '#e08954', '#866458', '#ff9558', 1.1, .55, 180],
-  [0.82, '#141a2e', '#3a2c3c', '#2a2630', '#a8a0c0', .32, .3, 110],
-  [0.90, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
-  [1.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
+  [0.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
+  [0.20, '#141c30', '#4a4250', '#3a3a42', '#ffb07a', .3, .3, 420],
+  [0.25, '#3a4766', '#d29a74', '#9a8a7e', '#ffb27a', 1.2, .6, 1300],
+  [0.32, '#6489ac', '#c4cec9', '#a9b6b0', '#fff0d6', 2.5, .95, 2200],
+  [0.50, '#5884b2', '#ccd6d2', '#b4c3c4', '#fff6e8', 2.9, 1.05, 2700],
+  [0.68, '#5c82a8', '#d6cebd', '#b4b2a4', '#ffe2b8', 2.5, .95, 2200],
+  [0.76, '#30335a', '#e08954', '#866458', '#ff9558', 1.1, .55, 1250],
+  [0.82, '#141a2e', '#3a2c3c', '#2a2630', '#a8a0c0', .32, .3, 420],
+  [0.90, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
+  [1.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
 ];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 function todSample(t) {
@@ -571,7 +605,9 @@ const TC = { grass: C_('#56743a'), grass2: C_('#425f2e'), forest: C_('#33452a'),
 function terrainColor(x, z, h, sl, out) {
   out.copy(TC.grass).lerp(TC.grass2, fbm(x * .05, z * .05)).lerp(TC.forest, smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8);
   out.lerp(TC.rock, smooth(.7, 1.3, sl));
-  out.lerp(TC.snow, smooth(122, 150, h + fbm(x * .05, z * .05) * 14) * (1 - smooth(1.2, 1.8, sl) * .5));
+  // the snowline sits low on the valley's own mountain but climbs out in the outlands, so the big ranges show rock and forest below their caps
+  const snowL = lerp(122, 620, smooth(800, 1700, Math.hypot(x, z)));
+  out.lerp(TC.snow, smooth(snowL, snowL + 28 + snowL * .08, h + fbm(x * .05, z * .05) * (14 + snowL * .1)) * (1 - smooth(1.2, 1.8, sl) * (snowL > 200 ? .8 : .5)));
   const w = waterAt(x, z); if (w > -1e8) out.lerp(TC.sand, (1 - smooth(.2, 2.2, h - w)) * .85);
   const pd = pathDist(x, z); out.lerp(TC.dirt, (1 - smooth(1.8, 4.2, pd)) * .9);
   const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(30, 46, cd)) * .75);
@@ -711,7 +747,7 @@ function treeOK(x, z) {
 }
 async function buildForest() {
   const BT = 200, NB = Math.ceil(HALF * 2 / BT);
-  const kinds = [{ geo: firGeo(), n: LOW ? 5200 : 9500, list: {} }, { geo: alderGeo(), n: LOW ? 600 : 1200, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
+  const kinds = [{ geo: firGeo(), n: LOW ? 7800 : 14500, list: {} }, { geo: alderGeo(), n: LOW ? 900 : 1800, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
   const dummy = new THREE.Object3D(), tint = new THREE.Color();
   for (const K of kinds) {
     let n = 0, guard = 0;
@@ -785,7 +821,7 @@ function growCell(ci, cj) {
   const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
   const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
   const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
-  const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
+  const K = [[LOW ? 400 : 680, []], [LOW ? 45 : 90, []], [12, []]];
   K.forEach(([tries, L], ki) => {
     for (let t = 0; t < tries; t++) {
       const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z)) continue;
@@ -839,7 +875,7 @@ function updForest(px, pz, dt) {
   }
   if (Math.hypot(px, pz) < VALLEY - 120) return;
   // grow the nearest missing cell (one per tick)
-  let best = null, bd = FOR_SHOW - 60; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
+  let best = null, bd = FOR_SHOW + 30; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
   for (let cj = c1 - 3; cj <= c1 + 3; cj++) for (let ci = c0 - 3; ci <= c0 + 3; ci++) {
     if (ci < 0 || cj < 0 || ci >= NCT || cj >= NCT || OCELLS.has(ci * 1000 + cj)) continue;
     const cx = -HALF + (ci + .5) * CELL_T, cz = -HALF + (cj + .5) * CELL_T, d = Math.hypot(cx - px, cz - pz);
@@ -1597,6 +1633,192 @@ function buildOutlands() {
   }
 }
 
+/* ================= the far view: what makes the land read as huge =================
+   - far terrain: one coarse mesh of the whole map, always drawn, tucked just under the streamed chunks near you
+   - far forest: cheap two-tier cones over every forested hillside, only drawn past where the real trees stop
+   - the horizon: range after range of mountains out past the world's edge, fading into the haze
+   - life in the sky: smoke rising from the clan holds and the dead city, and birds wheeling over the valley */
+const FAR_STEP = LOW ? 32 : 24, FAR_HALF = HALF + FAR_STEP * 4, FAR_EDGE = HALF - 40;
+const FAR_TREE_NEAR = 385, FAR_TREE_FULL = 425;
+/* height for the far views: the map, clamped so the out-of-bounds corners of the square don't shoot to the moon */
+function farH(x, z) {
+  const d = Math.hypot(x, z);
+  if (d > FAR_EDGE) { x *= FAR_EDGE / d; z *= FAR_EDGE / d; }
+  return Math.min(heightAt(x, z), 1500);
+}
+const sinkU = { value: 1 };
+function sinkShader(mat, near0, near1, deep) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uSink = sinkU;
+    sh.vertexShader = 'uniform float uSink;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      { float fd = distance(transformed.xz, cameraPosition.xz);
+        transformed.y -= uSink * (2.5 + fd * .002 + ${deep.toFixed(1)} * (1.0 - smoothstep(${near0.toFixed(1)}, ${near1.toFixed(1)}, fd))); }`);
+  };
+}
+async function buildFarTerrain() {
+  const N = Math.round(FAR_HALF * 2 / FAR_STEP) + 1, pos = new Float32Array(N * N * 3), col = new Float32Array(N * N * 3), c = new THREE.Color(), fir = new THREE.Color(0x2c4030);
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = -FAR_HALF + i * FAR_STEP, z = -FAR_HALF + j * FAR_STEP, h = farH(x, z), k = j * N + i;
+      pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
+      const sl = Math.hypot(farH(x + 6, z) - h, farH(x, z + 6) - h) / 6;
+      terrainColor(x, z, h, sl, c);
+      // hillsides that carry forest read darker from a distance, the way a real conifer slope does
+      const dens = fbm(x * .018 + 5, z * .018 + 11), fk = smooth(.3, .6, dens) * (1 - smooth(110, 138, h)) * (1 - smooth(1, 1.5, sl)) * (Math.hypot(x, z) < 62 ? 0 : 1);
+      c.lerp(fir, fk * .6);
+      col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+    }
+    if (j % 40 === 0) { setLoad(`SEEING FAR ${Math.round(j / N * 100)}%`); await nextFrame(); }
+  }
+  const idx = [];
+  for (let j = 0; j < N - 1; j++) for (let i = 0; i < N - 1; i++) {
+    const a = j * N + i, b = a + 1, d = a + N, e = d + 1;
+    const cx = -FAR_HALF + (i + .5) * FAR_STEP, cz = -FAR_HALF + (j + .5) * FAR_STEP;
+    if (Math.hypot(cx, cz) > HALF + FAR_STEP * 2) continue;             // the horizon ring takes over out there
+    idx.push(a, d, b, b, d, e);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals(); g.computeBoundingSphere();
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.detailSoil });
+  // the streamed chunks own everything within ~460m of you; the far mesh sinks well under them there
+  sinkShader(mat, 330, 450, 30);
+  const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.renderOrder = -1; world.add(m); farTerrMesh = m;
+  // uv so the detail texture tiles the same as the chunks (x/7, z/7)
+  const uv = new Float32Array(N * N * 2); for (let k = 0; k < N * N; k++) { uv[k * 2] = pos[k * 3] / 7; uv[k * 2 + 1] = pos[k * 3 + 2] / 7; }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+}
+
+/* the far forest: same density rules as the real trees, so the silhouettes line up with what you'll find when you get there */
+function farTreeOK(x, z) {
+  const d = Math.hypot(x, z); if (d < 62 || d > WORLD + 120) return false;
+  if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
+  if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r0 + 6)) return false;
+  for (const p of [[POI.cinder, 110], [POI.burn, 64], [POI.halvard, 96], [POI.ashmere, 62]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
+  const h = heightAt(x, z); if (h > 136 || waterAt(x, z) > h - .6) return false;
+  if (slopeAt(x, z) > 1.5) return false;
+  if (pathDist(x, z) < 6) return false;
+  return true;
+}
+let farTrees = null, farTerrMesh = null, horizonMesh = null;
+async function buildFarForest() {
+  const step = LOW ? 21 : 14, R = cellRng(77, 91), list = [];
+  for (let z = -WORLD - 120; z <= WORLD + 120; z += step) {
+    for (let x = -WORLD - 120; x <= WORLD + 120; x += step) {
+      const px = x + (R() - .5) * step * .9, pz = z + (R() - .5) * step * .9;
+      const dens = fbm(px * .018 + 5, pz * .018 + 11);
+      if (R() > smooth(.3, .6, dens) + .1) continue;
+      if (!farTreeOK(px, pz)) continue;
+      list.push(px, pz, lerp(.8, 1.35, R()), R());
+    }
+    if (Math.round(z) % 400 < step) { setLoad(`THE FAR FOREST ${Math.round((z + WORLD) / (WORLD * 2) * 100)}%`); await nextFrame(); }
+  }
+  const geo = merge([
+    { geo: new THREE.ConeGeometry(3.6, 12, 5, 1, true), m: tm(0, 8, 0), color: 0x2a4232, color2: 0x4c7454 },
+    { geo: new THREE.ConeGeometry(2.3, 8, 5, 1, true), m: tm(0, 15, 0, 0, .6), color: 0x355640, color2: 0x5e8a62 },
+  ]);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  // drawn only past where the real trees end, and they grow in over 40m so there's no hard pop
+  mat.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      { vec3 ic = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+        float fd = distance(ic.xz, cameraPosition.xz);
+        transformed *= smoothstep(${FAR_TREE_NEAR.toFixed(1)}, ${FAR_TREE_FULL.toFixed(1)}, fd); }`);
+  };
+  // bucketed into 400m tiles so the camera only draws the tiles in view
+  const TILE = 400, buckets = new Map(), n = list.length / 4, dm = new THREE.Object3D(), tint = new THREE.Color();
+  for (let i = 0; i < n; i++) { const k = Math.floor((list[i * 4] + HALF) / TILE) * 100 + Math.floor((list[i * 4 + 1] + HALF) / TILE); (buckets.get(k) || buckets.set(k, []).get(k)).push(i); }
+  farTrees = [];
+  for (const L of buckets.values()) {
+    const im = new THREE.InstancedMesh(geo, mat, L.length);
+    L.forEach((i, j) => {
+      const x = list[i * 4], z = list[i * 4 + 1], s = list[i * 4 + 2], r = list[i * 4 + 3];
+      dm.position.set(x, heightAt(x, z) - .3, z); dm.rotation.set(0, r * 6, 0); dm.scale.set(s, s * lerp(.9, 1.25, r), s); dm.updateMatrix();
+      im.setMatrixAt(j, dm.matrix); im.setColorAt(j, tint.setHSL(lerp(.27, .36, r), lerp(.1, .3, (r * 7) % 1), lerp(.7, 1, (r * 13) % 1)));
+    });
+    im.computeBoundingSphere(); im.boundingSphere.radius += 30; im.castShadow = false; im.receiveShadow = false; world.add(im); farTrees.push(im);
+  }
+}
+
+/* the horizon: ranges of mountains beyond the world's edge, out to ~9km */
+function buildHorizon() {
+  const SEG = LOW ? 220 : 360, RADII = [HALF - 60, HALF + 200, 2900, 3400, 4000, 4700, 5500, 6400, 7400, 8600];
+  const pos = [], col = [], idx = [], c = new THREE.Color(), rock = new THREE.Color(0x6a6c70), forest = new THREE.Color(0x34483c), snow = new THREE.Color(0xe4e8ec);
+  for (let ri = 0; ri < RADII.length; ri++) {
+    const r = RADII[ri];
+    for (let s = 0; s <= SEG; s++) {
+      const a = s / SEG * Math.PI * 2, x = Math.cos(a) * r, z = Math.sin(a) * r;
+      const ridge = 1 - Math.abs(fbm(x * .0006 + 17, z * .0006 - 3) * 2 - 1);
+      let h = 300 + 1000 * ridge * ridge + 200 * fbm(x * .0025 + 1, z * .0025 + 4) - 300 * smooth(4000, 8600, r);
+      if (ri === 0) h = farH(x, z) - 6;                                  // meet the map's own edge
+      else if (ri === 1) h = lerp(farH(x, z), h, .45);
+      pos.push(x, h, z);
+      c.copy(forest).lerp(rock, smooth(450, 850, h)).lerp(snow, smooth(950, 1250, h + fbm(x * .004, z * .004) * 160));
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  const W = SEG + 1;
+  for (let ri = 0; ri < RADII.length - 1; ri++) for (let s = 0; s < SEG; s++) { const a = ri * W + s, b = a + 1, d = a + W, e = d + 1; idx.push(a, b, d, b, e, d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  m.frustumCulled = false; m.renderOrder = -1; world.add(m); horizonMesh = m;
+}
+
+/* smoke from the holds and the dead city: tall columns you can steer by from kilometres away */
+const FAR_SMOKE = [];
+function buildFarSmoke() {
+  const tex = ctex(128, 128, (g, w, h) => { const gr = g.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2); gr.addColorStop(0, 'rgba(255,255,255,.8)'); gr.addColorStop(.6, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const src = [...HOLDS.map(H => [H.x, H.z, 0x8a8580]), [POI.cinder.x, POI.cinder.z, 0x5c5856], [POI.cinder.x + 60, POI.cinder.z - 40, 0x5c5856], [POI.ashmere.x, POI.ashmere.z, 0x8a8580]];
+  for (const [x, z, color] of src) {
+    const y0 = heightAt(x, z), N = 14;
+    for (let i = 0; i < N; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, depthWrite: false, opacity: .5 }));
+      world.add(sp); FAR_SMOKE.push({ sp, x, z, y0, k: i / N, ph: rnd() * 6 });
+    }
+  }
+}
+
+/* birds: a few loose flocks wheeling high over wherever you are */
+let birdL, birdR; const BIRDS = [], FLOCKS = [];
+function buildBirds() {
+  const wing = side => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -.25, 0, 0, .35, side * 1.1, 0, .05], 3)); g.computeVertexNormals(); return g; };
+  const mat = new THREE.MeshBasicMaterial({ color: 0x1a1c1e, side: THREE.DoubleSide });
+  const n = LOW ? 24 : 40;
+  birdL = new THREE.InstancedMesh(wing(-1), mat, n); birdR = new THREE.InstancedMesh(wing(1), mat, n);
+  for (const b of [birdL, birdR]) { b.frustumCulled = false; world.add(b); }
+  for (let f = 0; f < 5; f++) FLOCKS.push({ x: rr(-300, 300), z: rr(-300, 300), y: 0, r: rr(30, 70), a: rnd() * 6, w: rr(.08, .16) * (rnd() < .5 ? -1 : 1), up: rr(55, 140) });
+  for (let i = 0; i < n; i++) BIRDS.push({ f: i % FLOCKS.length, ox: rr(-14, 14), oz: rr(-14, 14), oy: rr(-6, 6), ph: rnd() * 6, s: rr(.8, 1.3) });
+}
+const _bm = new THREE.Object3D(), _bq = new THREE.Quaternion(), _bf = new THREE.Vector3(0, 0, 1);
+function updFar(dt, t, px, pz) {
+  for (const S of FAR_SMOKE) {
+    const k = (S.k + t * .012) % 1, h = k * 230;
+    S.sp.position.set(S.x + Math.sin(S.ph + t * .05) * 8 + k * k * 180, S.y0 + 8 + h, S.z + k * k * 70);
+    const sc = 24 + k * 130; S.sp.scale.set(sc, sc * .85, 1); S.sp.material.opacity = .3 * smooth(0, .1, k) * (1 - smooth(.55, 1, k));
+  }
+  if (!birdL) return;
+  for (const F of FLOCKS) {
+    // a flock that's drifted far from you finds somewhere new nearby
+    if (Math.hypot(F.x - px, F.z - pz) > 650) { const a = rnd() * 6.28, r = rr(120, 420); F.x = px + Math.cos(a) * r; F.z = pz + Math.sin(a) * r; }
+    F.a += F.w * dt; F.x += Math.cos(F.a * .3) * dt * 1.5; F.z += Math.sin(F.a * .3) * dt * 1.5;
+    F.y = lerp(F.y || heightAt(F.x, F.z) + F.up, heightAt(F.x, F.z) + F.up, dt * .2);
+  }
+  BIRDS.forEach((B, i) => {
+    const F = FLOCKS[B.f], a = F.a + B.ph * .15;
+    const x = F.x + Math.cos(a) * F.r + B.ox, z = F.z + Math.sin(a) * F.r + B.oz, y = F.y + B.oy + Math.sin(t * .7 + B.ph) * 2;
+    const yaw = -a + (F.w > 0 ? 0 : Math.PI), flap = Math.sin(t * 9 + B.ph * 3) * (Math.sin(t * .6 + B.ph) > -.3 ? .7 : .05);
+    _bm.position.set(x, y, z); _bm.scale.setScalar(B.s);
+    _bm.rotation.set(0, yaw, flap); _bm.updateMatrix(); birdL.setMatrixAt(i, _bm.matrix);
+    _bm.rotation.set(0, yaw, -flap); _bm.updateMatrix(); birdR.setMatrixAt(i, _bm.matrix);
+  });
+  birdL.instanceMatrix.needsUpdate = birdR.instanceMatrix.needsUpdate = true;
+}
+async function buildFar() {
+  await buildFarTerrain(); buildHorizon();
+  await buildFarForest(); buildFarSmoke(); buildBirds();
+}
+
 /* ================= people ================= */
 const PAL = {
   arc: [0x3b4a5a, 0x56493a, 0x4a5a48, 0x6a5040, 0x2f3d4c, 0x5a5a5e], pants: [0x2c2f33, 0x3a3530, 0x283038, 0x3d3a33],
@@ -1715,7 +1937,8 @@ function hitSpheres(e) {
 }
 
 /* ================= player ================= */
-const P = { slot: 0, ads: 0, swim: false, x: 0, z: 26, y: 0, vy: 0, yaw: Math.PI, pitch: 0, hp: 100, food: 100, onGround: true, reload: 0, fire: 0, bob: 0, kick: 0, dead: false, hurtT: 0, pd: 26, coughT: 0, stepT: 0, safe: false };
+const P = { slot: 0, ads: 0, swim: false, x: 0, z: 26, y: 0, vy: 0, yaw: Math.PI, pitch: 0, hp: 100, food: 100, onGround: true, reload: 0, fire: 0, bob: 0, kick: 0, dead: false, hurtT: 0, pd: 26, coughT: 0, stepT: 0, safe: false,
+  vx: 0, vz: 0, stam: 100, stamT: 0, winded: false, runToggle: false, sprinting: false, jumpBuf: 0, coyote: 0, land: 0, eyeY: 0, bobAmp: 0, roll: 0, sway: 0, runK: 0 };
 const INV = { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 };
 const UP = { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 };
 const CLIMB = [.55, .3, .1, 0];
@@ -2385,7 +2608,7 @@ function updAnimal(e, dt) {
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   let spd = 0, tx = e.x, tz = e.z;
   if (e.type === 'deer') {
-    if (e.state !== 'flee' && dp < (input.sprint ? 26 : 16) && !P.dead) { e.state = 'flee'; e.t = rr(4, 7); sfx('deer'); }
+    if (e.state !== 'flee' && dp < (P.sprinting ? 26 : 16) && !P.dead) { e.state = 'flee'; e.t = rr(4, 7); sfx('deer'); }
     if (e.state === 'flee') { tx = e.x - dxp; tz = e.z - dzp; spd = 9.5; if (e.t <= 0) e.state = 'graze'; }
     else if (e.state === 'graze') { if (e.t <= 0) { e.state = 'walk'; e.t = rr(2, 4); e.tx = e.home.x + rr(-14, 14); e.tz = e.home.z + rr(-14, 14); } }
     else { tx = e.tx; tz = e.tz; spd = 1.6; if (e.t <= 0) { e.state = 'graze'; e.t = rr(2, 6); } }
@@ -2526,43 +2749,75 @@ function updPlayer(dt) {
   if (P.dead) return;
   // look (slower while aiming)
   const lk = 1 / (1 + (WEAPONS[gunId()].scope - 1) * P.ads * .8);
-  P.yaw -= input.look[0] * lk; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
+  const dYaw = input.look[0] * lk;
+  P.yaw -= dYaw; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
   // move (or fly: F toggles it — no gravity, no collisions, go where you look)
-  let sprint = false;
+  let sprint = false, hs = 0;
+  const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   if (P.fly) {
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
-    const fast = input.sprint || ml > .96, spd = fast ? 90 : 28, cp = Math.cos(P.pitch);
-    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp, rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
+    const fast = input.sprint || (isTouch && ml > .96), spd = fast ? 90 : 28, cp = Math.cos(P.pitch);
+    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp;
     const up = (keys.Space || touchUp ? 1 : 0) - (keys.KeyC || keys.ControlLeft ? 1 : 0);
     P.x += (fx * my + rx * mx) * spd * dt; P.z += (fz * my + rz * mx) * spd * dt; P.y += (fy * my * spd + up * spd * .7) * dt;
     const d = Math.hypot(P.x, P.z); if (d > WORLD) { P.x *= WORLD / d; P.z *= WORLD / d; }
-    P.y = clamp(P.y, heightAt(P.x, P.z), 600); P.vy = 0; P.onGround = false; P.swim = false; input.jump = false; input.sprint = false;
+    P.y = clamp(P.y, heightAt(P.x, P.z), 600); P.vy = 0; P.vx = P.vz = 0; P.onGround = false; P.swim = false; input.jump = false; P.eyeY = P.y;
   } else {
+    /* momentum: you speed up and slow down over a fraction of a second instead of snapping, keep some carry in the air,
+       and hills push back — steep climbs slow you, so mountains feel like mountains */
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+    if (ml < .15) P.runToggle = false;                            // the RUN button lets go when you stop
     const wl = waterAt(P.x, P.z), depth = wl - P.y;
     P.swim = depth > 1.25;
-    sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
-    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
-    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
-    const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
-    P.x += vx * dt; P.z += vz * dt;
+    const wantRun = (input.sprint || (isTouch && ml > .96) || P.runToggle) && my > .3 && !shopOpen && !input.ads && !input.fire && !P.swim && depth < .5;
+    if (P.stam <= 0) P.winded = true; else if (P.winded && P.stam > 35) P.winded = false;
+    sprint = wantRun && !P.winded;
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    let wx = fx * my + rx * mx, wz = fz * my + rz * mx;
+    // slope along where you're heading
+    let slopeK = 1;
+    if (ml > .05 && P.onGround) { const wl2 = Math.hypot(wx, wz), dx = wx / wl2, dz = wz / wl2, gr = (heightAt(P.x + dx * 1.6, P.z + dz * 1.6) - heightAt(P.x, P.z)) / 1.6; slopeK = clamp(1 - Math.max(0, gr - .22) * 1.1, .38, 1) * (gr < -.25 ? 1.06 : 1); }
+    const spd = (sprint ? 9.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * slopeK;
+    wx *= spd; wz *= spd;
+    const acc = P.swim ? 9 : !P.onGround ? 7 : ml > .05 ? 42 : 30;
+    let dvx = wx - P.vx, dvz = wz - P.vz; const dl = Math.hypot(dvx, dvz);
+    if (dl > 1e-4) { const st = Math.min(dl, acc * dt); P.vx += dvx / dl * st; P.vz += dvz / dl * st; }
+    const ox = P.x, oz = P.z;
+    P.x += P.vx * dt; P.z += P.vz * dt;
     collide(P, .42, true);
+    // what actually happened after bumping trees and walls becomes the new velocity, so you slide along things instead of sticking
+    if (dt > 0) { const ax = (P.x - ox) / dt, az = (P.z - oz) / dt; if (Math.hypot(ax, az) < Math.hypot(P.vx, P.vz) + 2) { P.vx = ax; P.vz = az; } }
+    hs = Math.hypot(P.vx, P.vz);
+    // stamina: sprinting drains it, it comes back after a breather; run it dry and you're winded until it's a third back
+    if (sprint && hs > 3) { P.stam = Math.max(0, P.stam - dt * 11); P.stamT = 1; }
+    else { P.stamT -= dt; if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * (hs > 1 ? 13 : 24)); }
+    if (P.winded) { P.breathT = (P.breathT || 0) - dt; if (P.breathT <= 0) { P.breathT = .75; noiseBurst(.32, 750, .8, .035, 'bandpass'); } }
     let gy = heightAt(P.x, P.z);
     const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
     if (P.swim) gy = Math.max(gy, wl - 1.3);
-    if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
-    input.jump = false;
+    // jump: pressing a beat early still counts, and so does a beat after you've stepped off an edge
+    if (input.jump) P.jumpBuf = .15; input.jump = false; P.jumpBuf -= dt;
+    P.coyote = P.onGround ? .12 : P.coyote - dt;
+    if (P.jumpBuf > 0 && (P.coyote > 0 || P.swim)) { P.vy = P.swim ? 3 : 6.8 + (sprint ? .4 : 0); P.onGround = false; P.coyote = 0; P.jumpBuf = 0; if (!P.swim) P.stam = Math.max(0, P.stam - 5); }
     P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
-    if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
-    else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
-    const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
-    P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
+    if (P.y <= gy) {
+      if (!P.onGround) { P.land = Math.max(P.land, clamp(-P.vy * .022, 0, .32)); if (P.vy < -4.5) sfx('step', 1.3); if (P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } }
+      P.y = gy; P.vy = 0; P.onGround = true;
+    }
+    else if (P.onGround && P.vy <= 0 && P.y - gy < .55 + hs * .06) P.y = gy; else P.onGround = false;
+    // footsteps and head bob are driven by distance covered, so they always match your stride
+    const moving = hs > .6 && P.onGround;
+    const stepLen = sprint ? 2.25 : 1.6, b0 = Math.floor(P.bob / Math.PI);
+    if (P.onGround) P.bob += hs * dt / stepLen * Math.PI;
     STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
-    P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); if (moving && depth > -.05) sfx('splash'); }
-    input.sprint = sprint;
+    if (moving && Math.floor(P.bob / Math.PI) !== b0) { sfx('step', sprint ? 1.35 : clamp(hs / 5.4, .5, 1)); if (depth > -.05) sfx('splash'); }
+    P.bobAmp = lerp(P.bobAmp, moving ? clamp(hs / 5.4, 0, 1.8) : 0, Math.min(1, dt * 8));
+    // the eye follows the ground smoothly instead of snapping over every bump
+    P.eyeY = P.onGround && Math.abs(P.y - P.eyeY) < .8 ? lerp(P.eyeY, P.y, Math.min(1, dt * 22)) : P.y;
   }
+  P.sprinting = sprint && hs > 3;
   // survival
-  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1));
+  P.food = Math.max(0, P.food - dt * (P.sprinting ? .13 : .08) * (P.swim ? 1.6 : 1));
   if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
   else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (P.hp <= 0 && !P.dead) die();
@@ -2574,18 +2829,25 @@ function updPlayer(dt) {
   if (P.reload > 0) { P.reload -= dt; if (P.reload <= 0) finishReload(); }
   if (input.fire && !shopOpen && !P.swim) shoot();
   P.kick = Math.max(0, P.kick - dt * .5);
-  // camera
-  const bk = 1 - P.ads * .85, bobY = Math.sin(P.bob) * .045 * bk, bobX = Math.cos(P.bob * .5) * .03 * bk;
-  camera.position.set(P.x, P.y + (P.swim ? 1.45 : 1.62) + bobY, P.z);
-  camera.rotation.set(P.pitch + P.kick * .35, P.yaw, 0);
-  const fov = BASE_FOV / (1 + (W.scope - 1) * P.ads);
+  // camera: stride bob, a dip when you land, a lean into strafes, and the view widens a touch at a full run
+  P.runK = lerp(P.runK, P.sprinting ? 1 : 0, Math.min(1, dt * 5));
+  P.land = lerp(P.land, 0, Math.min(1, dt * 6));
+  const bk = (1 - P.ads * .85) * P.bobAmp, bobY = (Math.abs(Math.sin(P.bob)) - .5) * .085 * bk * (1 + P.runK * .5), bobX = Math.cos(P.bob) * .035 * bk * (1 + P.runK * .6);
+  const latV = P.vx * rx + P.vz * rz;
+  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK - dYaw * .6, Math.min(1, dt * 8));
+  P.sway = lerp(P.sway, clamp(dYaw * 1.6, -.06, .06), Math.min(1, dt * 10));
+  camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
+  camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
+  const fov = (BASE_FOV + P.runK * 7) / (1 + (W.scope - 1) * P.ads);
   if (Math.abs(camera.fov - fov) > .05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   const scoped = gunId() === 'hunter' && P.ads > .85;
   $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim;
   // viewmodel: bob, kick, reload dip, swap drop; aiming slides it to the centre
   const rl = P.reload > 0 ? Math.sin((1 - P.reload / P.reloadMax) * Math.PI) : 0, sw = (P.swapT || 0) / .45;
-  vm.position.set(bobX - P.ads * W.at[0], bobY * .6 - rl * .16 - sw * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1);
-  vm.rotation.set(rl * .5 + P.kick * 1.4, 0, -rl * .3);
+  // running lowers and cants the gun; it lags a hair behind fast turns
+  const rk2 = P.runK;
+  vm.position.set(bobX * .8 - P.ads * W.at[0] + P.sway * .5 - rk2 * .03, bobY * .7 - rl * .16 - sw * .3 - rk2 * .07 - P.land * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1 + rk2 * .03);
+  vm.rotation.set(rl * .5 + P.kick * 1.4 - rk2 * .32 + Math.sin(P.bob) * .03 * rk2, P.sway * 1.5 + rk2 * .55, -rl * .3 + rk2 * .2 + P.roll * .5);
   if (G.step === 9 && named.wren && Math.hypot(P.x, P.z) < 160) ambushCheck();
 }
 function climbLookout() {
@@ -2641,8 +2903,8 @@ function updTime(dt) {
   scene.fog.color.copy(fogC);
   let far = s.far;
   if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
-  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(far * .12, 2, rk);
-  skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
+  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk);
+  skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
   skyU.sunDir.value.copy(sd);
   const ld = sd.y > 0 ? sd : sd.clone().negate();
@@ -2650,10 +2912,13 @@ function updTime(dt) {
   sun.color.copy(s.sun); sun.intensity = s.sunI * (1 - rk * .6);
   hemi.intensity = s.hemiI * 1.45 * (1 - rk * .3); hemi.color.copy(s.top).lerp(_cb.set(0xcfd8dc), .5);
   stars.material.opacity = clamp((isNight() ? 1 : 0) - rk, 0, 1) * smooth(.15, .3, Math.abs(G.tod - .5) * 2 - .3) * 1.2;
-  const camFar = Math.max(220, scene.fog.far * 1.25); if (Math.abs(camera.far - camFar) > 10) { camera.far = camFar; camera.updateProjectionMatrix(); }
+  const camFar = camera.far;
   sky.position.copy(camera.position); sky.scale.setScalar(camFar * .92); stars.position.copy(camera.position); stars.scale.setScalar(camFar * .9);
-  clouds.position.set(camera.position.x, camera.position.y + 420, camera.position.z); clouds.material.map.offset.x += dt * .0016; clouds.material.map.offset.y += dt * .0007;
-  clouds.material.color.copy(s.hor).lerp(_cb.set(0xffffff), .35).multiplyScalar(clamp(s.sunI / 2, .12, 1)); clouds.material.opacity = .75 * (1 - rk * .5);
+  for (const C of CLOUDS) {
+    C.m.position.set(camera.position.x, C.y, camera.position.z); C.u.off.value.x += dt * C.sx; C.u.off.value.y += dt * C.sz;
+    C.u.off.value.x += (camera.position.x - (C.px ?? camera.position.x)) / (C.m.geometry.parameters.width / C.u.rep.value); C.u.off.value.y += (camera.position.z - (C.pz ?? camera.position.z)) / (C.m.geometry.parameters.width / C.u.rep.value); C.px = camera.position.x; C.pz = camera.position.z;
+    C.u.col.value.copy(s.hor).lerp(_cb.set(0xffffff), .35).multiplyScalar(clamp(s.sunI / 2, .12, 1)).lerp(_cb.set(0x7a3220), rk * .6); C.u.haze.value.copy(fogC); C.u.op.value = C.op * (1 - rk * .5);
+  }
   refreshEnv(G.tod, rk);
   grade.uniforms.hurt.value = clamp(+hud.hurt.style.opacity || 0, 0, 1) * .8 + (P.dead ? 1 : 0);
   grade.uniforms.shadow.value.set(rk * .04, .012 - rk * .01, .03 - rk * .03);
@@ -2700,6 +2965,7 @@ function useSlot(i) {
 hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
   hud.hp.style.width = Math.max(0, P.hp) + '%';
+  { const st = $('stam'); st.firstElementChild.style.width = P.stam + '%'; st.classList.toggle('on', P.stam < 99.5 && !P.fly); st.classList.toggle('low', !!P.winded); } if (isTouch) $('bRun').classList.toggle('lit', !!P.runToggle);
   hud.hpw.classList.toggle('hungry', P.food < 22);
   hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
   hud.gunn.textContent = WEAPONS[gunId()].name;
@@ -2809,7 +3075,7 @@ function tStart(e) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
       else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
-        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
+        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } if (btn.id === 'bRun') P.runToggle = !P.runToggle; }
       continue;
     }
     if (t.clientX < innerWidth * .42 && ![...touches.values()].some(v => v.kind === 'stick')) {
@@ -2867,7 +3133,7 @@ function frame(now) {
   gate.ang = lerp(gate.ang, gTarget, dt * 2.5);
   for (const d of gateDoors) { d.pivot.rotation.y = d.s * gate.ang * 1.65; d.door.rotation.z = gate.hp <= 0 ? d.s * .4 : 0; }
 
-  updSmoke(G.t); grassU.uTime.value = G.t;
+  updSmoke(G.t); grassU.uTime.value = G.t; updFar(dt, G.t, camera.position.x, camera.position.z);
   if (G.mode === 'title') {
     vm.visible = false; titleT += dt * .03;
     camera.position.set(Math.sin(titleT) * 80, H0 + 20, Math.cos(titleT) * 80 + 20);
@@ -2883,7 +3149,7 @@ function frame(now) {
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
-      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < Math.max(160, scene.fog.far * 1.1);
+      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .6, 160, 700);
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -3073,6 +3339,7 @@ async function boot() {
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
+  await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
   named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
@@ -3086,4 +3353,4 @@ async function boot() {
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__T = { updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };

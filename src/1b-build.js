@@ -8,7 +8,9 @@ const TC = { grass: C_('#56743a'), grass2: C_('#425f2e'), forest: C_('#33452a'),
 function terrainColor(x, z, h, sl, out) {
   out.copy(TC.grass).lerp(TC.grass2, fbm(x * .05, z * .05)).lerp(TC.forest, smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8);
   out.lerp(TC.rock, smooth(.7, 1.3, sl));
-  out.lerp(TC.snow, smooth(122, 150, h + fbm(x * .05, z * .05) * 14) * (1 - smooth(1.2, 1.8, sl) * .5));
+  // the snowline sits low on the valley's own mountain but climbs out in the outlands, so the big ranges show rock and forest below their caps
+  const snowL = lerp(122, 620, smooth(800, 1700, Math.hypot(x, z)));
+  out.lerp(TC.snow, smooth(snowL, snowL + 28 + snowL * .08, h + fbm(x * .05, z * .05) * (14 + snowL * .1)) * (1 - smooth(1.2, 1.8, sl) * (snowL > 200 ? .8 : .5)));
   const w = waterAt(x, z); if (w > -1e8) out.lerp(TC.sand, (1 - smooth(.2, 2.2, h - w)) * .85);
   const pd = pathDist(x, z); out.lerp(TC.dirt, (1 - smooth(1.8, 4.2, pd)) * .9);
   const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(30, 46, cd)) * .75);
@@ -148,7 +150,7 @@ function treeOK(x, z) {
 }
 async function buildForest() {
   const BT = 200, NB = Math.ceil(HALF * 2 / BT);
-  const kinds = [{ geo: firGeo(), n: LOW ? 5200 : 9500, list: {} }, { geo: alderGeo(), n: LOW ? 600 : 1200, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
+  const kinds = [{ geo: firGeo(), n: LOW ? 7800 : 14500, list: {} }, { geo: alderGeo(), n: LOW ? 900 : 1800, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
   const dummy = new THREE.Object3D(), tint = new THREE.Color();
   for (const K of kinds) {
     let n = 0, guard = 0;
@@ -222,7 +224,7 @@ function growCell(ci, cj) {
   const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
   const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
   const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
-  const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
+  const K = [[LOW ? 400 : 680, []], [LOW ? 45 : 90, []], [12, []]];
   K.forEach(([tries, L], ki) => {
     for (let t = 0; t < tries; t++) {
       const x = x0 + R() * CELL_T, z = z0 + R() * CELL_T; if (inner(x, z)) continue;
@@ -276,7 +278,7 @@ function updForest(px, pz, dt) {
   }
   if (Math.hypot(px, pz) < VALLEY - 120) return;
   // grow the nearest missing cell (one per tick)
-  let best = null, bd = FOR_SHOW - 60; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
+  let best = null, bd = FOR_SHOW + 30; const c0 = Math.floor((px + HALF) / CELL_T), c1 = Math.floor((pz + HALF) / CELL_T);
   for (let cj = c1 - 3; cj <= c1 + 3; cj++) for (let ci = c0 - 3; ci <= c0 + 3; ci++) {
     if (ci < 0 || cj < 0 || ci >= NCT || cj >= NCT || OCELLS.has(ci * 1000 + cj)) continue;
     const cx = -HALF + (ci + .5) * CELL_T, cz = -HALF + (cj + .5) * CELL_T, d = Math.hypot(cx - px, cz - pz);

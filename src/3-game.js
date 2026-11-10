@@ -409,7 +409,7 @@ function updAnimal(e, dt) {
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   let spd = 0, tx = e.x, tz = e.z;
   if (e.type === 'deer') {
-    if (e.state !== 'flee' && dp < (input.sprint ? 26 : 16) && !P.dead) { e.state = 'flee'; e.t = rr(4, 7); sfx('deer'); }
+    if (e.state !== 'flee' && dp < (P.sprinting ? 26 : 16) && !P.dead) { e.state = 'flee'; e.t = rr(4, 7); sfx('deer'); }
     if (e.state === 'flee') { tx = e.x - dxp; tz = e.z - dzp; spd = 9.5; if (e.t <= 0) e.state = 'graze'; }
     else if (e.state === 'graze') { if (e.t <= 0) { e.state = 'walk'; e.t = rr(2, 4); e.tx = e.home.x + rr(-14, 14); e.tz = e.home.z + rr(-14, 14); } }
     else { tx = e.tx; tz = e.tz; spd = 1.6; if (e.t <= 0) { e.state = 'graze'; e.t = rr(2, 6); } }
@@ -550,43 +550,75 @@ function updPlayer(dt) {
   if (P.dead) return;
   // look (slower while aiming)
   const lk = 1 / (1 + (WEAPONS[gunId()].scope - 1) * P.ads * .8);
-  P.yaw -= input.look[0] * lk; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
+  const dYaw = input.look[0] * lk;
+  P.yaw -= dYaw; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
   // move (or fly: F toggles it — no gravity, no collisions, go where you look)
-  let sprint = false;
+  let sprint = false, hs = 0;
+  const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   if (P.fly) {
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
-    const fast = input.sprint || ml > .96, spd = fast ? 90 : 28, cp = Math.cos(P.pitch);
-    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp, rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
+    const fast = input.sprint || (isTouch && ml > .96), spd = fast ? 90 : 28, cp = Math.cos(P.pitch);
+    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp;
     const up = (keys.Space || touchUp ? 1 : 0) - (keys.KeyC || keys.ControlLeft ? 1 : 0);
     P.x += (fx * my + rx * mx) * spd * dt; P.z += (fz * my + rz * mx) * spd * dt; P.y += (fy * my * spd + up * spd * .7) * dt;
     const d = Math.hypot(P.x, P.z); if (d > WORLD) { P.x *= WORLD / d; P.z *= WORLD / d; }
-    P.y = clamp(P.y, heightAt(P.x, P.z), 600); P.vy = 0; P.onGround = false; P.swim = false; input.jump = false; input.sprint = false;
+    P.y = clamp(P.y, heightAt(P.x, P.z), 600); P.vy = 0; P.vx = P.vz = 0; P.onGround = false; P.swim = false; input.jump = false; P.eyeY = P.y;
   } else {
+    /* momentum: you speed up and slow down over a fraction of a second instead of snapping, keep some carry in the air,
+       and hills push back — steep climbs slow you, so mountains feel like mountains */
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+    if (ml < .15) P.runToggle = false;                            // the RUN button lets go when you stop
     const wl = waterAt(P.x, P.z), depth = wl - P.y;
     P.swim = depth > 1.25;
-    sprint = (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
-    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45);
-    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
-    const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
-    P.x += vx * dt; P.z += vz * dt;
+    const wantRun = (input.sprint || (isTouch && ml > .96) || P.runToggle) && my > .3 && !shopOpen && !input.ads && !input.fire && !P.swim && depth < .5;
+    if (P.stam <= 0) P.winded = true; else if (P.winded && P.stam > 35) P.winded = false;
+    sprint = wantRun && !P.winded;
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+    let wx = fx * my + rx * mx, wz = fz * my + rz * mx;
+    // slope along where you're heading
+    let slopeK = 1;
+    if (ml > .05 && P.onGround) { const wl2 = Math.hypot(wx, wz), dx = wx / wl2, dz = wz / wl2, gr = (heightAt(P.x + dx * 1.6, P.z + dz * 1.6) - heightAt(P.x, P.z)) / 1.6; slopeK = clamp(1 - Math.max(0, gr - .22) * 1.1, .38, 1) * (gr < -.25 ? 1.06 : 1); }
+    const spd = (sprint ? 9.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * slopeK;
+    wx *= spd; wz *= spd;
+    const acc = P.swim ? 9 : !P.onGround ? 7 : ml > .05 ? 42 : 30;
+    let dvx = wx - P.vx, dvz = wz - P.vz; const dl = Math.hypot(dvx, dvz);
+    if (dl > 1e-4) { const st = Math.min(dl, acc * dt); P.vx += dvx / dl * st; P.vz += dvz / dl * st; }
+    const ox = P.x, oz = P.z;
+    P.x += P.vx * dt; P.z += P.vz * dt;
     collide(P, .42, true);
+    // what actually happened after bumping trees and walls becomes the new velocity, so you slide along things instead of sticking
+    if (dt > 0) { const ax = (P.x - ox) / dt, az = (P.z - oz) / dt; if (Math.hypot(ax, az) < Math.hypot(P.vx, P.vz) + 2) { P.vx = ax; P.vz = az; } }
+    hs = Math.hypot(P.vx, P.vz);
+    // stamina: sprinting drains it, it comes back after a breather; run it dry and you're winded until it's a third back
+    if (sprint && hs > 3) { P.stam = Math.max(0, P.stam - dt * 11); P.stamT = 1; }
+    else { P.stamT -= dt; if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * (hs > 1 ? 13 : 24)); }
+    if (P.winded) { P.breathT = (P.breathT || 0) - dt; if (P.breathT <= 0) { P.breathT = .75; noiseBurst(.32, 750, .8, .035, 'bandpass'); } }
     let gy = heightAt(P.x, P.z);
     const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
     if (P.swim) gy = Math.max(gy, wl - 1.3);
-    if (input.jump && (P.onGround || P.swim)) { P.vy = P.swim ? 3 : 6.8; P.onGround = false; }
-    input.jump = false;
+    // jump: pressing a beat early still counts, and so does a beat after you've stepped off an edge
+    if (input.jump) P.jumpBuf = .15; input.jump = false; P.jumpBuf -= dt;
+    P.coyote = P.onGround ? .12 : P.coyote - dt;
+    if (P.jumpBuf > 0 && (P.coyote > 0 || P.swim)) { P.vy = P.swim ? 3 : 6.8 + (sprint ? .4 : 0); P.onGround = false; P.coyote = 0; P.jumpBuf = 0; if (!P.swim) P.stam = Math.max(0, P.stam - 5); }
     P.vy -= (P.swim ? 6 : 22) * dt; P.y += P.vy * dt;
-    if (P.y <= gy) { if (!P.onGround && P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } P.y = gy; P.vy = 0; P.onGround = true; }
-    else if (P.onGround && P.y - gy < .55) P.y = gy; else P.onGround = false;
-    const moving = Math.hypot(vx, vz) > .5 && (P.onGround);
-    P.bob += dt * (moving ? (sprint ? 13 : 9) : 0);
+    if (P.y <= gy) {
+      if (!P.onGround) { P.land = Math.max(P.land, clamp(-P.vy * .022, 0, .32)); if (P.vy < -4.5) sfx('step', 1.3); if (P.vy < -11) { sfx('thud'); if (P.vy < -17) hurtPlayer(Math.round((-P.vy - 17) * 4), P.x, P.z); } }
+      P.y = gy; P.vy = 0; P.onGround = true;
+    }
+    else if (P.onGround && P.vy <= 0 && P.y - gy < .55 + hs * .06) P.y = gy; else P.onGround = false;
+    // footsteps and head bob are driven by distance covered, so they always match your stride
+    const moving = hs > .6 && P.onGround;
+    const stepLen = sprint ? 2.25 : 1.6, b0 = Math.floor(P.bob / Math.PI);
+    if (P.onGround) P.bob += hs * dt / stepLen * Math.PI;
     STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
-    P.stepT -= dt * (moving ? (sprint ? 1.6 : 1) : 0); if (P.stepT <= 0) { P.stepT = .42; if (moving) sfx('step', sprint ? 1.4 : 1); if (moving && depth > -.05) sfx('splash'); }
-    input.sprint = sprint;
+    if (moving && Math.floor(P.bob / Math.PI) !== b0) { sfx('step', sprint ? 1.35 : clamp(hs / 5.4, .5, 1)); if (depth > -.05) sfx('splash'); }
+    P.bobAmp = lerp(P.bobAmp, moving ? clamp(hs / 5.4, 0, 1.8) : 0, Math.min(1, dt * 8));
+    // the eye follows the ground smoothly instead of snapping over every bump
+    P.eyeY = P.onGround && Math.abs(P.y - P.eyeY) < .8 ? lerp(P.eyeY, P.y, Math.min(1, dt * 22)) : P.y;
   }
+  P.sprinting = sprint && hs > 3;
   // survival
-  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1));
+  P.food = Math.max(0, P.food - dt * (P.sprinting ? .13 : .08) * (P.swim ? 1.6 : 1));
   if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
   else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (P.hp <= 0 && !P.dead) die();
@@ -598,18 +630,25 @@ function updPlayer(dt) {
   if (P.reload > 0) { P.reload -= dt; if (P.reload <= 0) finishReload(); }
   if (input.fire && !shopOpen && !P.swim) shoot();
   P.kick = Math.max(0, P.kick - dt * .5);
-  // camera
-  const bk = 1 - P.ads * .85, bobY = Math.sin(P.bob) * .045 * bk, bobX = Math.cos(P.bob * .5) * .03 * bk;
-  camera.position.set(P.x, P.y + (P.swim ? 1.45 : 1.62) + bobY, P.z);
-  camera.rotation.set(P.pitch + P.kick * .35, P.yaw, 0);
-  const fov = BASE_FOV / (1 + (W.scope - 1) * P.ads);
+  // camera: stride bob, a dip when you land, a lean into strafes, and the view widens a touch at a full run
+  P.runK = lerp(P.runK, P.sprinting ? 1 : 0, Math.min(1, dt * 5));
+  P.land = lerp(P.land, 0, Math.min(1, dt * 6));
+  const bk = (1 - P.ads * .85) * P.bobAmp, bobY = (Math.abs(Math.sin(P.bob)) - .5) * .085 * bk * (1 + P.runK * .5), bobX = Math.cos(P.bob) * .035 * bk * (1 + P.runK * .6);
+  const latV = P.vx * rx + P.vz * rz;
+  P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK - dYaw * .6, Math.min(1, dt * 8));
+  P.sway = lerp(P.sway, clamp(dYaw * 1.6, -.06, .06), Math.min(1, dt * 10));
+  camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
+  camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
+  const fov = (BASE_FOV + P.runK * 7) / (1 + (W.scope - 1) * P.ads);
   if (Math.abs(camera.fov - fov) > .05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   const scoped = gunId() === 'hunter' && P.ads > .85;
   $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim;
   // viewmodel: bob, kick, reload dip, swap drop; aiming slides it to the centre
   const rl = P.reload > 0 ? Math.sin((1 - P.reload / P.reloadMax) * Math.PI) : 0, sw = (P.swapT || 0) / .45;
-  vm.position.set(bobX - P.ads * W.at[0], bobY * .6 - rl * .16 - sw * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1);
-  vm.rotation.set(rl * .5 + P.kick * 1.4, 0, -rl * .3);
+  // running lowers and cants the gun; it lags a hair behind fast turns
+  const rk2 = P.runK;
+  vm.position.set(bobX * .8 - P.ads * W.at[0] + P.sway * .5 - rk2 * .03, bobY * .7 - rl * .16 - sw * .3 - rk2 * .07 - P.land * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1 + rk2 * .03);
+  vm.rotation.set(rl * .5 + P.kick * 1.4 - rk2 * .32 + Math.sin(P.bob) * .03 * rk2, P.sway * 1.5 + rk2 * .55, -rl * .3 + rk2 * .2 + P.roll * .5);
   if (G.step === 9 && named.wren && Math.hypot(P.x, P.z) < 160) ambushCheck();
 }
 function climbLookout() {
@@ -665,8 +704,8 @@ function updTime(dt) {
   scene.fog.color.copy(fogC);
   let far = s.far;
   if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
-  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(far * .12, 2, rk);
-  skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
+  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk);
+  skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
   skyU.sunDir.value.copy(sd);
   const ld = sd.y > 0 ? sd : sd.clone().negate();
@@ -674,10 +713,13 @@ function updTime(dt) {
   sun.color.copy(s.sun); sun.intensity = s.sunI * (1 - rk * .6);
   hemi.intensity = s.hemiI * 1.45 * (1 - rk * .3); hemi.color.copy(s.top).lerp(_cb.set(0xcfd8dc), .5);
   stars.material.opacity = clamp((isNight() ? 1 : 0) - rk, 0, 1) * smooth(.15, .3, Math.abs(G.tod - .5) * 2 - .3) * 1.2;
-  const camFar = Math.max(220, scene.fog.far * 1.25); if (Math.abs(camera.far - camFar) > 10) { camera.far = camFar; camera.updateProjectionMatrix(); }
+  const camFar = camera.far;
   sky.position.copy(camera.position); sky.scale.setScalar(camFar * .92); stars.position.copy(camera.position); stars.scale.setScalar(camFar * .9);
-  clouds.position.set(camera.position.x, camera.position.y + 420, camera.position.z); clouds.material.map.offset.x += dt * .0016; clouds.material.map.offset.y += dt * .0007;
-  clouds.material.color.copy(s.hor).lerp(_cb.set(0xffffff), .35).multiplyScalar(clamp(s.sunI / 2, .12, 1)); clouds.material.opacity = .75 * (1 - rk * .5);
+  for (const C of CLOUDS) {
+    C.m.position.set(camera.position.x, C.y, camera.position.z); C.u.off.value.x += dt * C.sx; C.u.off.value.y += dt * C.sz;
+    C.u.off.value.x += (camera.position.x - (C.px ?? camera.position.x)) / (C.m.geometry.parameters.width / C.u.rep.value); C.u.off.value.y += (camera.position.z - (C.pz ?? camera.position.z)) / (C.m.geometry.parameters.width / C.u.rep.value); C.px = camera.position.x; C.pz = camera.position.z;
+    C.u.col.value.copy(s.hor).lerp(_cb.set(0xffffff), .35).multiplyScalar(clamp(s.sunI / 2, .12, 1)).lerp(_cb.set(0x7a3220), rk * .6); C.u.haze.value.copy(fogC); C.u.op.value = C.op * (1 - rk * .5);
+  }
   refreshEnv(G.tod, rk);
   grade.uniforms.hurt.value = clamp(+hud.hurt.style.opacity || 0, 0, 1) * .8 + (P.dead ? 1 : 0);
   grade.uniforms.shadow.value.set(rk * .04, .012 - rk * .01, .03 - rk * .03);
@@ -724,6 +766,7 @@ function useSlot(i) {
 hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
   hud.hp.style.width = Math.max(0, P.hp) + '%';
+  { const st = $('stam'); st.firstElementChild.style.width = P.stam + '%'; st.classList.toggle('on', P.stam < 99.5 && !P.fly); st.classList.toggle('low', !!P.winded); } if (isTouch) $('bRun').classList.toggle('lit', !!P.runToggle);
   hud.hpw.classList.toggle('hungry', P.food < 22);
   hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
   hud.gunn.textContent = WEAPONS[gunId()].name;
@@ -833,7 +876,7 @@ function tStart(e) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
       else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') useInteract();
-        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
+        if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } if (btn.id === 'bRun') P.runToggle = !P.runToggle; }
       continue;
     }
     if (t.clientX < innerWidth * .42 && ![...touches.values()].some(v => v.kind === 'stick')) {
@@ -891,7 +934,7 @@ function frame(now) {
   gate.ang = lerp(gate.ang, gTarget, dt * 2.5);
   for (const d of gateDoors) { d.pivot.rotation.y = d.s * gate.ang * 1.65; d.door.rotation.z = gate.hp <= 0 ? d.s * .4 : 0; }
 
-  updSmoke(G.t); grassU.uTime.value = G.t;
+  updSmoke(G.t); grassU.uTime.value = G.t; updFar(dt, G.t, camera.position.x, camera.position.z);
   if (G.mode === 'title') {
     vm.visible = false; titleT += dt * .03;
     camera.position.set(Math.sin(titleT) * 80, H0 + 20, Math.cos(titleT) * 80 + 20);
@@ -907,7 +950,7 @@ function frame(now) {
     regionT -= dt; if (regionT <= 0) { regionT = .7; checkRegions(); }
     if (mapOpen) drawMap();
     for (const e of [...ents]) {
-      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < Math.max(160, scene.fog.far * 1.1);
+      const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < clamp(scene.fog.far * .6, 160, 700);
       if (d > 260 && e.type !== 'clan') continue;
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
@@ -1097,6 +1140,7 @@ async function boot() {
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
+  await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
   named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
@@ -1110,4 +1154,4 @@ async function boot() {
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__T = { updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };

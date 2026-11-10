@@ -11,6 +11,20 @@ import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/jsm/postprocessing/OutputPass.js';
 
+/* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
+   fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
+   so ridges and peaks stand out above the murk in the low ground — that's what sells the distance. */
+THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\n#endif';
+THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\nvFogDepth = - mvPosition.z;\nvFogWorld = (inverse(viewMatrix) * mvPosition).xyz;\n#endif';
+THREE.ShaderChunk.fog_pars_fragment = '#ifdef USE_FOG\nuniform vec3 fogColor;\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\nuniform float fogNear;\nuniform float fogFar;\n#endif';
+THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  float fogDist = max(0.0, length(vFogWorld - cameraPosition) - fogNear);
+  float fogHy = max(0.0, (vFogWorld.y + cameraPosition.y) * .5 - 12.0);
+  float fogDen = (3.0 / max(fogFar, 1.0)) * (.2 + .8 * exp(-fogHy * .0055));
+  float fogFactor = 1.0 - exp(-fogDist * fogDen);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor, 0.0, 1.0));
+#endif`;
+
 const $ = id => document.getElementById(id);
 /* controls follow the device: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops. */
 const isTouch = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -145,7 +159,7 @@ function rawH(x, z) {
     const r = 1 - Math.abs(fbm(x * .0045 + 30, z * .0045) * 2 - 1); oh += smooth(.55, .9, fbm(x * .0021 - 9, z * .0021 + 5)) * 210 * r;
     h += o * oh;
   }
-  const e = Math.max(0, d - 2080); h += e * e * .012 + e * .5 * fbm(x * .02 + 9, z * .02);   // the world's edge
+  // the world's edge: ridged ranges rather than a smooth bowl, so the walls of the world look like mountains from anywhere
   const gd = Math.hypot(x + 300, z + 320);
   h += 150 * Math.exp(-(gd * gd) / (2 * 95 * 95));                                   // the grey mountain (Greyhold)
   const mx = (x - 10) / 120, mz = (z + 178) / 62;
@@ -169,6 +183,9 @@ function carved(x, z) {
     const ld = Math.hypot(x - L.x, z - L.z); if (ld > L.R * 3) continue;
     const Rw = lakeRw(L, x, z), hc = ld < Rw ? L.L - .5 - 5 * (1 - (ld / Rw) ** 2) : L.L - .5 + (ld - Rw) * .45; if (hc < h) h = hc;
   }
+  // the world's edge: ridged ranges rather than a smooth bowl (added after the river so it doesn't cut a slot through them)
+  const d = Math.hypot(x, z), e = Math.max(0, d - 2060);
+  if (e > 0) { const rg = 1 - Math.abs(fbm(x * .0019 + 41, z * .0019 - 7) * 2 - 1), rg2 = 1 - Math.abs(fbm(x * .006 + 3, z * .006 + 9) * 2 - 1); h += smooth(0, 340, e) * (160 + 760 * rg * rg + 220 * rg2 * rg2) + e * .25; }
   const B = POI.burn, bd = Math.hypot(x - B.x, z - B.z);
   if (bd < 70) h += -9 * Math.exp(-((bd / 26) ** 2)) + 3 * Math.exp(-(((bd - 32) / 7) ** 2));
   return h;
@@ -254,7 +271,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xa9b8b2, 30, 260);
-const camera = new THREE.PerspectiveCamera(64, 1, .06, 1200);
+const camera = new THREE.PerspectiveCamera(64, 1, .06, 9000);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 
@@ -300,13 +317,13 @@ addEventListener('resize', resize);
 resize();
 
 /* ---------- sky, clouds, light ---------- */
-const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 } };
+const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() } };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
-  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol; uniform float rust; varying vec3 vP;
-    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); if(vP.y<0.) c = hor*.92;
-      float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06);
+  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust; varying vec3 vP;
+    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16, vP.y));
+      float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06) * (.35 + .65*smoothstep(-.05,.1,vP.y));
       c = mix(c, vec3(.42,.14,.07), rust);
       gl_FragColor = vec4(c,1.);
       #include <tonemapping_fragment>
@@ -333,8 +350,25 @@ function cloudTex() {
   g.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4); return t;
 }
-const clouds = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), new THREE.MeshBasicMaterial({ map: cloudTex(), transparent: true, opacity: .8, depthWrite: false, fog: false }));
-clouds.rotation.x = Math.PI / 2; clouds.position.y = 460; clouds.renderOrder = -1; clouds.frustumCulled = false; scene.add(clouds);
+/* two cloud decks at different heights drifting at different speeds — the parallax between them reads as real altitude.
+   They fade out toward their edges and sink into the horizon haze, so there's no visible plane edge. */
+const CLOUD_TEX = cloudTex();
+const CLOUDS = [[1500, 30000, 8, .0016, .0007, .8], [2700, 40000, 5, .0007, .0011, .5]].map(([y, size, rep, sx, sz, op]) => {
+  const u = { map: { value: CLOUD_TEX }, off: { value: new THREE.Vector2(rnd(), rnd()) }, rep: { value: rep }, col: { value: new THREE.Color(1, 1, 1) }, op: { value: op }, haze: { value: new THREE.Color() } };
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size, 1, 1), new THREE.ShaderMaterial({
+    uniforms: u, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+    vertexShader: 'varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: `uniform sampler2D map; uniform vec2 off; uniform float rep, op; uniform vec3 col, haze; varying vec2 vUv; varying vec3 vW;
+      void main(){ vec4 t = texture2D(map, vUv * rep + off); float r = length(vUv - .5) * 2.;
+        vec3 d = normalize(vW - cameraPosition); float low = smoothstep(.02, .22, abs(d.y));
+        float a = t.a * op * (1. - smoothstep(.55, 1., r));
+        gl_FragColor = vec4(mix(haze, col, low), a);
+        #include <colorspace_fragment>
+      }`,
+  }));
+  m.rotation.x = Math.PI / 2; m.renderOrder = -1; m.frustumCulled = false; scene.add(m);
+  return { m, u, y, sx, sz, op };
+});
 
 const hemi = new THREE.HemisphereLight(0xcfdce6, 0x5a5444, 1);
 scene.add(hemi);
@@ -359,16 +393,16 @@ function refreshEnv(tod, rk) {
 
 /* time-of-day palette: tod 0 = midnight, .25 sunrise, .5 noon, .75 sunset — overcast Pacific-northwest daylight */
 const TOD = [
-  [0.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
-  [0.20, '#141c30', '#4a4250', '#3a3a42', '#ffb07a', .3, .3, 120],
-  [0.25, '#3a4766', '#d29a74', '#9a8a7e', '#ffb27a', 1.2, .6, 200],
-  [0.32, '#6489ac', '#c4cec9', '#a9b6b0', '#fff0d6', 2.5, .95, 270],
-  [0.50, '#5884b2', '#ccd6d2', '#b2c0ba', '#fff6e8', 2.9, 1.05, 300],
-  [0.68, '#5c82a8', '#d6cebd', '#b4b2a4', '#ffe2b8', 2.5, .95, 270],
-  [0.76, '#30335a', '#e08954', '#866458', '#ff9558', 1.1, .55, 180],
-  [0.82, '#141a2e', '#3a2c3c', '#2a2630', '#a8a0c0', .32, .3, 110],
-  [0.90, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
-  [1.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 75],
+  [0.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
+  [0.20, '#141c30', '#4a4250', '#3a3a42', '#ffb07a', .3, .3, 420],
+  [0.25, '#3a4766', '#d29a74', '#9a8a7e', '#ffb27a', 1.2, .6, 1300],
+  [0.32, '#6489ac', '#c4cec9', '#a9b6b0', '#fff0d6', 2.5, .95, 2200],
+  [0.50, '#5884b2', '#ccd6d2', '#b4c3c4', '#fff6e8', 2.9, 1.05, 2700],
+  [0.68, '#5c82a8', '#d6cebd', '#b4b2a4', '#ffe2b8', 2.5, .95, 2200],
+  [0.76, '#30335a', '#e08954', '#866458', '#ff9558', 1.1, .55, 1250],
+  [0.82, '#141a2e', '#3a2c3c', '#2a2630', '#a8a0c0', .32, .3, 420],
+  [0.90, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
+  [1.00, '#04070c', '#0e1620', '#0b1118', '#7b93b8', .26, .2, 240],
 ];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 function todSample(t) {
