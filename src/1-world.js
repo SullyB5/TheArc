@@ -10,6 +10,7 @@ import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
+import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -606,7 +607,7 @@ const MODELS = {};
 async function loadModels(names) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    MODELS[n] = g.scene; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
+    MODELS[n] = g.scene; if (g.animations && g.animations.length) MODELS[n + ':anims'] = g.animations; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }

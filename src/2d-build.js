@@ -156,7 +156,7 @@ function spawnGuards(p, refill) {
   if (refill && cnt('ration') + cnt('dried_meat') + cnt('canned') < 2) { sfx('no'); toast('Feed a new guard: 2 cooked/dried meat or canned food'); return; }
   while (p.guardEnts.length < want) {
     if (refill) { for (let k = 0; k < 2; k++) { const f = ['ration', 'dried_meat', 'canned'].find(id => cnt(id) > 0); if (f) take(f, 1); } }
-    const e = spawnNPC('guard', p.x + rr(-3, 3), p.z + rr(-3, 3), { model: 'michael', tint: 0x4a5a6a, wander: true }); e.guard = 1; e.home = { x: p.x, z: p.z }; e.hp = 100; e.fireT = 0;
+    const e = spawnNPC('guard', p.x + rr(-3, 3), p.z + rr(-3, 3), { model: 'keeper', armed: true, wander: true }); e.guard = 1; e.home = { x: p.x, z: p.z }; e.hp = 100; e.fireT = 0;
     const gm = modelCopy('gun-night', .7, 'z'); if (gm) { gm.position.set(.25, e.p.H * .55, .25); e.p.body.add(gm); }
     p.guardEnts.push(e); if (refill) { toast('A new guard joins the barracks'); break; }
   }

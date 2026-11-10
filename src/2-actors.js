@@ -15,12 +15,16 @@ function makePerson(kind, o = {}) {
   const clan = kind === 'warrior' || kind === 'thrower' || kind === 'brute', armed = kind === 'gunner' || kind === 'soldier';
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
-  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
+  // (Nov 10) Kestrel's own people: Bryce's settler (the Keeper civilian, standing) and his rigged Keeper foot soldier join the old two
+  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'settler', 'settler', 'keeper', 'michael']));
   const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
   const walkU = { ph: { value: 0 }, amp: { value: 0 } };
   // the survivor models face their own +x, but people move along +z — turn them, or everyone walks sideways
-  const m = modelCopy(model, H, 'y', tint);
-  if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
+  // the Keeper foot soldier is really rigged (Bryce, Nov 10): his own skeleton and his Walking / Running clips, faces +z already
+  const rig = MODELS[model + ':anims'] ? rigCopy(model, H, tint) : null;
+  const m = rig ? rig.wrap : modelCopy(model, H, 'y', tint);
+  if (rig) body.add(m);
+  else if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
   // far away: the ~1.5k-triangle copy (the full ones are 10-19k each, and there can be dozens on screen)
   const lo = m && MODELS[model + '-lo'] ? modelCopy(model + '-lo', H, 'y', tint) : null;
   if (lo) { lo.rotation.y = -Math.PI / 2; walkify(lo, H, walkU); lo.visible = false; body.add(lo); }
@@ -58,8 +62,34 @@ function makePerson(kind, o = {}) {
       mesh(new THREE.BoxGeometry(.3, .07, .05), M(0x8a2a1a), 0, H * .9, .13, body);
     }
   }
+  // a Keeper on watch carries his rifle in his right hand, down along the leg (it swings with the arm)
+  if (rig && o.armed && rig.hand) { const gm = modelCopy(MODELS['gun-night-lo'] ? 'gun-night-lo' : 'gun-night', .72 / rig.k, 'z'); if (gm) { gm.rotation.set(-Math.PI / 2, 0, 0); gm.position.set(0, .12 / rig.k, .04 / rig.k); rig.hand.add(gm); } }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
-  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true };
+  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true, rig };
+}
+/* a copy of a rigged model (Nov 10): own bones (SkeletonUtils), sized to height H, feet on y = 0, and its clips set up for poseWalk:
+   'walk' and 'run' played off the stride phase, and a standing pose (the walk held where the feet pass each other) when still */
+function rigCopy(name, H, tint) {
+  const src = MODELS[name], clips = MODELS[name + ':anims'], s = SkeletonUtils.clone(src);
+  let sk = null; s.traverse(o => { if (o.isSkinnedMesh) { if (!sk) sk = o; o.frustumCulled = false; o.castShadow = true;
+    if (tint) o.material = [].concat(o.material).map(x => { const c = x.clone(); c.color = c.color.clone().multiply(new THREE.Color(tint)); return c; })[0]; } });
+  if (!sk) return null;
+  sk.geometry.computeBoundingBox(); const bb = sk.geometry.boundingBox, k = H / (bb.max.y - bb.min.y);
+  const wrap = new THREE.Group(); s.scale.setScalar(k); s.position.y = -bb.min.y * k; wrap.add(s);
+  const find = w => clips.find(c => new RegExp(w, 'i').test(c.name));
+  const mixer = new THREE.AnimationMixer(s), walkC = find('walk'), runC = find('run') || walkC;
+  const RIG = { wrap, mixer, k, w: 0, hand: s.getObjectByName('mixamorigRightHand') || s.getObjectByName('mixamorig:RightHand') };
+  if (walkC) {
+    // where in the walk the feet pass each other: the standing pose (found once per model)
+    if (src.userData.standT == null) { const m2 = new THREE.AnimationMixer(s), a = m2.clipAction(walkC); a.play(); let best = 0, bd = 1e9; const L = new THREE.Vector3(), R = new THREE.Vector3();
+      const lf = s.getObjectByName('mixamorigLeftFoot'), rf = s.getObjectByName('mixamorigRightFoot');
+      if (lf && rf) for (let i = 0; i < 32; i++) { a.time = i / 32 * walkC.duration; m2.update(0); s.updateMatrixWorld(true); lf.getWorldPosition(L); rf.getWorldPosition(R); const d = Math.abs(L.z - R.z) + Math.abs(L.y - R.y); if (d < bd) { bd = d; best = a.time; } }
+      a.stop(); m2.uncacheRoot(s); src.userData.standT = best; }
+    RIG.stand = mixer.clipAction(walkC.clone()); RIG.walk = mixer.clipAction(walkC); RIG.run = mixer.clipAction(runC === walkC ? walkC.clone() : runC);
+    for (const a of [RIG.stand, RIG.walk, RIG.run]) { a.play(); a.paused = true; }
+    RIG.standT = src.userData.standT; RIG.stand.time = RIG.standT; RIG.stand.setEffectiveWeight(1); RIG.walk.setEffectiveWeight(0); RIG.run.setEffectiveWeight(0); mixer.update(0);
+  }
+  return RIG;
 }
 /* stride: bob, side sway, forward lean with speed, and the legs + arms swinging (walkU, done in the vertex shader) */
 function poseWalk(p, ph, amt, v = amt * 2.5) {
@@ -68,6 +98,13 @@ function poseWalk(p, ph, amt, v = amt * 2.5) {
   p.body.rotation.x = .07 * amt;
   if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .12 * amt;
   if (p.walkU) { const tgt = v > .08 ? Math.min(.5, .24 + v * .055) : 0; p.walkU.amp.value += (tgt - p.walkU.amp.value) * .2; p.walkU.ph.value = ph; }
+  // a rigged person: his clips, played off the same stride phase (one clip loop = one stride), walk to run by speed; only up close
+  const R = p.rig; if (R && R.walk && p.near) {
+    R.w += ((v > .15 ? 1 : 0) - R.w) * .2; const run = clamp((v - 2.4) / 1.6, 0, 1), f = ((ph / 6.283) % 1 + 1) % 1;
+    R.walk.time = f * R.walk.getClip().duration; R.run.time = f * R.run.getClip().duration; R.stand.time = R.standT;
+    R.stand.setEffectiveWeight(1 - R.w); R.walk.setEffectiveWeight(R.w * (1 - run)); R.run.setEffectiveWeight(R.w * run); R.mixer.update(0);
+    p.body.rotation.z = 0;                                   // (the clip sways him already)
+  }
 }
 // one full stride (left + right step) per ~1.4 m walking, stretching to ~3 m at a run
 const strideRate = v => v * 6.283 / clamp(1.05 + v * .42, 1.35, 3.1);

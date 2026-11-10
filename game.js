@@ -10,6 +10,7 @@ import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
+import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -606,7 +607,7 @@ const MODELS = {};
 async function loadModels(names) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    MODELS[n] = g.scene; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
+    MODELS[n] = g.scene; if (g.animations && g.animations.length) MODELS[n + ':anims'] = g.animations; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }
@@ -3171,12 +3172,16 @@ function makePerson(kind, o = {}) {
   const clan = kind === 'warrior' || kind === 'thrower' || kind === 'brute', armed = kind === 'gunner' || kind === 'soldier';
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
-  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
+  // (Nov 10) Kestrel's own people: Bryce's settler (the Keeper civilian, standing) and his rigged Keeper foot soldier join the old two
+  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'settler', 'settler', 'keeper', 'michael']));
   const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
   const walkU = { ph: { value: 0 }, amp: { value: 0 } };
   // the survivor models face their own +x, but people move along +z — turn them, or everyone walks sideways
-  const m = modelCopy(model, H, 'y', tint);
-  if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
+  // the Keeper foot soldier is really rigged (Bryce, Nov 10): his own skeleton and his Walking / Running clips, faces +z already
+  const rig = MODELS[model + ':anims'] ? rigCopy(model, H, tint) : null;
+  const m = rig ? rig.wrap : modelCopy(model, H, 'y', tint);
+  if (rig) body.add(m);
+  else if (m) { m.rotation.y = -Math.PI / 2; walkify(m, H, walkU); body.add(m); }
   // far away: the ~1.5k-triangle copy (the full ones are 10-19k each, and there can be dozens on screen)
   const lo = m && MODELS[model + '-lo'] ? modelCopy(model + '-lo', H, 'y', tint) : null;
   if (lo) { lo.rotation.y = -Math.PI / 2; walkify(lo, H, walkU); lo.visible = false; body.add(lo); }
@@ -3214,8 +3219,34 @@ function makePerson(kind, o = {}) {
       mesh(new THREE.BoxGeometry(.3, .07, .05), M(0x8a2a1a), 0, H * .9, .13, body);
     }
   }
+  // a Keeper on watch carries his rifle in his right hand, down along the leg (it swings with the arm)
+  if (rig && o.armed && rig.hand) { const gm = modelCopy(MODELS['gun-night-lo'] ? 'gun-night-lo' : 'gun-night', .72 / rig.k, 'z'); if (gm) { gm.rotation.set(-Math.PI / 2, 0, 0); gm.position.set(0, .12 / rig.k, .04 / rig.k); rig.hand.add(gm); } }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
-  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true };
+  return { g, body, weapon, H, kind, walkU, hi: m, lo, near: true, rig };
+}
+/* a copy of a rigged model (Nov 10): own bones (SkeletonUtils), sized to height H, feet on y = 0, and its clips set up for poseWalk:
+   'walk' and 'run' played off the stride phase, and a standing pose (the walk held where the feet pass each other) when still */
+function rigCopy(name, H, tint) {
+  const src = MODELS[name], clips = MODELS[name + ':anims'], s = SkeletonUtils.clone(src);
+  let sk = null; s.traverse(o => { if (o.isSkinnedMesh) { if (!sk) sk = o; o.frustumCulled = false; o.castShadow = true;
+    if (tint) o.material = [].concat(o.material).map(x => { const c = x.clone(); c.color = c.color.clone().multiply(new THREE.Color(tint)); return c; })[0]; } });
+  if (!sk) return null;
+  sk.geometry.computeBoundingBox(); const bb = sk.geometry.boundingBox, k = H / (bb.max.y - bb.min.y);
+  const wrap = new THREE.Group(); s.scale.setScalar(k); s.position.y = -bb.min.y * k; wrap.add(s);
+  const find = w => clips.find(c => new RegExp(w, 'i').test(c.name));
+  const mixer = new THREE.AnimationMixer(s), walkC = find('walk'), runC = find('run') || walkC;
+  const RIG = { wrap, mixer, k, w: 0, hand: s.getObjectByName('mixamorigRightHand') || s.getObjectByName('mixamorig:RightHand') };
+  if (walkC) {
+    // where in the walk the feet pass each other: the standing pose (found once per model)
+    if (src.userData.standT == null) { const m2 = new THREE.AnimationMixer(s), a = m2.clipAction(walkC); a.play(); let best = 0, bd = 1e9; const L = new THREE.Vector3(), R = new THREE.Vector3();
+      const lf = s.getObjectByName('mixamorigLeftFoot'), rf = s.getObjectByName('mixamorigRightFoot');
+      if (lf && rf) for (let i = 0; i < 32; i++) { a.time = i / 32 * walkC.duration; m2.update(0); s.updateMatrixWorld(true); lf.getWorldPosition(L); rf.getWorldPosition(R); const d = Math.abs(L.z - R.z) + Math.abs(L.y - R.y); if (d < bd) { bd = d; best = a.time; } }
+      a.stop(); m2.uncacheRoot(s); src.userData.standT = best; }
+    RIG.stand = mixer.clipAction(walkC.clone()); RIG.walk = mixer.clipAction(walkC); RIG.run = mixer.clipAction(runC === walkC ? walkC.clone() : runC);
+    for (const a of [RIG.stand, RIG.walk, RIG.run]) { a.play(); a.paused = true; }
+    RIG.standT = src.userData.standT; RIG.stand.time = RIG.standT; RIG.stand.setEffectiveWeight(1); RIG.walk.setEffectiveWeight(0); RIG.run.setEffectiveWeight(0); mixer.update(0);
+  }
+  return RIG;
 }
 /* stride: bob, side sway, forward lean with speed, and the legs + arms swinging (walkU, done in the vertex shader) */
 function poseWalk(p, ph, amt, v = amt * 2.5) {
@@ -3224,6 +3255,13 @@ function poseWalk(p, ph, amt, v = amt * 2.5) {
   p.body.rotation.x = .07 * amt;
   if (p.weapon) p.weapon.rotation.x = Math.sin(ph) * .12 * amt;
   if (p.walkU) { const tgt = v > .08 ? Math.min(.5, .24 + v * .055) : 0; p.walkU.amp.value += (tgt - p.walkU.amp.value) * .2; p.walkU.ph.value = ph; }
+  // a rigged person: his clips, played off the same stride phase (one clip loop = one stride), walk to run by speed; only up close
+  const R = p.rig; if (R && R.walk && p.near) {
+    R.w += ((v > .15 ? 1 : 0) - R.w) * .2; const run = clamp((v - 2.4) / 1.6, 0, 1), f = ((ph / 6.283) % 1 + 1) % 1;
+    R.walk.time = f * R.walk.getClip().duration; R.run.time = f * R.run.getClip().duration; R.stand.time = R.standT;
+    R.stand.setEffectiveWeight(1 - R.w); R.walk.setEffectiveWeight(R.w * (1 - run)); R.run.setEffectiveWeight(R.w * run); R.mixer.update(0);
+    p.body.rotation.z = 0;                                   // (the clip sways him already)
+  }
 }
 // one full stride (left + right step) per ~1.4 m walking, stretching to ~3 m at a run
 const strideRate = v => v * 6.283 / clamp(1.05 + v * .42, 1.35, 3.1);
@@ -4786,7 +4824,7 @@ function spawnGuards(p, refill) {
   if (refill && cnt('ration') + cnt('dried_meat') + cnt('canned') < 2) { sfx('no'); toast('Feed a new guard: 2 cooked/dried meat or canned food'); return; }
   while (p.guardEnts.length < want) {
     if (refill) { for (let k = 0; k < 2; k++) { const f = ['ration', 'dried_meat', 'canned'].find(id => cnt(id) > 0); if (f) take(f, 1); } }
-    const e = spawnNPC('guard', p.x + rr(-3, 3), p.z + rr(-3, 3), { model: 'michael', tint: 0x4a5a6a, wander: true }); e.guard = 1; e.home = { x: p.x, z: p.z }; e.hp = 100; e.fireT = 0;
+    const e = spawnNPC('guard', p.x + rr(-3, 3), p.z + rr(-3, 3), { model: 'keeper', armed: true, wander: true }); e.guard = 1; e.home = { x: p.x, z: p.z }; e.hp = 100; e.fireT = 0;
     const gm = modelCopy('gun-night', .7, 'z'); if (gm) { gm.position.set(.25, e.p.H * .55, .25); e.p.body.add(gm); }
     p.guardEnts.push(e); if (refill) { toast('A new guard joins the barracks'); break; }
   }
@@ -6199,7 +6237,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS]);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
@@ -6212,10 +6250,13 @@ async function boot() {
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
-  for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'civilian', tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
   WALK.settle();
   for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
-  SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'civilian', tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
+  SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: pick(['civilian', 'settler', 'settler']), tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
+  // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
+  for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
+  for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
   ensureWildlife(); villageGuards(); bakeWorld(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
