@@ -606,9 +606,33 @@ const REGIONS = [
 const gltf = new GLTFLoader(); gltf.setMeshoptDecoder(MeshoptDecoder);
 const MODELS = {};
 const CLIPS = {};                                      // animations that came with a model (the rigged animals)
+/* phones: the model kit's textures are mostly 1024² (some 2048²) — ~640 MB on the GPU plus Safari's decoded copy, more than an
+   iPhone tab is allowed, so iOS kills the page while it loads. Redraw every model texture at most TEX_CAP (detail maps TEX_CAP_DETAIL) wide before it's uploaded
+   (a quarter of the memory per step down) and let the full-size original go. */
+const TEX_CAP = 512, TEX_CAP_DETAIL = 256, SHRUNK = new WeakSet();   // colour maps keep 512; normal/roughness/metal/AO maps drop to 256
+function shrinkTextures(root) {
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) {
+      if (!m) continue;
+      for (const k in m) {
+        const t = m[k]; if (!t || !t.isTexture || SHRUNK.has(t)) continue; SHRUNK.add(t);
+        const cap = k === 'map' || k === 'emissiveMap' ? TEX_CAP : TEX_CAP_DETAIL;
+        const img = t.image, w = img && img.width, h = img && img.height;
+        if (!w || !h || Math.max(w, h) <= cap) continue;
+        const s = cap / Math.max(w, h), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+        try { c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); } catch (e) { continue; }
+        if (img.close) img.close();                                   // ImageBitmap: free it now rather than at GC
+        t.image = c; t.needsUpdate = true;
+      }
+    }
+  });
+}
 async function loadModels(names, quiet) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
+    if (LOW) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
