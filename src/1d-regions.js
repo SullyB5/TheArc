@@ -18,32 +18,7 @@ function car(x, z, yaw) {
   addCol(x + ax, z + az, 1.1); addCol(x + bx, z + bz, 1.1);
   return g;
 }
-/* a ruined house: four walls with a door gap and window holes, half a roof */
-function house(cx, cz, yaw, w, d, floors = 1) {
-  const g = new THREE.Group(), H = 3 * floors, mat = pick([concMat(), concMat(0xc8b8a4), new THREE.MeshLambertMaterial({ map: texWood, color: 0xc0a888 })]);
-  const t = .3;
-  const wall = (lx, lz, len, rotY, door) => {
-    const segs = door ? [[-len / 2, -.8], [.8, len / 2]] : [[-len / 2, len / 2]];
-    for (const [a, b] of segs) {
-      const L = b - a, mid = (a + b) / 2;
-      const hh = H * (rnd() < .3 ? rr(.55, .9) : 1);
-      const m = mesh(new THREE.BoxGeometry(L, hh, t), mat, 0, hh / 2, 0);
-      const p = new THREE.Group(); p.add(m); m.position.x = mid; p.position.set(lx, 0, lz); p.rotation.y = rotY; g.add(p);
-      // windows: dark insets
-      if (L > 2.5) for (let k = 0; k < floors; k++) { const wn = mesh(new THREE.BoxGeometry(1, 1, t + .04), M(0x141414), mid, 1.6 + k * 3, 0); p.add(wn); }
-    }
-    if (door) { const lint = mesh(new THREE.BoxGeometry(1.6, H - 2.2, t), mat, 0, 2.2 + (H - 2.2) / 2, 0); const p = new THREE.Group(); p.add(lint); p.position.set(lx, 0, lz); p.rotation.y = rotY; g.add(p); }
-  };
-  wall(0, d / 2, w, 0, true); wall(0, -d / 2, w, 0, false); wall(w / 2, 0, d, Math.PI / 2, false); wall(-w / 2, 0, d, Math.PI / 2, rnd() < .4);
-  if (rnd() < .7) { const r = mesh(new THREE.BoxGeometry(w + .6, .25, d * .6 + .4), new THREE.MeshLambertMaterial({ map: texCorr, color: 0x6a5a4a }), 0, H + .2, -d * .2, g); r.rotation.x = rr(-.25, .1); r.rotation.z = rr(-.12, .12); }
-  for (let i = 0; i < 4; i++) { const b = mesh(new THREE.BoxGeometry(rr(.4, 1.2), rr(.2, .5), rr(.4, 1)), mat, rr(-w / 2, w / 2) * .7, .2, rr(-d / 2, d / 2) * .7, g); b.rotation.y = rnd() * 3; }
-  place(g, cx, cz, yaw);
-  // colliders along the walls (door gap left open)
-  const C = (lx0, lz0, lx1, lz1) => { const [a, b] = rotXZ(lx0, lz0, yaw), [c, e] = rotXZ(lx1, lz1, yaw); addColLine(cx + a, cz + b, cx + c, cz + e, .3); };
-  C(-w / 2, d / 2, -.9, d / 2); C(.9, d / 2, w / 2, d / 2); C(-w / 2, -d / 2, w / 2, -d / 2); C(w / 2, -d / 2, w / 2, d / 2); C(-w / 2, -d / 2, -w / 2, d / 2);
-  SHELTERS.push({ x: cx, z: cz, kind: 'house', r: Math.min(w, d) / 2 - .4 });
-  return g;
-}
+/* a ruined house: house(cx, cz, yaw, w, d, floors) is in 1f-houses.js (Nov 10 rebuild) */
 function supplyCrate(x, z, loot) {
   const g = MODELS['ammo-crate'] ? modelCopy('ammo-crate', .75) : null;
   const o = g || (() => { const b = new THREE.Group(); mesh(new THREE.BoxGeometry(1.4, .8, .8), M(0x4f5a3a), 0, .4, 0, b); return b; })();

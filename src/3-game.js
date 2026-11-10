@@ -1016,6 +1016,7 @@ function frame(now) {
   let dt = Math.min(.05, (now - last) / 1000); last = now;
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
+  updHouseLights();
   for (const s of SCRAPS) if (s.alive) { s.glint.rotation.y += dt * 2; s.glint.position.y = .55 + Math.sin(G.t * 3 + s.ph) * .1; s.glint.visible = Math.sin(G.t * 4 + s.ph) > -.2; }
   for (const p of beaconSmoke) { p.userData.k = (p.userData.k + dt * .08) % 1; const k = p.userData.k; p.position.set(POI.pod.x + Math.sin(k * 9) * k * 2, heightAt(POI.pod.x, POI.pod.z) + 2 + k * 26, POI.pod.z + k * 4); p.scale.setScalar(1 + k * 3); p.material.opacity = .4 * (1 - k); p.visible = false; }
   // gate swing
@@ -1349,7 +1350,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'gun-night-lo', 'gun-desert-lo']);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();

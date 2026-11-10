@@ -284,16 +284,18 @@ function gunView(id) {
   const ext = new THREE.Group(); g.add(ext); g.userData.ext = ext;          // attachments the bench adds
   return g;
 }
+/* (Nov 10) Bryce's survivor arms: rolled olive sleeves, bare forearms, black leather gloves. Baked from the rigged model with the
+   right hand closed round a pistol grip (index finger out along the trigger guard) and the left cupped under a handguard; in the
+   file each forearm has the grip point inside the curled hand at the origin and the elbow at +y = 1, so it sits straight on a gun's
+   grip point and ARM_LEN is how long it is from there to the elbow. */
+const ARM_LEN = .44;
 function buildArms() {
   const src = MODELS['fp-arms']; if (!src) return;
   for (const n of ['armR', 'armL']) {
     const a = src.getObjectByName(n); if (!a) continue;
-    const c = a.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.updateMatrixWorld(true);
-    const b = new THREE.Box3().setFromObject(c), sz = b.getSize(new THREE.Vector3()), k = .5 / sz.y;
-    const piv = new THREE.Group(), inner = new THREE.Group(); inner.add(c);
-    c.scale.setScalar(k); c.position.set(-(b.min.x + sz.x / 2) * k, -(b.min.y + .06 * sz.y) * k, -(b.min.z + sz.z / 2) * k);
-    piv.add(inner);
-    c.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; const mm = o.material = o.material.clone(); if (mm.map) { mm.emissive = new THREE.Color(1, 1, 1); mm.emissiveMap = mm.map; mm.emissiveIntensity = .22; } } });
+    const c = a.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.scale.setScalar(ARM_LEN);
+    const piv = new THREE.Group(), inner = new THREE.Group(); inner.add(c); piv.add(inner);
+    c.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; const mm = o.material = o.material.clone(); if (mm.map) { mm.emissive = new THREE.Color(1, 1, 1); mm.emissiveMap = mm.map; mm.emissiveIntensity = .12; } } });
     vm.add(piv); armsObj.push(piv);
   }
 }
