@@ -4,7 +4,7 @@ let H0 = 0;
 const SCORCH = [{ x: 0, z: 92, r: 26 }, { x: -18, z: 74, r: 12 }, { x: 22, z: 112, r: 14 }, { x: POI.pod.x, z: POI.pod.z, r: 14 }, { x: POI.burn.x, z: POI.burn.z, r: 58 }];
 const C_ = s => new THREE.Color(s);
 const TC = { grass: C_('#56743a'), grass2: C_('#425f2e'), forest: C_('#33452a'), dirt: C_('#6e5c45'), rock: C_('#6f6c66'), snow: C_('#e2e6e8'), mud: C_('#4a3f33'),
-  sand: C_('#8a7d64'), ash: C_('#2c2723'), street: C_('#5a5854') };
+  sand: C_('#8a7d64'), ash: C_('#2c2723'), street: C_('#3e3d3b'), concrete: C_('#7a7670') };
 function terrainColor(x, z, h, sl, out) {
   out.copy(TC.grass).lerp(TC.grass2, fbm(x * .05, z * .05)).lerp(TC.forest, smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8);
   out.lerp(TC.rock, smooth(.7, 1.3, sl));
@@ -14,6 +14,12 @@ function terrainColor(x, z, h, sl, out) {
   const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(30, 46, cd)) * .75);
   for (const p of [POI.village, POI.ashmere]) { const vd = Math.hypot(x - p.x, z - p.z); out.lerp(TC.dirt, (1 - smooth(14, 30, vd)) * .7); }
   const hd = Math.hypot(x - POI.halvard.x, z - POI.halvard.z); if (hd < 90) { const gx = Math.abs(((x - POI.halvard.x) % 26 + 26) % 26 - 13), gz = Math.abs(((z - POI.halvard.z) % 26 + 26) % 26 - 13); if (Math.min(gx, gz) > 9.5 && hd < 75) out.lerp(TC.street, .8); }
+  const cd2 = Math.hypot(x - CITY.x, z - CITY.z);
+  if (cd2 < CITY.R + 40) {                      // the city: cracked asphalt streets on a 44m grid, concrete and rubble between
+    const k = 1 - smooth(CITY.R - 20, CITY.R + 40, cd2), gx = Math.abs(((x - CITY.x) % 44 + 44) % 44 - 22), gz = Math.abs(((z - CITY.z) % 44 + 44) % 44 - 22);
+    out.lerp(TC.concrete, k * .85); if (Math.max(gx, gz) > 17) out.lerp(TC.street, k * .9); if (fbm(x * .08, z * .08) > .62) out.lerp(TC.grass2, k * .5);
+  }
+  for (const B of BASES) { const bd = Math.hypot(x - B.x, z - B.z); out.lerp(TC.dirt, (1 - smooth(B.R - 6, B.R + 14, bd)) * .8); }
   for (const s of SCORCH) { const d = Math.hypot(x - s.x, z - s.z); if (d < s.r) out.lerp(TC.ash, (1 - d / s.r) * .85); }
   out.multiplyScalar(.92 + hash(x * .7, z * .7) * .16);
   return out;
@@ -136,7 +142,8 @@ function treeOK(x, z) {
   if (pathDist(x, z) < 5.5) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
-  for (const p of [[POI.cinder, 110], [POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
+  if (inCity(x, z, 30) || inBase(x, z, 14)) return false;
+  for (const p of [[POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   if (Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 24) return false;
   if (SHELTERS.some(s => Math.hypot(x - s.x, z - s.z) < 12) || SCOUTS.some(s => Math.hypot(x - s.x, z - s.z) < 16)) return false;
@@ -222,7 +229,7 @@ function growCell(ci, cj) {
     fernGeoO = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1); }
   const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
   const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
-  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
+  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60 || inCity(x, z, 20) || inBase(x, z, 10);
   const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
   K.forEach(([tries, L], ki) => {
     for (let t = 0; t < tries; t++) {

@@ -57,13 +57,23 @@ const POI = {
   lake: { x: -285, z: 290 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
-  cinder: { x: 1120, z: -520 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
+  cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
 };
 const HOLDS = [
   { id: 'varnhold', name: 'VARNHOLD', sub: 'Hold of the Hollow Pines clan', ...POI.varnhold, R: 40 },
   { id: 'sunscar', name: 'SUNSCAR', sub: 'Hold of the Ridge Runners', ...POI.sunscar, R: 36 },
   { id: 'elderhollow', name: 'ELDERHOLLOW', sub: 'Hold of the Rootkin', ...POI.elderhollow, R: 44 },
 ];
+/* Cinder City: a dead city 840m across, with the Foundry — the district Ironjaw rebuilt — inside it. Other bases out in the wilds. */
+const CITY = { x: 1300, z: -760, R: 420 }, FOUNDRY = { x: 1230, z: -700, R: 88 };
+const BASES = [
+  { id: 'farlight', name: 'FARLIGHT', sub: 'Arc survivors · traders', x: -900, z: -650, R: 44, fac: 'arc' },
+  { id: 'greystation', name: 'GREYHOLD STATION', sub: 'Greyhold soldiers', x: -700, z: -1250, R: 50, fac: 'grey', hostile: true },
+  { id: 'ironyard_s', name: 'IRONJAW YARD', sub: 'Scavenger fort', x: 820, z: -1180, R: 38, fac: 'iron', hostile: true },
+  { id: 'ironyard_e', name: 'RUSTGATE', sub: 'Scavenger fort', x: 1760, z: -180, R: 38, fac: 'iron', hostile: true },
+];
+const inCity = (x, z, pad = 0) => Math.hypot(x - CITY.x, z - CITY.z) < CITY.R + pad;
+const inBase = (x, z, pad = 0) => BASES.some(B => Math.hypot(x - B.x, z - B.z) < B.R + pad);
 const LAKES = [{ x: POI.lake.x, z: POI.lake.z, R: 74, L: 0 }, { x: POI.varr.x, z: POI.varr.z, R: 150, L: 0 }, { x: POI.mirror.x, z: POI.mirror.z, R: 105, L: 0 }];
 const MEADOWS = [POI.meadow, { x: -72, z: 132 }, { x: 140, z: 58 }, { x: -112, z: 34 }, { x: 60, z: 176 }, { x: 200, z: -240 }, { x: -200, z: 180 }, { x: 560, z: 80 }, { x: 40, z: 360 }, { x: -380, z: 160 }];
 const OUT_MEADOWS = [{ x: 860, z: 560 }, { x: 1200, z: 900 }, { x: -900, z: 700 }, { x: -1100, z: -900 }, { x: 600, z: -1000 }, { x: -400, z: 1700 }, { x: 1700, z: -900 }, { x: -1700, z: 100 }, { x: 500, z: 1600 }, { x: 1000, z: 1500 }];
@@ -240,7 +250,8 @@ function prepFlats() {
   for (const s of SHELTERS) addFlat(s.x, s.z, 6, 14);
   for (const s of SCOUTS) addFlat(s.x, s.z, 8, 18);
   for (const H of HOLDS) addFlat(H.x, H.z, H.R + 8, H.R + 40);
-  addFlat(POI.cinder.x, POI.cinder.z, 70, 110);
+  addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
+  for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
 }
 
@@ -535,7 +546,9 @@ const REGIONS = [
   // past the rim
   { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },
   ...HOLDS.map(H => ({ id: H.id, name: H.name, sub: H.sub, x: H.x, z: H.z, r: H.R + 70, hostile: true })),
-  { id: 'cinder', name: 'CINDER CITY', sub: 'Towers from before the fire', x: POI.cinder.x, z: POI.cinder.z, r: 120 },
+  { id: 'foundry', name: 'THE FOUNDRY', sub: 'Ironjaw rebuilt this district · the best loot in the land', x: FOUNDRY.x, z: FOUNDRY.z, r: FOUNDRY.R + 20, hostile: true, base: true },
+  { id: 'cinder', name: 'CINDER CITY', sub: 'A dead city · scavengers in the towers', x: CITY.x, z: CITY.z, r: CITY.R + 20 },
+  ...BASES.map(B => ({ id: B.id, name: B.name, sub: B.sub, x: B.x, z: B.z, r: B.R + 40, hostile: B.hostile, base: true, friend: !B.hostile })),
   { id: 'watchers', name: 'THE WATCHERS', sub: 'Thirteen stones in a ring', x: POI.watchers.x, z: POI.watchers.z, r: 50 },
   { id: 'varr', name: 'LAKE VARR', sub: 'Deep and cold', x: POI.varr.x, z: POI.varr.z, r: 200 },
   { id: 'mirror', name: 'MIRRORWATER', sub: 'Not a ripple on it', x: POI.mirror.x, z: POI.mirror.z, r: 150 },
@@ -567,7 +580,7 @@ let H0 = 0;
 const SCORCH = [{ x: 0, z: 92, r: 26 }, { x: -18, z: 74, r: 12 }, { x: 22, z: 112, r: 14 }, { x: POI.pod.x, z: POI.pod.z, r: 14 }, { x: POI.burn.x, z: POI.burn.z, r: 58 }];
 const C_ = s => new THREE.Color(s);
 const TC = { grass: C_('#56743a'), grass2: C_('#425f2e'), forest: C_('#33452a'), dirt: C_('#6e5c45'), rock: C_('#6f6c66'), snow: C_('#e2e6e8'), mud: C_('#4a3f33'),
-  sand: C_('#8a7d64'), ash: C_('#2c2723'), street: C_('#5a5854') };
+  sand: C_('#8a7d64'), ash: C_('#2c2723'), street: C_('#3e3d3b'), concrete: C_('#7a7670') };
 function terrainColor(x, z, h, sl, out) {
   out.copy(TC.grass).lerp(TC.grass2, fbm(x * .05, z * .05)).lerp(TC.forest, smooth(.45, .7, fbm(x * .012 + 40, z * .012)) * .8);
   out.lerp(TC.rock, smooth(.7, 1.3, sl));
@@ -577,6 +590,12 @@ function terrainColor(x, z, h, sl, out) {
   const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(30, 46, cd)) * .75);
   for (const p of [POI.village, POI.ashmere]) { const vd = Math.hypot(x - p.x, z - p.z); out.lerp(TC.dirt, (1 - smooth(14, 30, vd)) * .7); }
   const hd = Math.hypot(x - POI.halvard.x, z - POI.halvard.z); if (hd < 90) { const gx = Math.abs(((x - POI.halvard.x) % 26 + 26) % 26 - 13), gz = Math.abs(((z - POI.halvard.z) % 26 + 26) % 26 - 13); if (Math.min(gx, gz) > 9.5 && hd < 75) out.lerp(TC.street, .8); }
+  const cd2 = Math.hypot(x - CITY.x, z - CITY.z);
+  if (cd2 < CITY.R + 40) {                      // the city: cracked asphalt streets on a 44m grid, concrete and rubble between
+    const k = 1 - smooth(CITY.R - 20, CITY.R + 40, cd2), gx = Math.abs(((x - CITY.x) % 44 + 44) % 44 - 22), gz = Math.abs(((z - CITY.z) % 44 + 44) % 44 - 22);
+    out.lerp(TC.concrete, k * .85); if (Math.max(gx, gz) > 17) out.lerp(TC.street, k * .9); if (fbm(x * .08, z * .08) > .62) out.lerp(TC.grass2, k * .5);
+  }
+  for (const B of BASES) { const bd = Math.hypot(x - B.x, z - B.z); out.lerp(TC.dirt, (1 - smooth(B.R - 6, B.R + 14, bd)) * .8); }
   for (const s of SCORCH) { const d = Math.hypot(x - s.x, z - s.z); if (d < s.r) out.lerp(TC.ash, (1 - d / s.r) * .85); }
   out.multiplyScalar(.92 + hash(x * .7, z * .7) * .16);
   return out;
@@ -699,7 +718,8 @@ function treeOK(x, z) {
   if (pathDist(x, z) < 5.5) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (HOLDS.some(H => Math.hypot(x - H.x, z - H.z) < H.R + 14)) return false;
-  for (const p of [[POI.cinder, 110], [POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
+  if (inCity(x, z, 30) || inBase(x, z, 14)) return false;
+  for (const p of [[POI.watchers, 30]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   for (const p of [[POI.village, 34], [POI.pod, 18], [POI.halvard, 96], [POI.ashmere, 62], [POI.burn, 64], [POI.lookout, 14]]) if (Math.hypot(x - p[0].x, z - p[0].z) < p[1]) return false;
   if (Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 24) return false;
   if (SHELTERS.some(s => Math.hypot(x - s.x, z - s.z) < 12) || SCOUTS.some(s => Math.hypot(x - s.x, z - s.z) < 16)) return false;
@@ -785,7 +805,7 @@ function growCell(ci, cj) {
     fernGeoO = merge([{ geo: new THREE.ConeGeometry(.6, .7, 5), m: tm(0, .3, 0), color: 0x34502a, color2: 0x5a7a3a }, { geo: new THREE.ConeGeometry(.4, .9, 4), m: tm(.3, .4, .2, .3), color: 0x3c5a2e, color2: 0x62843e }], .1); }
   const R = cellRng(ci, cj), x0 = -HALF + ci * CELL_T, z0 = -HALF + cj * CELL_T, key = ci * 1000 + cj, cols = !OCOLS.has(key);
   const g = new THREE.Group(), dummy = new THREE.Object3D(), tint = new THREE.Color();
-  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60;
+  const inner = (x, z) => Math.hypot(x, z) < VALLEY + 140 || Math.hypot(x, z) > WORLD + 60 || inCity(x, z, 20) || inBase(x, z, 10);
   const K = [[LOW ? 260 : 440, []], [LOW ? 30 : 60, []], [12, []]];
   K.forEach(([tries, L], ki) => {
     for (let t = 0; t < tries; t++) {
@@ -1552,26 +1572,6 @@ function buildHold(H) {
   for (let i = 0; i < 3; i++) supplyCrate(H.x + rr(-R * .5, R * .5), H.z + rr(-R * .5, R * .5), pick(['ammo', 'mixed']));
 }
 
-// Cinder City: an old-world town gone to rust and creeper — broken towers, burnt-out cars, streets in a grid
-function buildCinder() {
-  const C = POI.cinder;
-  for (let gx = -3; gx <= 3; gx++) for (let gz = -3; gz <= 3; gz++) {
-    const x = C.x + gx * 26 + rr(-3, 3), z = C.z + gz * 26 + rr(-3, 3);
-    if (Math.hypot(x - C.x, z - C.z) > 92 || rnd() < .2) continue;
-    if (Math.abs(gx) <= 1 && Math.abs(gz) <= 1 && rnd() < .6) {           // towers in the middle, tops snapped off
-      const w = rr(10, 15), d = rr(10, 15), hgt = rr(16, 42), g = new THREE.Group(), mat = concMat(pick([0xb8b2a6, 0xa49c90, 0x8e8a84]));
-      mesh(new THREE.BoxGeometry(w, hgt, d), mat, 0, hgt / 2, 0, g);
-      for (let k = 2; k < hgt - 2; k += 3.2) for (const sd of [-1, 1]) mesh(new THREE.BoxGeometry(w * .9, 1.1, .1), M(0x141414), 0, k, sd * (d / 2 + .02), g);
-      for (let k = 0; k < 5; k++) { const c = mesh(new THREE.BoxGeometry(rr(2, 5), rr(1, 4), rr(2, 5)), mat, rr(-w / 2, w / 2), hgt + rr(0, 2), rr(-d / 2, d / 2), g); c.rotation.set(rr(-.4, .4), rnd() * 3, rr(-.4, .4)); }
-      const lat = mesh(lattice(1.2, rr(4, 8), 0x6a5a4a, 1.6), VCOL, rr(-w / 3, w / 3), hgt, rr(-d / 3, d / 3), g); lat.rotation.z = rr(-.5, .5);
-      place(g, x, z, rr(-.05, .05)); addColLine(x - w / 2, z, x + w / 2, z, d / 2);
-      SHELTERS.push({ x, z: z + d / 2 + 1.5, kind: 'house', r: 2.5 });
-    } else if (rnd() < .65) house(x, z, (gx + gz) % 2 ? 0 : Math.PI / 2, rr(7, 11), rr(6, 9), rnd() < .4 ? 2 : 1);
-    else car(x + rr(-6, 6), z + rr(-6, 6), rnd() * 6);
-  }
-  for (let i = 0; i < 6; i++) supplyCrate(C.x + rr(-70, 70), C.z + rr(-70, 70), pick(['ammo', 'scrap', 'mixed', 'scrap']));
-}
-
 // the Watchers: a ring of standing stones on the western moor, older than anyone remembers
 function buildWatchers() {
   const W = POI.watchers;
@@ -1586,7 +1586,7 @@ function buildWatchers() {
 
 function buildOutlands() {
   for (const H of HOLDS) buildHold(H);
-  buildCinder(); buildWatchers();
+  buildWatchers();
   // supply crates and hull scrap scattered over the outlands (the Arc's ring broke up on the way down)
   for (let i = 0; i < 46; i++) {
     const a = rnd() * Math.PI * 2, r = rr(VALLEY + 120, WORLD - 80), x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -1597,6 +1597,273 @@ function buildOutlands() {
     if (waterAt(x, z) > heightAt(x, z) - .5 || slopeAt(x, z) > 1) { i--; continue; } spawnScrap(x, z, 'wild');
   }
 }
+
+/* ================= Cinder City, the Foundry, and the other bases =================
+   The city is 840m of dead towers on a street grid, built from a handful of instanced meshes so it stays cheap.
+   The Foundry is the district Ironjaw rebuilt: scrap walls, towers, workshops, and the best loot in the land behind locks.
+   Out in the wilds: Farlight (friendly Arc traders), Greyhold Station (soldiers), and two Ironjaw yards. */
+
+const FAR_GROUPS = [];                         // whole districts hidden when you're far away
+function farGroup(x, z, r) { const g = new THREE.Group(); world.add(g); FAR_GROUPS.push({ g, x, z, r }); return g; }
+function updFarGroups(px, pz) { for (const F of FAR_GROUPS) F.g.visible = Math.hypot(px - F.x, pz - F.z) < F.r + 480; }
+
+/* facade: windows and floor lines drawn in the shader from world position, so one material fits every tower size */
+function facadeMat() {
+  const m = new THREE.MeshLambertMaterial({ map: texConcrete, color: 0xffffff, emissive: 0x2a2826 });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vCW; varying vec3 vCN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n vec4 cw = modelMatrix * instanceMatrix * vec4(transformed, 1.0); vCN = normalize(mat3(modelMatrix * instanceMatrix) * objectNormal);\n#else\n vec4 cw = modelMatrix * vec4(transformed, 1.0); vCN = normalize(mat3(modelMatrix) * objectNormal);\n#endif\n vCW = cw.xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vCW; varying vec3 vCN;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  if (abs(vCN.y) < .5) {
+    float hz = abs(vCN.x) > .5 ? vCW.z : vCW.x;
+    float fy = fract(vCW.y / 3.4), fx = fract(hz / 3.1);
+    float win = step(.32, fy) * step(fy, .82) * step(.18, fx) * step(fx, .82);
+    float cell = fract(sin(dot(floor(vec2(hz / 3.1, vCW.y / 3.4)), vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 glass = cell > .7 ? vec3(.05) : cell > .45 ? vec3(.10, .12, .13) : vec3(.18, .2, .2);
+    diffuseColor.rgb = mix(diffuseColor.rgb, glass, win * (cell > .93 ? .3 : 1.));
+    diffuseColor.rgb *= 1. - step(fy, .06) * .25;
+  }`);
+  };
+  return m;
+}
+const _d = new THREE.Object3D(), _c = new THREE.Color();
+function instanced(geo, mat, list, shadow = true) {
+  if (!list.length) return null;
+  const im = new THREE.InstancedMesh(geo, mat, list.length);
+  list.forEach((q, i) => { _d.position.set(q[0], q[1], q[2]); _d.rotation.set(q[6] || 0, q[7] || 0, q[8] || 0); _d.scale.set(q[3], q[4], q[5]); _d.updateMatrix(); im.setMatrixAt(i, _d.matrix); if (q[9] != null) im.setColorAt(i, _c.set(q[9])); });
+  im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); return im;
+}
+const boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0, .5, 0);
+
+/* locked caches: each needs a particular tool or key, and holds a better loot table */
+const LOCKS = { pry: ['crowbar', 'Pry it open (crowbar)'], cutter: ['bolt_cutters', 'Cut the chain (bolt cutters)'], bypass: ['lock_bypass', 'Bypass the lock (electronic bypass)'],
+  card: ['greyhold_card', 'Swipe a Greyhold card'], chip: ['id_chip', 'Use an Arc ID chip'], none: [null, 'Search the stash'] };
+const CACHES = [];
+function cache(parent, x, z, yaw, lock, table, o = {}) {
+  const g = new THREE.Group(), big = o.big;
+  const body = S(big ? 0x5a5e62 : lock === 'none' ? 0x6a5a3a : 0x4a5a4a, { metalness: .5, roughness: .5 });
+  mesh(new THREE.BoxGeometry(big ? 2.6 : 1.5, big ? 1.6 : .9, big ? 1.4 : .8), body, 0, big ? .8 : .45, 0, g);
+  if (lock !== 'none') { const lamp = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, .05), new THREE.MeshBasicMaterial({ color: { pry: 0xffa040, cutter: 0xffd040, bypass: 0x40c0ff, card: 0xe8e8e8, chip: 0x60ffd0 }[lock], toneMapped: false })); lamp.position.set(0, big ? 1.2 : .65, big ? .72 : .42); g.add(lamp); }
+  g.position.set(x, heightAt(x, z), z); g.rotation.y = yaw; parent.add(g); addCol(x, z, big ? 1.3 : .8);
+  const C = { id: o.id || `c${CACHES.length}`, x, z, lock, table, rolls: o.rolls ?? 1, keys: o.keys || [], g, name: o.name, refill: o.refill ?? 3 };
+  CACHES.push(C); return C;
+}
+const cacheOpen = C => { const o = (G.flags.caches || {})[C.id]; return o != null && (C.refill <= 0 || G.day - o < C.refill); };
+function nearCache() { let b = null, bd = 2.8; for (const C of CACHES) { const d = Math.hypot(C.x - P.x, C.z - P.z); if (d < bd) { bd = d; b = C; } } return b; }
+function cacheAction(C) {
+  if (cacheOpen(C)) return { l: `${C.name || 'Stash'} · empty (refills in ${Math.max(1, C.refill - (G.day - G.flags.caches[C.id]))} days)`, act: () => {} };
+  const [need, label] = LOCKS[C.lock], ok = !need || (GEAR_DEFS[need] ? has(GEAR_DEFS[need].kind) : cnt(need) > 0);
+  if (!ok) return { l: `${C.name || 'Locked'} · needs ${nameOf(need).toLowerCase()}`, act: () => { sfx('no'); toast(`Locked — ${label.toLowerCase()}`, 2.4); } };
+  return { l: (C.name ? C.name + ' · ' : '') + label, act: () => startChan({ l: label.split(' (')[0], t: C.lock === 'none' ? .8 : 2.2, fn: () => {
+    if (need && GEAR_DEFS[need]) wearTool(bestTool(GEAR_DEFS[need].kind), C.lock === 'bypass' ? 1 : 3);
+    (G.flags.caches ||= {})[C.id] = G.day;
+    const got = []; for (const k of C.keys) if (!cnt(k) || !ITEMS[k] || ITEMS[k].c !== 'story') { give(k, 1); got.push(nameOf(k)); }
+    got.push(...rollLoot(C.table, C.rolls)); sfx('buy'); puff(C.x, heightAt(C.x, C.z) + 1, C.z, 0xd8c890, 8, 2, .1, .5);
+    toast(got.slice(0, 7).join(' · ') || 'Nothing left', 4); save();
+  } }) };
+}
+
+/* ---------- Cinder City ---------- */
+function buildCity() {
+  const root = farGroup(CITY.x, CITY.z, CITY.R), B = [], tops = [], rub = [], cars = [], awn = [], bush = [];
+  const tint = () => pick([0xd8d2c6, 0xc8c0b2, 0xb8b2a8, 0xa8a49c, 0xc8b8a4, 0x9a968e]);
+  const BLK = 44, N = Math.ceil(CITY.R / BLK);
+  for (let gx = -N; gx <= N; gx++) for (let gz = -N; gz <= N; gz++) {
+    const cx = CITY.x + gx * BLK, cz = CITY.z + gz * BLK, dc = Math.hypot(cx - CITY.x, cz - CITY.z);
+    if (dc > CITY.R - 26) continue;
+    if (Math.hypot(cx - FOUNDRY.x, cz - FOUNDRY.z) < FOUNDRY.R + 20) continue;
+    if (pathDist(cx, cz) < 12) continue;
+    const k = dc / CITY.R, roll = rnd();
+    if (roll < .1) { for (let i = 0; i < 6; i++) bush.push([cx + rr(-14, 14), heightAt(cx, cz), cz + rr(-14, 14), rr(1, 2.4), rr(1, 2.4), rr(1, 2.4), 0, rnd() * 6, 0, 0x3a5a2a]); continue; }   // overgrown lot
+    const n = k < .35 ? 1 + (rnd() < .4) : k < .7 ? 2 + (rnd() < .5) : 3 + (rnd() < .4);
+    const cells = n === 1 ? [[0, 0, 30, 30]] : n === 2 ? [[-8, 0, 14, 30], [8, 0, 14, 30]] : n === 3 ? [[-8, -8, 14, 14], [8, -8, 14, 14], [0, 8, 30, 14]] : [[-8, -8, 14, 14], [8, -8, 14, 14], [-8, 8, 14, 14], [8, 8, 14, 14]];
+    for (const [ox, oz, cw, cd] of cells) {
+      const w = cw * rr(.75, .95), d = cd * rr(.75, .95), x = cx + ox, z = cz + oz, y = heightAt(x, z) - .5;
+      if (rnd() < .14) {                                                           // collapsed: a rubble heap you can dig through
+        for (let i = 0; i < 9; i++) rub.push([x + rr(-w / 2, w / 2), y + rr(0, 2), z + rr(-d / 2, d / 2), rr(2, 6), rr(1, 3), rr(2, 6), rr(-.4, .4), rnd() * 3, rr(-.4, .4), tint()]);
+        addRes('rubble', x, z, Math.min(w, d) / 2.2); addCol(x, z, Math.min(w, d) * .3, 3); continue;
+      }
+      const hgt = k < .35 ? rr(28, 90) : k < .7 ? rr(12, 34) : rr(5, 14), col = tint();
+      B.push([x, y, z, w, hgt, d, 0, 0, 0, col]);
+      const snapped = rnd() < .45 && hgt > 12;
+      if (snapped) for (let i = 0; i < 4; i++) tops.push([x + rr(-w / 3, w / 3), y + hgt - rr(0, 2), z + rr(-d / 3, d / 3), rr(3, w * .5), rr(2, 6), rr(3, d * .5), rr(-.5, .5), rnd() * 3, rr(-.5, .5), col]);
+      for (let i = 0; i < 3; i++) rub.push([x + rr(-w / 2 - 3, w / 2 + 3), y, z + (rnd() < .5 ? -1 : 1) * (d / 2 + rr(.5, 3)), rr(.8, 2.4), rr(.4, 1.2), rr(.8, 2.4), rr(-.3, .3), rnd() * 3, 0, col]);
+      // collision along the long axis; shots stop at the building's height
+      const L = Math.max(w, d), r = Math.min(w, d) / 2, nn = Math.max(1, Math.ceil((L - 2 * r) / (r * 1.2)));
+      for (let i = 0; i <= nn; i++) { const t = nn ? i / nn : .5, px = w >= d ? x - w / 2 + r + (w - 2 * r) * t : x, pz = w >= d ? z : z - d / 2 + r + (d - 2 * r) * t; addCol(px, pz, r, hgt); }
+      if (rnd() < .35) { const sd = rnd() < .5 ? 1 : -1; awn.push([x, y + 3.4, z + sd * (d / 2 + 1.6), w * .8, .3, 3.2, 0, 0, 0, 0x8a867e]); for (const px of [-w * .35, w * .35]) awn.push([x + px, y, z + sd * (d / 2 + 3), .4, 3.6, .4, 0, 0, 0, 0x7a766e]); SHELTERS.push({ x, z: z + sd * (d / 2 + 1.6), kind: 'house', r: Math.min(3, w * .35) }); }
+      if (rnd() < .3) { const s = supplyCityCrate(x + rr(-w / 2, w / 2), z + (rnd() < .5 ? -1 : 1) * (d / 2 + 2)); }
+    }
+    // streets: wrecks
+    for (let i = 0; i < 2; i++) if (rnd() < .55) { const along = rnd() < .5, sx = cx + (along ? rr(-18, 18) : 22 + rr(-2, 2)), sz = cz + (along ? 22 + rr(-2, 2) : rr(-18, 18)); cars.push([sx, heightAt(sx, sz) + .1, sz, 1, 1, 1, rr(-.06, .06), (along ? Math.PI / 2 : 0) + rr(-.4, .4), rr(-.06, .06), pick([0x8a5a3a, 0x6a6e6a, 0x7a4a2e, 0x4a5a6a, 0x9a8a5a])]); addCol(sx, sz, 1.5); }
+  }
+  const carGeo = merge([{ geo: new THREE.BoxGeometry(1.9, .7, 4.4), m: tm(0, .65, 0), color: 0xffffff }, { geo: new THREE.BoxGeometry(1.7, .6, 2.2), m: tm(0, 1.3, -.2), color: 0xdddddd }, { geo: new THREE.BoxGeometry(1.75, .45, 1.9), m: tm(0, 1.32, -.2), color: 0x223038 }]);
+  const fm = facadeMat();
+  for (const im of [instanced(boxGeo, fm, B), instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), tops), instanced(new THREE.DodecahedronGeometry(.6, 0), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), rub),
+    instanced(carGeo, new THREE.MeshLambertMaterial({ map: texCorr, vertexColors: true }), cars), instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texConcrete }), awn), instanced(new THREE.DodecahedronGeometry(.6, 0), M(0x3a5a2a), bush, false)]) if (im) root.add(im);
+  buildFoundry(root);
+  for (let i = 0; i < 26; i++) { const a = rnd() * 6.28, r = rr(60, CITY.R - 30), x = CITY.x + Math.cos(a) * r, z = CITY.z + Math.sin(a) * r; if (Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) < FOUNDRY.R + 10) continue; cache(root, x, z, rnd() * 6, pick(['pry', 'pry', 'cutter', 'none']), pick(['city', 'city', 'mil']), { refill: 4 }); }
+}
+function supplyCityCrate(x, z) { supplyCrate(x, z, 'mixed'); const c = CRATES[CRATES.length - 1]; c.table = 'city'; return c; }
+
+/* ---------- the Foundry: what Ironjaw rebuilt ---------- */
+function buildFoundry(root) {
+  const F = FOUNDRY, g = new THREE.Group(); root.add(g);
+  const sheet = () => new THREE.MeshLambertMaterial({ map: texCorr, color: pick([0x9a6a4a, 0x8a7a6a, 0x7a5a3a, 0x6a6e70, 0xa8885a]) });
+  const gates = [Math.atan2(0, -1), Math.atan2(-1, 0)];             // west and north
+  const wall = [];
+  for (let i = 0; i < 150; i++) {
+    const a = i / 150 * Math.PI * 2; if (gates.some(ga => Math.abs(angWrap(a - ga)) < .07)) continue;
+    const x = F.x + Math.cos(a) * F.R, z = F.z + Math.sin(a) * F.R;
+    wall.push([x, heightAt(x, z) - .2, z, 3.8, rr(4.2, 5.4), .25, rr(-.05, .05), -a + Math.PI / 2, rr(-.04, .04), pick([0xd8a07a, 0xc8b8a8, 0xb89070, 0xa8aeb0])]);
+    addCol(x, z, 1.9, 5);
+  }
+  g.add(instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texCorr }), wall));
+  for (const ga of gates) for (const s of [-1, 1]) {                      // gate towers with searchlights
+    const a = ga + s * .1, x = F.x + Math.cos(a) * (F.R + 1), z = F.z + Math.sin(a) * (F.R + 1), t = new THREE.Group();
+    t.add(mesh(lattice(3, 9, 0x5a4a3a, 2.4), VCOL)); mesh(new THREE.BoxGeometry(4, .3, 4), M(0x4a3a2a), 0, 9, 0, t); mesh(new THREE.BoxGeometry(4, 1.2, 4), sheet(), 0, 9.8, 0, t);
+    const lamp = mesh(new THREE.CylinderGeometry(.3, .4, .5, 10), new THREE.MeshBasicMaterial({ color: 0xfff2c0, toneMapped: false }), 0, 10.8, 0, t); lamp.rotation.x = 1.2;
+    t.position.set(x, heightAt(x, z), z); g.add(t); addCol(x, z, 2);
+  }
+  // rebuilt blocks: patched towers, scaffolding, smokestacks, stalls, lights
+  const fm = facadeMat(), rb = [];
+  for (let i = 0; i < 9; i++) {
+    const a = i / 9 * 6.28 + .3, r = rr(34, 62), x = F.x + Math.cos(a) * r, z = F.z + Math.sin(a) * r, w = rr(12, 18), d = rr(10, 16), h = rr(10, 26), y = heightAt(x, z) - .3;
+    rb.push([x, y, z, w, h, d, 0, 0, 0, pick([0xb8aa96, 0xa89a86, 0xc0b4a0])]);
+    for (let k = 0; k < 4; k++) { const p = mesh(new THREE.BoxGeometry(rr(2, 5), rr(2, 4), .1), sheet(), x + rr(-w / 2, w / 2), y + rr(2, h - 2), z + d / 2 + .06, g); }
+    if (rnd() < .6) { const sc = mesh(lattice(w * .8, h * .8, 0x6a5a48, 2.2), VCOL, x, y, z + d / 2 + 1, g); }
+    const L = Math.max(w, d), rr0 = Math.min(w, d) / 2; for (let t = -(L / 2 - rr0); t <= L / 2 - rr0 + .01; t += rr0 * 1.2) addCol(w >= d ? x + t : x, w >= d ? z : z + t, rr0, h);
+  }
+  g.add(instanced(boxGeo, fm, rb));
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.1 + 1, x = F.x + Math.cos(a) * 20, z = F.z + Math.sin(a) * 20, y = heightAt(x, z);
+    mesh(new THREE.CylinderGeometry(1.2, 1.6, 22, 12), M(0x6a5446), x, y + 11, z, g); const fl = mesh(new THREE.ConeGeometry(.9, 2.4, 8), new THREE.MeshBasicMaterial({ color: 0xff7a2a, toneMapped: false }), x, y + 23.2, z, g);
+    DECOR_ANIM.push(t => { fl.scale.y = 1 + Math.sin(t * 9 + i) * .25; }); addCol(x, z, 1.6);
+    SMOKES.push({ x, z, y: y + 24, k: rnd() });
+  }
+  for (let i = 0; i < 8; i++) {                                             // market stalls and fire barrels
+    const a = rnd() * 6.28, r = rr(8, 28), x = F.x + Math.cos(a) * r, z = F.z + Math.sin(a) * r, y = heightAt(x, z), s = new THREE.Group();
+    for (const [px, pz] of [[-1.2, -1], [1.2, -1], [-1.2, 1], [1.2, 1]]) mesh(new THREE.CylinderGeometry(.05, .05, 2.4, 5), M(0x5a4a3a), px, 1.2, pz, s);
+    const tarp = mesh(new THREE.BoxGeometry(2.8, .05, 2.4), M(pick([0x8a3a2a, 0x3a5a7a, 0x6a6a3a])), 0, 2.4, 0, s); tarp.rotation.x = .12; mesh(new THREE.BoxGeometry(2.2, .8, .8), M(0x6a4a30), 0, .4, .5, s);
+    s.position.set(x, y, z); s.rotation.y = rnd() * 6; g.add(s); addCol(x, z, 1.3);
+    SHELTERS.push({ x, z, kind: 'house', r: 1.4 });
+    const bx = x + 3, bz = z; mesh(new THREE.CylinderGeometry(.35, .35, .9, 10), M(0x5a4030), bx, heightAt(bx, bz) + .45, bz, g); const bf = mesh(new THREE.ConeGeometry(.3, .6, 6), new THREE.MeshBasicMaterial({ color: 0xff8a2a, toneMapped: false }), bx, heightAt(bx, bz) + 1.1, bz, g); DECOR_ANIM.push(t => { bf.scale.y = 1 + Math.sin(t * 14 + i) * .3; });
+  }
+  for (let i = 0; i < 40; i++) { const a = i / 40 * 6.28, x = F.x + Math.cos(a) * 30, z = F.z + Math.sin(a) * 30; mesh(new THREE.SphereGeometry(.12, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffd890, toneMapped: false }), x, heightAt(x, z) + 6 + Math.sin(i) * .3, z, g); }
+  // the strongroom, the armory, the workshop
+  const sr = new THREE.Group(), sx = F.x, sz = F.z, sy = heightAt(sx, sz);
+  mesh(new THREE.BoxGeometry(12, 7, 10), new THREE.MeshLambertMaterial({ map: texConcrete, color: 0x9a9690 }), 0, 3.5, 0, sr);
+  const door = mesh(new THREE.CylinderGeometry(2.4, 2.4, .5, 24), S(0x8a8e90, { metalness: .8, roughness: .3 }), 0, 3, 5.1, sr); door.rotation.x = Math.PI / 2;
+  for (let k = 0; k < 6; k++) { const sp = mesh(new THREE.BoxGeometry(.2, 1.6, .2), S(0x6a6e70, { metalness: .8 }), Math.cos(k) * 1.2, 3 + Math.sin(k) * 1.2, 5.4, sr); sp.rotation.z = k; }
+  sr.position.set(sx, sy, sz); g.add(sr); for (let t = -4; t <= 4; t += 2.5) addCol(sx + t, sz, 5, 7);
+  cache(g, sx, sz + 6.6, 0, 'bypass', 'op', { id: 'strongroom', name: 'The strongroom', big: 1, rolls: 3, keys: ['gate_codes', 'ember', 'halcyon_chip'], refill: 5 });
+  cache(g, F.x - 40, F.z + 18, 1, 'pry', 'mil', { id: 'f_armory', name: 'Ironjaw armory', big: 1, rolls: 3, refill: 3 });
+  cache(g, F.x + 30, F.z - 35, 2, 'cutter', 'op', { id: 'f_workshop', name: 'Ironjaw workshop', big: 1, rolls: 1, keys: ['greyhold_card'], refill: 3 });
+  for (let i = 0; i < 8; i++) { const a = rnd() * 6.28, r = rr(15, 70); supplyCityCrate(F.x + Math.cos(a) * r, F.z + Math.sin(a) * r); }
+}
+
+/* ---------- Farlight: Arc survivors who trade ---------- */
+const TRADER = { x: 0, z: 0 };
+function buildFarlight(B) {
+  const g = farGroup(B.x, B.z, B.R), y0 = heightAt(B.x, B.z);
+  const hull = hullModule(6, 22); hull.position.set(B.x - 8, y0 + 3, B.z - 6); hull.rotation.set(0, .6, .25); g.add(hull); addColLine(B.x - 16, B.z - 12, B.x, B.z, 4);
+  const plate = new THREE.MeshLambertMaterial({ map: texPanel, color: 0xb8bcc0 }), gateA = Math.atan2(-B.z, -B.x);
+  for (let i = 0; i < 70; i++) { const a = i / 70 * 6.28; if (Math.abs(angWrap(a - gateA)) < .12) continue; const x = B.x + Math.cos(a) * B.R, z = B.z + Math.sin(a) * B.R; const p = mesh(new THREE.BoxGeometry(4.2, rr(3, 4), .3), plate, x, heightAt(x, z) + 1.6, z, g); p.rotation.y = -a + Math.PI / 2; p.rotation.z = rr(-.05, .05); addCol(x, z, 2); }
+  for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + .5, x = B.x + Math.cos(a) * 22, z = B.z + Math.sin(a) * 22; const t = mesh(new THREE.ConeGeometry(2.4, 3, 4), M(pick([0x6a7a8a, 0x8a8a7a, 0x5a6a5a])), x, heightAt(x, z) + 1.5, z, g); t.rotation.y = Math.PI / 4; addCol(x, z, 1.8); }
+  // trader's counter, bench + forge + med tent you may use
+  const tx = B.x + 10, tz = B.z + 8, ty = heightAt(tx, tz), st = new THREE.Group();
+  mesh(new THREE.BoxGeometry(4, 1.1, 1), M(0x6a5a48), 0, .55, 0, st); for (const px of [-1.8, 1.8]) mesh(new THREE.CylinderGeometry(.06, .06, 2.8, 5), M(0x4a4a4a), px, 1.4, -.4, st);
+  mesh(new THREE.BoxGeometry(4.4, .06, 2.4), M(0x3a5a7a), 0, 2.8, 0, st); st.position.set(tx, ty, tz); st.rotation.y = gateA; g.add(st); addColLine(tx - 1.6, tz, tx + 1.6, tz, .6);
+  TRADER.x = tx + Math.cos(gateA) * 1.6; TRADER.z = tz + Math.sin(gateA) * 1.6; TRADER.at = { x: tx, z: tz };
+  const bx = B.x - 12, bz = B.z + 14; mesh(new THREE.BoxGeometry(2.4, .1, 1), WOOD(), bx, heightAt(bx, bz) + .95, bz, g); mesh(new THREE.BoxGeometry(2.2, .9, .9), M(0x5a4430), bx, heightAt(bx, bz) + .45, bz, g); FACTION_ST.push({ x: bx, z: bz, st: ['bench'] });
+  const fx = B.x + 2, fz = B.z + 20; mesh(new THREE.BoxGeometry(2, 1.6, 1.6), new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x7a7470 }), fx, heightAt(fx, fz) + .8, fz, g); mesh(new THREE.BoxGeometry(.8, .4, .05), new THREE.MeshBasicMaterial({ color: 0xff6a1a, toneMapped: false }), fx, heightAt(fx, fz) + .9, fz + .81, g); addCol(fx, fz, 1.2); FACTION_ST.push({ x: fx, z: fz, st: ['forge', 'fire', 'cook'] });
+  const mx = B.x + 18, mz = B.z - 10; const mt = mesh(new THREE.ConeGeometry(3, 3.4, 6), M(0xd8d8d0), mx, heightAt(mx, mz) + 1.7, mz, g); mesh(new THREE.BoxGeometry(.8, .8, .05), new THREE.MeshBasicMaterial({ color: 0xe04040, toneMapped: false }), mx, heightAt(mx, mz) + 2, mz + 2.2, g); FACTION_ST.push({ x: mx, z: mz + 3, st: ['lab'] });
+  SHELTERS.push({ x: mx, z: mz, kind: 'house', r: 2.6 }, { x: tx, z: tz, kind: 'house', r: 2 });
+  const fl = mesh(new THREE.ConeGeometry(1, 2.4, 8), new THREE.MeshBasicMaterial({ color: 0xff7a2a, toneMapped: false }), B.x, y0 + 1.2, B.z, g); DECOR_ANIM.push(t => { fl.scale.y = 1 + Math.sin(t * 12) * .2; });
+}
+
+/* ---------- Greyhold Station: concrete, chain-link, floodlights, soldiers in masks ---------- */
+function buildGreyStation(B) {
+  const g = farGroup(B.x, B.z, B.R), conc = new THREE.MeshLambertMaterial({ map: texConcrete, color: 0xa8a8a4 }), gateA = Math.atan2(-B.z, -B.x);
+  for (let i = 0; i < 64; i++) { const a = i / 64 * 6.28; if (Math.abs(angWrap(a - gateA)) < .1) continue; const x = B.x + Math.cos(a) * B.R, z = B.z + Math.sin(a) * B.R; const f = mesh(lattice(5, 3.2, 0x8a8e90, 1), VCOL, x, heightAt(x, z), z, g); f.rotation.y = -a + Math.PI / 2; addCol(x, z, 2.4); }
+  for (let i = 0; i < 4; i++) { const a = i / 4 * 6.28 + .4, x = B.x + Math.cos(a) * 26, z = B.z + Math.sin(a) * 26; mesh(new THREE.BoxGeometry(12, 4.5, 8), conc, x, heightAt(x, z) + 2.25, z, g).rotation.y = a; addCol(x, z, 4.6, 4.5); mesh(new THREE.BoxGeometry(2.4, 2.4, .1), M(0x1a1a1a), x - Math.sin(a) * 0, heightAt(x, z) + 1.2, z, g); }
+  const hg = mesh(new THREE.CylinderGeometry(9, 9, 22, 18, 1, false, 0, Math.PI), new THREE.MeshLambertMaterial({ map: texCorr, color: 0x7a7e80, side: THREE.DoubleSide }), B.x + 6, heightAt(B.x, B.z), B.z - 4, g); hg.rotation.z = Math.PI / 2; hg.rotation.y = gateA; addColLine(B.x - 4, B.z - 4, B.x + 16, B.z - 4, 4);
+  const mast = mesh(lattice(1.4, 24, 0x9a3a2a, 2), VCOL, B.x - 14, heightAt(B.x - 14, B.z + 12), B.z + 12, g); const ml = mesh(new THREE.SphereGeometry(.4, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false }), B.x - 14, heightAt(B.x - 14, B.z + 12) + 24.4, B.z + 12, g); DECOR_ANIM.push(t => { ml.visible = Math.sin(t * 2.6) > 0; });
+  for (let i = 0; i < 10; i++) { const a = rnd() * 6.28, r = rr(10, 40), x = B.x + Math.cos(a) * r, z = B.z + Math.sin(a) * r; const sb = mesh(new THREE.BoxGeometry(4, 1.1, 1), M(0x8a7e5a), x, heightAt(x, z) + .55, z, g); sb.rotation.y = rnd() * 3; addCol(x, z, 1.2, 1.1); }
+  for (let i = 0; i < 4; i++) { const a = i / 4 * 6.28, x = B.x + Math.cos(a) * (B.R - 4), z = B.z + Math.sin(a) * (B.R - 4); mesh(new THREE.CylinderGeometry(.1, .1, 7, 6), M(0x5a5a5a), x, heightAt(x, z) + 3.5, z, g); mesh(new THREE.BoxGeometry(1, .6, .4), new THREE.MeshBasicMaterial({ color: 0xf0f6ff, toneMapped: false }), x, heightAt(x, z) + 7, z, g); }
+  cache(g, B.x + 26 * Math.cos(.4) - 2, B.z + 26 * Math.sin(.4) + 5, 0, 'pry', 'mil', { id: 'grey_stash', name: 'Greyhold lockup', big: 1, rolls: 2, keys: ['greyhold_card'], refill: 4 });
+  cache(g, B.x - 10, B.z - 20, 0, 'card', 'op', { id: 'grey_vault', name: 'Greyhold vault', big: 1, rolls: 1, keys: ['lab_sample', 'greyhold_files'], refill: 5 });
+  for (let i = 0; i < 3; i++) { supplyCrate(B.x + rr(-30, 30), B.z + rr(-30, 30), 'mixed'); CRATES[CRATES.length - 1].table = 'mil'; }
+}
+
+/* ---------- Ironjaw yards: scrap walls, shacks, car stacks ---------- */
+function buildIronYard(B) {
+  const g = farGroup(B.x, B.z, B.R), gateA = Math.atan2(-B.z, -B.x), wall = [];
+  for (let i = 0; i < 64; i++) { const a = i / 64 * 6.28; if (Math.abs(angWrap(a - gateA)) < .1) continue; const x = B.x + Math.cos(a) * B.R, z = B.z + Math.sin(a) * B.R; wall.push([x, heightAt(x, z) - .2, z, 3.9, rr(3.6, 4.6), .25, 0, -a + Math.PI / 2, rr(-.05, .05), pick([0xd8a07a, 0xc8b8a8, 0xb89070])]); addCol(x, z, 1.95, 4); }
+  g.add(instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texCorr }), wall));
+  for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + .3, x = B.x + Math.cos(a) * 20, z = B.z + Math.sin(a) * 20; const s = new THREE.Group(); mesh(new THREE.BoxGeometry(6, 3, 5), new THREE.MeshLambertMaterial({ map: texCorr, color: pick([0x8a6a4a, 0x7a7a6a]) }), 0, 1.5, 0, s); const r = mesh(new THREE.BoxGeometry(6.6, .15, 5.6), M(0x5a4a3a), 0, 3.1, 0, s); r.rotation.x = .1; s.position.set(x, heightAt(x, z), z); s.rotation.y = -a; g.add(s); addCol(x, z, 2.6, 3); }
+  for (let i = 0; i < 3; i++) for (let k = 0; k < 3; k++) { const x = B.x + 8 - i * 3.5, z = B.z - 6; car(x, z + k * .01, rnd() * .3).position.y += k * 1.35; }
+  const t = new THREE.Group(); t.add(mesh(lattice(3, 8, 0x5a4a3a, 2.4), VCOL)); mesh(new THREE.BoxGeometry(4, .3, 4), M(0x4a3a2a), 0, 8, 0, t); t.position.set(B.x - 10, heightAt(B.x - 10, B.z + 10), B.z + 10); g.add(t); addCol(B.x - 10, B.z + 10, 2);
+  const bf = mesh(new THREE.ConeGeometry(.6, 1.4, 6), new THREE.MeshBasicMaterial({ color: 0xff8a2a, toneMapped: false }), B.x, heightAt(B.x, B.z) + 1.2, B.z, g); DECOR_ANIM.push(tt => { bf.scale.y = 1 + Math.sin(tt * 13) * .3; });
+  cache(g, B.x - 6, B.z + 12, 0, 'none', 'city', { id: B.id + '_stash', name: 'Ironjaw stash', big: 1, rolls: 2, refill: 3 });
+  for (let i = 0; i < 3; i++) supplyCityCrate(B.x + rr(-25, 25), B.z + rr(-25, 25));
+}
+/* clan holds get a stash with an insignia */
+function buildHoldStashes() {
+  for (const H of HOLDS) cache(world, H.x + 6, H.z + 6, 0, 'none', 'clan', { id: H.id + '_stash', name: 'Clan stash', big: 1, rolls: 2, keys: ['insignia'], refill: 3 });
+  cache(world, POI.ashmere.x + 8, POI.ashmere.z, 0, 'none', 'clan', { id: 'ashmere_stash', name: 'Ashmere stash', big: 1, rolls: 2, keys: ['insignia'], refill: 3 });
+  cache(world, POI.village.x + 5, POI.village.z + 3, 0, 'none', 'clan', { id: 'outpost_stash', name: 'Outpost stash', rolls: 1, keys: ['insignia'], refill: 3 });
+  // the Burn: the lander Tern's locker holds an Arc ID chip; the pod has an Arc kit
+  cache(world, POI.burn.x + 6, POI.burn.z - 4, 0, 'none', 'arc', { id: 'tern_locker', name: 'Tern lander locker', rolls: 1, keys: ['id_chip', 'nav_console'], refill: 0 });
+  cache(world, POI.pod.x - 3, POI.pod.z + 2, 0, 'none', 'arc', { id: 'pod_kit', name: 'Pod survival kit', rolls: 1, keys: ['wristband'], refill: 0 });
+  // the Grey Door: open it with a Greyhold card
+  cache(world, (POI.vaultFront || POI.vault).x, (POI.vaultFront || POI.vault).z, 0, 'card', 'op', { id: 'grey_door', name: 'The Grey Door', big: 1, rolls: 2, keys: ['arden_notes', 'blackvein', 'sunfall_data'], refill: 6 });
+}
+function buildBases() { buildCity(); for (const B of BASES) (B.fac === 'arc' ? buildFarlight : B.fac === 'grey' ? buildGreyStation : buildIronYard)(B); buildHoldStashes(); }
+
+/* ---------- who guards what ---------- */
+function baseGuards() {
+  const F = FOUNDRY;
+  for (let i = 0; i < 16; i++) { const a = rnd() * 6.28, r = rr(10, F.R - 8); spawnClan(i % 5 === 4 ? 'brute' : 'gunner', F.x + Math.cos(a) * r, F.z + Math.sin(a) * r, 'guard', 'iron'); }
+  for (let i = 0; i < 22; i++) { const a = rnd() * 6.28, r = rr(F.R + 30, CITY.R - 20); spawnClan(pick(['gunner', 'gunner', 'warrior']), CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r, 'guard', 'iron'); }
+  for (const B of BASES) {
+    if (B.fac === 'arc') { for (let i = 0; i < 6; i++) spawnNPC('extra', B.x + rr(-20, 20), B.z + rr(-20, 20), { wander: true }); const t = spawnNPC('trader', TRADER.x, TRADER.z, { model: 'civilian', tint: 0x6a8aa0, h: 1.72 }); t.trader = 1; named.trader = t; continue; }
+    const n = B.fac === 'grey' ? 11 : 8;
+    for (let i = 0; i < n; i++) { const a = rnd() * 6.28, r = rr(6, B.R - 6); spawnClan(B.fac === 'grey' ? 'soldier' : i % 4 === 3 ? 'brute' : 'gunner', B.x + Math.cos(a) * r, B.z + Math.sin(a) * r, 'guard', B.fac); }
+  }
+}
+
+/* ---------- Farlight's trader: barter in scrap ---------- */
+const TRADE_POOL = ['id_chip', 'map', 'seed_corn', 'seed_potato', 'seed_wheat', 'seed_bean', 'seed_squash', 'seed_carrot', 'bandage', 'painkiller', 'antibiotic', 'disinfect', 'medkit', 'purify_tab',
+  'ammo_9', 'ammo_556', 'ammo_762', 'ammo_12', 'arrows', 'gunpowder', 'canned', 'arc_pack', 'salt', 'flour', 'rope', 'cloth', 'synth', 'nails', 'screws', 'bolts', 'glass', 'rubber', 'battery', 'circuit', 'wire', 'cu_wiring',
+  'spare_parts', 'springs', 'fuel', 'tool_kit', 'iron', 'steel', 'leather', 'pistol', 'shotgun', 'crowbar', 'bolt_cutters', 'hand_saw', 'backpack', 'gas_mask', 'jacket', 'boots', 'fish_rod', 'flashlight', 'compass'];
+function valueOf(id) {
+  if (id === 'scrap') return 1;
+  if (GEAR_DEFS[id]) return 6 + (GEAR_DEFS[id].t || 1) ** 2 * 5 + (WDEF[id]?.cls === 'gun' ? 25 : 0);
+  const I = ITEMS[id]; if (!I) return 1;
+  if (I.c === 'ammo') return { ammo_9: .4, ammo_556: .5, ammo_762: 1.2, ammo_12: 1, arrows: .6, ammo_flare: 3, bolts_xb: 1, cell: 3 }[id] || 4;
+  if (I.c === 'story') return id === 'id_chip' ? 45 : 30;
+  return Math.max(1, Math.round(({ ren: 1, craft: 2, salv: 3 }[I.src] || 1) * (1 + (I.t - 1) * 1.6) * (I.c === 'rare' ? 4 : I.c === 'elec' ? 2 : 1)));
+}
+const TRADE_LOT = { ammo_9: 15, ammo_556: 20, ammo_762: 6, ammo_12: 8, arrows: 10, nails: 10, screws: 8, bolts: 5 };
+function tradeStock() {
+  const T = G.flags.trade || {};
+  if (T.day !== G.day || !T.list) { const L = []; const pool = [...TRADE_POOL]; for (let i = 0; i < 14 && pool.length; i++) { const id = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; L.push([id, GEAR_DEFS[id] ? 1 : TRADE_LOT[id] || (rnd() < .5 ? 1 : 2), GEAR_DEFS[id] ? 1 : 3]); } G.flags.trade = { day: G.day, list: L }; }
+  return G.flags.trade.list;
+}
+function buyTrade(i) {
+  const L = tradeStock(), [id, n, left] = L[i]; if (left <= 0) return;
+  const price = Math.ceil(valueOf(id) * n * 1.25);
+  if (INV.scrap < price) { sfx('no'); toast(`Needs ${price} scrap`); return; }
+  INV.scrap -= price; give(id, n); L[i][2]--; sfx('buy'); toast(`Bought ${n > 1 ? n + ' ' : ''}${nameOf(id).toLowerCase()} for ${price} scrap`); save();
+}
+function sellTrade(id, g) {
+  if (g) { const v = Math.max(2, Math.round(valueOf(g.id) * .5 * g.d / g.max)); unequip(g); INV.tools.splice(INV.tools.indexOf(g), 1); INV.scrap += v; toast(`Sold ${GEAR_DEFS[g.id].n.toLowerCase()} · +${v} scrap`); }
+  else { const lot = Math.min(cnt(id), TRADE_LOT[id] || 1), v = Math.max(1, Math.floor(valueOf(id) * lot * .5)); take(id, lot); INV.scrap += v; toast(`Sold ${lot > 1 ? lot + ' ' : ''}${nameOf(id).toLowerCase()} · +${v} scrap`); }
+  sfx('pickup'); save();
+}
+const nearTrader = () => named.trader && Math.hypot(named.trader.x - P.x, named.trader.z - P.z) < 3.5;
 
 /* ================= people ================= */
 const PAL = {
@@ -1611,11 +1878,11 @@ function limb(w, h, d, color, parent, x, y, z) {
 /* people are ELYRA's survivor models (rigid), moved by hand: stride bob, sway, lean, lunge. The Thornkin wear the same
    kit darkened to leather, with an ash band, a fur mantle with thorns, and a spear, blade or club. */
 function makePerson(kind, o = {}) {
-  const clan = kind !== 'arc';
+  const clan = kind === 'warrior' || kind === 'thrower' || kind === 'brute', armed = kind === 'gunner' || kind === 'soldier';
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
   const H = kind === 'brute' ? 1.98 : (o.h || rr(1.68, 1.84));
-  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : pick(['civilian', 'civilian', 'michael']));
-  const tint = o.tint ?? (clan ? pick([0x6a5040, 0x5a4434, 0x7a5a44]) : null);
+  const model = o.model || (clan ? (kind === 'brute' ? 'michael' : pick(['civilian', 'michael'])) : armed ? 'michael' : pick(['civilian', 'civilian', 'michael']));
+  const tint = o.tint ?? (clan ? (o.fac === 'iron' ? pick([0x8a5a3a, 0x6a5a4a]) : pick([0x6a5040, 0x5a4434, 0x7a5a44])) : kind === 'soldier' ? 0x5a6066 : kind === 'gunner' ? pick([0x8a5a3a, 0x7a6a50, 0x6a4a3a]) : null);
   const m = modelCopy(model, H, 'y', tint);
   if (m) body.add(m);
   else { mesh(new THREE.BoxGeometry(.5, H * .55, .3), M(0x4a4a4a), 0, H * .62, 0, body); mesh(new THREE.BoxGeometry(.28, .3, .28), M(0xc68e6a), 0, H * .93, 0, body); }
@@ -1639,6 +1906,17 @@ function makePerson(kind, o = {}) {
       mesh(new THREE.BoxGeometry(.26, .26, .42), M(0x6a6660), 0, .25, .8, weapon);
     } else {
       const b = mesh(new THREE.BoxGeometry(.04, .09, .7), M(0x8a8a86), 0, 0, .4, weapon); mesh(new THREE.BoxGeometry(.06, .06, .18), leather, 0, 0, 0, weapon);
+    }
+  }
+  if (armed) {
+    weapon = new THREE.Group(); weapon.position.set(.22, H * .58, .22); body.add(weapon);
+    const gm = modelCopy(kind === 'soldier' ? 'gun-desert' : 'gun-night', .72, 'z'); if (gm) weapon.add(gm); else mesh(new THREE.BoxGeometry(.06, .1, .7), M(0x1a1a1a), 0, 0, 0, weapon);
+    if (kind === 'soldier') {                                     // Greyhold: helmet + gas mask
+      mesh(new THREE.SphereGeometry(.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), M(0x4a5056), 0, H * .95, 0, body);
+      mesh(new THREE.BoxGeometry(.2, .14, .1), M(0x1a1a1a), 0, H * .9, .12, body); for (const sx of [-1, 1]) mesh(new THREE.CylinderGeometry(.045, .05, .08, 8), M(0x2a2a2a), sx * .08, H * .87, .17, body).rotation.x = Math.PI / 2;
+    } else {                                                       // Ironjaw: scrap shoulder plate + red rag
+      mesh(new THREE.BoxGeometry(.32, .06, .26), new THREE.MeshLambertMaterial({ map: texCorr, color: 0x8a6a4a }), -.18, H * .82, 0, body).rotation.z = .3;
+      mesh(new THREE.BoxGeometry(.3, .07, .05), M(0x8a2a1a), 0, H * .9, .13, body);
     }
   }
   g.traverse(x => { if (x.isMesh) { x.castShadow = true; } });
@@ -1694,10 +1972,10 @@ const ents = [];
 function addEnt(e) { e.pd = Math.hypot(e.x, e.z); e.y = heightAt(e.x, e.z); world.add(e.g); ents.push(e); e.g.position.set(e.x, e.y, e.z); return e; }
 function removeEnt(e) { world.remove(e.g); const i = ents.indexOf(e); if (i >= 0) ents.splice(i, 1); }
 
-function spawnClan(kind, x, z, mode) {
-  const p = makePerson(kind);
-  const hp = kind === 'brute' ? 150 : kind === 'thrower' ? 50 : 70;
-  return addEnt({ type: 'clan', kind, p, g: p.g, x, z, yaw: 0, hp, maxhp: hp, speed: kind === 'brute' ? 3.3 : kind === 'thrower' ? 4 : 4.7,
+function spawnClan(kind, x, z, mode, fac = 'clan') {
+  const p = makePerson(kind, { fac });
+  const hp = kind === 'brute' ? 150 : kind === 'thrower' ? 50 : kind === 'soldier' ? 130 : kind === 'gunner' ? 85 : 70;
+  return addEnt({ type: 'clan', fac, kind, p, g: p.g, x, z, yaw: 0, hp, maxhp: hp, speed: kind === 'brute' ? 3.3 : kind === 'thrower' ? 4 : kind === 'gunner' || kind === 'soldier' ? 4.2 : 4.7,
     state: mode === 'raid' ? 'raid' : 'idle', mode, home: { x, z }, t: rnd() * 5, atk: 0, cool: rr(.5, 2), ph: rnd() * 6, dead: false, deadT: 0, r: .45,
     climb: mode === 'raid' && rnd() < CLIMB[UP.wall] && kind !== 'brute', stuck: 0, side: 0 });
 }
@@ -1717,14 +1995,14 @@ function hitSpheres(e) {
 
 /* ================= player ================= */
 const P = { slot: 0, ads: 0, swim: false, x: 0, z: 26, y: 0, vy: 0, yaw: Math.PI, pitch: 0, hp: 100, food: 100, onGround: true, reload: 0, fire: 0, bob: 0, kick: 0, dead: false, hurtT: 0, pd: 26, coughT: 0, stepT: 0, safe: false };
-const INV = { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15 };
+const INV = { scrap: 0, meat: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: {}, tools: [], eq: ['arc', 'hunter', null] };
 const UP = { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 };
 const CLIMB = [.55, .3, .1, 0];
 /* the bench's rifle tiles: 1 suppressor + bigger mag, 2 swap to the scoped battle rifle, 3 its tac light + more */
 const RIFLE = [{ id: 'carbine', dmg: 28, mag: 20, rate: .115, spread: .014 }, { id: 'carbine', dmg: 34, mag: 25, rate: .11, spread: .011 }, { id: 'battle', dmg: 46, mag: 25, rate: .13, spread: .007 }, { id: 'battle', dmg: 56, mag: 30, rate: .12, spread: .005 }];
 const HUNTER = { id: 'hunter', dmg: 150, mag: 5, rate: 1.05, spread: .0015 };
 const RES_MAX = 90, RESH_MAX = 20;
-const gunStats = () => P.slot === 1 ? HUNTER : RIFLE[UP.rifle];
+const gunStats = () => curW().st;
 const input = { mx: 0, my: 0, look: [0, 0], fire: false, jump: false, sprint: false };
 
 function wallCollide(o, rad, isPlayer) {
@@ -1767,7 +2045,8 @@ const GUNV = {};
 let muzzle = new THREE.Object3D(), flash, flashLight, armsObj = [];
 function gunView(id) {
   const W = WEAPONS[id], g = new THREE.Group();
-  const m = modelCopy(W.model, W.len, W.axis);
+  let m = null;
+  if (W.proc) { m = new THREE.Group(); W.proc(m); } else { m = modelCopy(W.model, W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); }
   if (m) {
     if (W.yaw) m.rotation.y = W.yaw;
     const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()); m.position.sub(c);
@@ -1975,172 +2254,327 @@ function sfx(k, vol = 1) {
     case 'gate': tone(60, .5, .35, 'sawtooth', 0, 20); noiseBurst(.6, 300, .5, .2); break;
   }
 }
+const ICON_IDS = new Set('alcohol aluminum ammo_12 ammo_45 ammo_556 ammo_762 ammo_9 ammo_box ammo_flare antenna antibiotic arc_alloy arc_jumpsuit arc_pack arden_notes arm_guards arrows ash assault backpack bandage bark barracks battery beans bed berries binoculars blackvein blood_bag blood_kit blueberries bolt_cutters bolts bolts_xb bone bone_dagger bone_knife bookshelf boots branch bread breather cable2 cable_spool camera campfire canned canteen canvas carrot cell chair charcoal circuit clan_mask clay climb_gear climb_pick cloth club compass cook_station cooked_fish cooking_rack copper corn crossbow crowbar cu_wiring data_drive diag_pc disinfect documents dome door dried_meat drone drying_rack duffel ember engine_part farm_plot fasteners fat feather fertilizer fiber fire_starter fish fish_rod fish_soup fish_spear flare_gun flashlight flint flint_knife flour forge frag fuel fuel_can2 fuse gas2 gas3 gas_mask gas_tank gate_codes gears generator glass gloves greenhouse greens grey_armor grey_rifle greyhold_card greyhold_files gunpowder halcyon_chip hammer hand_saw hardwood harness hatchet hazmat helmet herb herb_bandage herb_med hide hide_boots hide_coat honey hook hook2 hunt_outfit hunt_spear hunting_knife id_chip inject insignia iv jacket knife lab lab_sample lake_fish lantern lantern_key leather leather_armor limestone lmg lock_bypass locker lockers log machete map map_table meat med_parts med_scanner med_station medkit meridian_gear metal_axe metal_chest metal_crate metal_ore metal_spear metal_wall mil_armor mil_knife molotov multitool mushroom nails nav_console needle notebook nuts nvg oil painkiller palisade pan pants photo pickaxe pills pipe pistol plank pliers pot potato poultice power2 power_cell purify_tab radio radio_tower rain_cloak rain_coll ration recurve reed repair_drone revolver riot_helmet riot_shield roast rope rope2 rubber rust_detector rust_med rust_suit salt sat scrap screwdriver screws sealed_suit sec_uniform seed_bean seed_carrot seed_corn seed_potato seed_squash seed_wheat sensor serum sharp_rock shellfish shelves shield shielding shortbow shotgun sinew sleeping_mat smoke_gren smoked_fish sniper soil solar_cell solar_charger solar_panel spare_parts spare_tire spear spikes spindle splint springs squash staff steel stew stick stone stone_axe stone_knife stone_pick storage_chest storage_crate stun_baton sunfall_data surgical_kit sutures sword synth table tablet tabs2 tabs3 tac_armor teeth tent terminal thread throw_spear tool_kit torch_t transmitter turret usb util_vest vane veg_soup vine war_axe war_paint watchtower water_boiled water_collector water_dirty water_filter water_filtered water_rain weapon_rack welder wheat winch window wire wire_cutters wood_hammer wood_shelter wood_shovel wood_spear wood_wall workshop wraps wrench wristband'.split(' '));
 
-/* ================= items, tools, recipes, gathering, survival status =================
-   The world's own setting: Arc folk, the Thornkin clans, Greyhold, the Rust, the Ember, HALCYON and the Quiet City,
-   Dr. Sel Arden, Sunfall, the Lantern vault, Meridian, Haven, mind spindles and the Gate Stone.
-   Tier 1 (The Landing) is live. Later tiers are in the data so the browser shows what's coming. */
+/* ================= the data: every item, tool, weapon, piece of wear, placeable and recipe =================
+   The world's own setting: Arc folk, the Thornkin clans, Ironjaw scavengers, Greyhold, the Rust, the Ember,
+   HALCYON, Dr. Sel Arden, Sunfall, the Lantern vault, Meridian, mind spindles and the Gate Stone.
+   Tiers aren't chapters: each one opens when you find its key item out in the world (see TIER_KEYS). */
 
 const TIERS = ['', 'The Landing', 'The Clans', 'The Arc Survivors', 'Greyhold', 'Sunfall', 'Beyond'];
-// src: ren = renewable (gather / hunt / grow) · salv = only from ruins, crates or other factions · craft = made · story = questline only
+const TIER_KEYS = { insignia: 2, id_chip: 3, greyhold_card: 4, arden_notes: 5, gate_codes: 6 };
+const TIER_HOW = ['', '', 'Take a clan insignia from the Thornkin (holds, outposts, warriors)', 'Find an Arc ID chip (the Burn, Farlight, the city)',
+  'Take a Greyhold access card (Greyhold Station, the Foundry)', "Open the Grey Door for Dr. Arden's notebook", 'Crack the Foundry strongroom for the Gate Stone codes'];
+
+// [id, name, category, tier, source, weight]   source: ren = renewable · salv = only from ruins/crates/factions · craft · story
 const ITEM_DEFS = [
   // wood
-  ['stick', 'Sticks', 'wood', 1, 'ren', '#a07a4e'], ['branch', 'Branch', 'wood', 1, 'ren', '#8c6a42'], ['log', 'Log', 'wood', 1, 'ren', '#7a5634'],
-  ['plank', 'Plank', 'wood', 2, 'craft', '#b48c5c'], ['bark', 'Bark', 'wood', 1, 'ren', '#5e4430'], ['hardwood', 'Hardwood', 'wood', 1, 'ren', '#6a4a2c'],
-  // stone
-  ['stone', 'Small stone', 'stone', 1, 'ren', '#9a968e'], ['sharp_rock', 'Sharp rock', 'stone', 1, 'ren', '#8a8780'], ['flint', 'Flint', 'stone', 1, 'ren', '#4a4e56'],
-  ['limestone', 'Limestone', 'stone', 1, 'ren', '#d8d2bc'], ['clay', 'Clay', 'stone', 1, 'ren', '#a8643c'], ['charcoal', 'Charcoal', 'stone', 1, 'craft', '#2a2826'],
+  ['stick', 'Sticks', 'wood', 1, 'ren', .3], ['branch', 'Branch', 'wood', 1, 'ren', .8], ['log', 'Log', 'wood', 1, 'ren', 3], ['plank', 'Plank', 'wood', 1, 'craft', 1.2],
+  ['bark', 'Bark', 'wood', 1, 'ren', .3], ['hardwood', 'Hardwood', 'wood', 1, 'ren', 1.5],
+  // stone + earth
+  ['stone', 'Small stone', 'stone', 1, 'ren', .5], ['sharp_rock', 'Sharp rock', 'stone', 1, 'craft', .3], ['flint', 'Flint', 'stone', 1, 'ren', .3],
+  ['limestone', 'Limestone', 'stone', 1, 'ren', .8], ['clay', 'Clay', 'stone', 1, 'ren', .8], ['charcoal', 'Charcoal', 'stone', 1, 'craft', .2],
+  ['metal_ore', 'Metal ore', 'stone', 2, 'ren', 1.2], ['soil', 'Soil', 'stone', 1, 'ren', 1], ['ash', 'Ash', 'stone', 1, 'craft', .1], ['fertilizer', 'Fertilizer', 'stone', 2, 'craft', .5],
   // plant fibres
-  ['fiber', 'Plant fiber', 'fiber', 1, 'ren', '#8aa04a'], ['vine', 'Vines', 'fiber', 1, 'ren', '#5a7a32'], ['reed', 'Reeds', 'fiber', 1, 'ren', '#a8a05a'],
-  ['leaves', 'Leaves', 'fiber', 1, 'ren', '#4e7a3a'],
+  ['fiber', 'Plant fiber', 'fiber', 1, 'ren', .1], ['vine', 'Vines', 'fiber', 1, 'ren', .2], ['reed', 'Reeds', 'fiber', 1, 'ren', .1], ['leaves', 'Leaves', 'fiber', 1, 'ren', .05],
   // metals
-  ['scrap', 'Scrap metal', 'metal', 1, 'salv', '#9aa3a8'], ['iron', 'Iron', 'metal', 3, 'salv', '#6e6a66'], ['steel', 'Steel', 'metal', 3, 'salv', '#b8c0c6'],
-  ['copper', 'Copper', 'metal', 3, 'salv', '#c07a4a'], ['aluminum', 'Aluminum', 'metal', 3, 'salv', '#d0d4d8'], ['wire', 'Wire', 'metal', 1, 'salv', '#c89a5a'],
+  ['scrap', 'Scrap metal', 'metal', 1, 'salv', .5], ['iron', 'Iron', 'metal', 3, 'craft', 1], ['steel', 'Steel', 'metal', 3, 'craft', 1], ['copper', 'Copper', 'metal', 2, 'salv', .6],
+  ['aluminum', 'Aluminum', 'metal', 3, 'salv', .4], ['wire', 'Wire', 'metal', 1, 'salv', .2],
   // animal
-  ['hide', 'Hide', 'animal', 1, 'ren', '#9a6a44'], ['leather', 'Leather', 'animal', 2, 'craft', '#7a4a2a'], ['bone', 'Bone', 'animal', 1, 'ren', '#e8e0cc'],
-  ['sinew', 'Sinew', 'animal', 1, 'ren', '#d8a088'], ['feather', 'Feathers', 'animal', 1, 'ren', '#e8e8e0'], ['teeth', 'Teeth', 'animal', 1, 'ren', '#f0ead8'], ['fat', 'Animal fat', 'animal', 1, 'ren', '#f0d890'],
+  ['hide', 'Hide', 'animal', 1, 'ren', 1], ['leather', 'Leather', 'animal', 2, 'craft', .6], ['bone', 'Bone', 'animal', 1, 'ren', .3], ['sinew', 'Sinew', 'animal', 1, 'ren', .05],
+  ['feather', 'Feathers', 'animal', 1, 'ren', .01], ['teeth', 'Teeth', 'animal', 1, 'ren', .05], ['fat', 'Animal fat', 'animal', 1, 'ren', .3],
   // textiles
-  ['cloth', 'Cloth scraps', 'textile', 1, 'salv', '#8a8a7a'], ['rope', 'Rope', 'textile', 1, 'craft', '#c8a46a'], ['thread', 'Thread', 'textile', 2, 'craft', '#d8d0b8'],
-  ['canvas', 'Canvas', 'textile', 3, 'salv', '#a8a088'], ['synth', 'Synthetic fabric', 'textile', 3, 'salv', '#5a7a9a'],
-  // electronics (all salvage)
-  ['circuit', 'Circuit board', 'elec', 3, 'salv', '#3a8a4a'], ['battery', 'Battery', 'elec', 3, 'salv', '#d8b040'], ['cu_wiring', 'Copper wiring', 'elec', 3, 'salv', '#d07a40'],
-  ['sensor', 'Sensor', 'elec', 3, 'salv', '#5aa0c0'], ['fuse', 'Fuse', 'elec', 3, 'salv', '#c0c0b0'],
+  ['cloth', 'Cloth scraps', 'textile', 1, 'salv', .1], ['rope', 'Rope', 'textile', 1, 'craft', .3], ['thread', 'Thread', 'textile', 1, 'craft', .02],
+  ['canvas', 'Canvas', 'textile', 2, 'craft', .5], ['synth', 'Synthetic fabric', 'textile', 3, 'salv', .3],
+  // electronics (only from ruins and factions)
+  ['circuit', 'Circuit board', 'elec', 3, 'salv', .2], ['battery', 'Battery', 'elec', 3, 'salv', .4], ['cu_wiring', 'Copper wiring', 'elec', 2, 'salv', .3],
+  ['sensor', 'Sensor', 'elec', 3, 'salv', .2], ['fuse', 'Fuse', 'elec', 3, 'salv', .05], ['antenna', 'Antenna', 'elec', 3, 'salv', .5], ['power_cell', 'Power cell', 'elec', 5, 'salv', .6],
+  ['data_drive', 'Data drive', 'elec', 3, 'salv', .1], ['camera', 'Camera', 'elec', 3, 'salv', .6], ['tablet', 'Computer tablet', 'elec', 4, 'salv', .6],
   // industrial
-  ['nails', 'Nails', 'indus', 1, 'salv', '#a0a4a8'], ['screws', 'Screws', 'indus', 1, 'salv', '#b0b4b8'], ['bolts', 'Bolts', 'indus', 2, 'salv', '#8a8e92'],
-  ['pipe', 'Pipe', 'indus', 2, 'salv', '#7a7e82'], ['gears', 'Gears', 'indus', 3, 'salv', '#b89a5a'], ['springs', 'Springs', 'indus', 3, 'salv', '#a8acb0'], ['rubber', 'Rubber', 'indus', 2, 'salv', '#2a2a2a'],
-  ['fasteners', 'Fasteners', 'indus', 2, 'salv', '#9a9ea2'], ['spare_parts', 'Spare parts', 'indus', 2, 'salv', '#8a8a80'], ['tool_kit', 'Tool kit', 'indus', 2, 'salv', '#b04a3a'],
-  ['hook', 'Bone hook', 'indus', 1, 'craft', '#e8e0cc'], ['pot', 'Clay pot', 'indus', 1, 'craft', '#a8643c'], ['antenna', 'Antenna', 'indus', 3, 'salv', '#9aa0a6'],
+  ['nails', 'Nails', 'indus', 1, 'salv', .02], ['screws', 'Screws', 'indus', 1, 'salv', .02], ['bolts', 'Bolts', 'indus', 2, 'salv', .05], ['pipe', 'Pipe', 'indus', 2, 'salv', 1],
+  ['gears', 'Gears', 'indus', 3, 'salv', .3], ['springs', 'Springs', 'indus', 3, 'salv', .1], ['rubber', 'Rubber', 'indus', 2, 'salv', .4], ['fasteners', 'Fasteners', 'indus', 2, 'craft', .1],
+  ['spare_parts', 'Spare parts', 'indus', 3, 'salv', .6], ['tool_kit', 'Tool kit', 'indus', 3, 'salv', 2], ['hook', 'Bone hook', 'indus', 1, 'craft', .01], ['pot', 'Clay pot', 'indus', 1, 'craft', .8],
+  ['glass', 'Glass', 'indus', 3, 'salv', .4], ['gunpowder', 'Gunpowder', 'indus', 3, 'craft', .05], ['fuel', 'Fuel', 'indus', 3, 'salv', 2], ['gas_tank', 'Gas cylinder', 'indus', 3, 'salv', 4],
+  ['engine_part', 'Engine part', 'indus', 3, 'salv', 3], ['spare_tire', 'Spare tire', 'indus', 3, 'salv', 6], ['winch', 'Winch cable', 'indus', 3, 'salv', 2], ['cable_spool', 'Cable spool', 'indus', 3, 'salv', 2],
   // rare salvage (never renewable)
-  ['arc_alloy', 'Arc alloy', 'rare', 3, 'salv', '#8ad0e0'], ['solar_cell', 'Solar cell', 'rare', 3, 'salv', '#3a5aa8'], ['shielding', 'Rust shielding', 'rare', 4, 'salv', '#c0a050'],
-  ['med_parts', 'Medical components', 'rare', 3, 'salv', '#e0e8f0'],
+  ['arc_alloy', 'Arc alloy', 'rare', 3, 'salv', .5], ['solar_cell', 'Solar cell', 'rare', 3, 'salv', .4], ['shielding', 'Rust shielding', 'rare', 4, 'salv', 1], ['med_parts', 'Medical components', 'rare', 3, 'salv', .2],
   // food
-  ['berries', 'Wild berries', 'food', 1, 'ren', '#a83a5a'], ['mushroom', 'Mushrooms', 'food', 1, 'ren', '#c8a888'], ['roots', 'Roots', 'food', 1, 'ren', '#a8784a'],
-  ['nuts', 'Nuts', 'food', 1, 'ren', '#9a6a3a'], ['greens', 'Edible greens', 'food', 1, 'ren', '#6aa04a'],
-  ['potato', 'Potatoes', 'food', 2, 'ren', '#c8a868'], ['corn', 'Corn', 'food', 2, 'ren', '#e8c840'], ['beans', 'Beans', 'food', 2, 'ren', '#7a5a3a'], ['wheat', 'Wheat', 'food', 2, 'ren', '#d8b860'],
-  ['squash', 'Squash', 'food', 2, 'ren', '#e08a3a'], ['carrot', 'Carrots', 'food', 2, 'ren', '#e0702a'],
-  ['meat', 'Raw meat', 'food', 1, 'ren', '#c0634a'], ['fish', 'River fish', 'food', 1, 'ren', '#8aa0a8'], ['lake_fish', 'Lake fish', 'food', 1, 'ren', '#7a9aa8'], ['shellfish', 'Shellfish', 'food', 1, 'ren', '#b89a8a'],
-  ['salt', 'Salt', 'food', 2, 'salv', '#f0f0f0'], ['herb', 'Herbs', 'food', 1, 'ren', '#5a9a5a'], ['flour', 'Flour', 'food', 2, 'craft', '#f0e8d8'], ['oil', 'Cooking oil', 'food', 2, 'craft', '#d8c050'], ['honey', 'Honey', 'food', 2, 'ren', '#e0a020'],
-  ['ration', 'Cooked meat', 'food', 1, 'craft', '#a8552e'], ['cooked_fish', 'Cooked fish', 'food', 1, 'craft', '#c08a5a'], ['dried_meat', 'Dried meat', 'food', 1, 'craft', '#7a3a22'],
-  ['smoked_fish', 'Smoked fish', 'food', 2, 'craft', '#9a6a3a'], ['canned', 'Canned ration', 'food', 1, 'salv', '#8a9098'], ['arc_pack', 'Arc food pack', 'food', 1, 'salv', '#c8d0d8'],
-  ['stew', 'Vegetable stew', 'food', 1, 'craft', '#9a6a2a'], ['fish_soup', 'Fish soup', 'food', 1, 'craft', '#c8b080'], ['roast', 'Roasted meat', 'food', 2, 'craft', '#8a3a1a'], ['bread', 'Bread', 'food', 2, 'craft', '#d8a860'],
+  ['berries', 'Wild berries', 'food', 1, 'ren', .05], ['blueberries', 'Blueberries', 'food', 1, 'ren', .05], ['mushroom', 'Mushrooms', 'food', 1, 'ren', .05], ['roots', 'Roots', 'food', 1, 'ren', .1],
+  ['nuts', 'Nuts', 'food', 1, 'ren', .05], ['greens', 'Edible greens', 'food', 1, 'ren', .05], ['herb', 'Herbs', 'food', 1, 'ren', .02],
+  ['potato', 'Potatoes', 'food', 2, 'ren', .3], ['corn', 'Corn', 'food', 2, 'ren', .3], ['beans', 'Beans', 'food', 2, 'ren', .2], ['wheat', 'Wheat', 'food', 2, 'ren', .2],
+  ['squash', 'Squash', 'food', 2, 'ren', .8], ['carrot', 'Carrots', 'food', 2, 'ren', .2],
+  ['meat', 'Raw meat', 'food', 1, 'ren', .5], ['fish', 'River fish', 'food', 1, 'ren', .4], ['lake_fish', 'Lake fish', 'food', 1, 'ren', .4], ['shellfish', 'Shellfish', 'food', 1, 'ren', .2],
+  ['salt', 'Salt', 'food', 2, 'craft', .05], ['flour', 'Flour', 'food', 2, 'craft', .3], ['oil', 'Cooking oil', 'food', 2, 'craft', .3], ['honey', 'Honey', 'food', 1, 'ren', .3],
+  ['ration', 'Cooked meat', 'food', 1, 'craft', .4], ['cooked_fish', 'Cooked fish', 'food', 1, 'craft', .3], ['dried_meat', 'Dried meat', 'food', 1, 'craft', .2], ['roast', 'Roasted meat', 'food', 1, 'craft', .5],
+  ['smoked_fish', 'Smoked fish', 'food', 1, 'craft', .2], ['canned', 'Canned ration', 'food', 1, 'salv', .4], ['arc_pack', 'Arc food pack', 'food', 1, 'salv', .3],
+  ['stew', 'Vegetable stew', 'food', 1, 'craft', .6], ['veg_soup', 'Vegetable soup', 'food', 1, 'craft', .6], ['fish_soup', 'Fish soup', 'food', 1, 'craft', .6], ['bread', 'Bread', 'food', 2, 'craft', .3],
+  // seeds
+  ['seed_corn', 'Corn seeds', 'seed', 2, 'ren', .01], ['seed_potato', 'Seed potatoes', 'seed', 2, 'ren', .05], ['seed_wheat', 'Wheat seeds', 'seed', 2, 'ren', .01],
+  ['seed_bean', 'Bean seeds', 'seed', 2, 'ren', .01], ['seed_squash', 'Squash seeds', 'seed', 2, 'ren', .01], ['seed_carrot', 'Carrot seeds', 'seed', 2, 'ren', .01],
   // water
-  ['water_dirty', 'Dirty water', 'water', 1, 'ren', '#6a7a5a'], ['water_boiled', 'Boiled water', 'water', 1, 'craft', '#9ad0e0'], ['water_filtered', 'Filtered water', 'water', 2, 'craft', '#b0e0f0'], ['water_rain', 'Rainwater', 'water', 2, 'ren', '#a0c8e8'],
+  ['water_dirty', 'Dirty water', 'water', 1, 'ren', .5], ['water_boiled', 'Boiled water', 'water', 1, 'craft', .5], ['water_filtered', 'Filtered water', 'water', 2, 'craft', .5], ['water_rain', 'Rainwater', 'water', 1, 'ren', .5],
   // medicine
-  ['herb_med', 'Medicinal herbs', 'med', 1, 'ren', '#3a8a5a'], ['bandage', 'Bandage', 'med', 1, 'salv', '#f0ece0'], ['herb_bandage', 'Herbal bandage', 'med', 1, 'craft', '#c8d8a8'],
-  ['splint', 'Splint', 'med', 1, 'craft', '#b8946a'], ['poultice', 'Herbal poultice', 'med', 1, 'craft', '#6a9a4a'], ['disinfect', 'Disinfectant', 'med', 1, 'salv', '#c0e0f0'],
-  ['painkiller', 'Painkillers', 'med', 1, 'salv', '#f0f0f0'], ['antibiotic', 'Antibiotics', 'med', 1, 'salv', '#e8e0f0'], ['sutures', 'Surgical thread', 'med', 2, 'salv', '#d0d0e0'],
-  ['alcohol', 'Medical alcohol', 'med', 2, 'salv', '#e0f0f8'], ['purify_tab', 'Purification tablets', 'med', 1, 'salv', '#f8f8f8'], ['medkit', 'Medical kit', 'med', 2, 'craft', '#d84a3a'],
-  ['iv', 'IV supplies', 'med', 3, 'salv', '#e0e8f0'], ['blood_bag', 'Blood bag', 'med', 4, 'salv', '#a02a2a'], ['rust_med', 'Rust medicine', 'med', 4, 'salv', '#c8a050'],
-  ['lab_sample', 'Laboratory sample', 'med', 4, 'salv', '#8ad0a0'], ['blood_kit', 'Blood-testing kit', 'med', 4, 'salv', '#c0c8d0'], ['inject', 'Protective injection', 'med', 4, 'salv', '#a0d0e0'],
-  // story items (questlines only; introduced gradually)
-  ['wristband', 'Arc wristband', 'story', 1, 'story', '#8ad0e0'], ['id_chip', 'Arc ID chip', 'story', 3, 'story', '#6ab0c0'], ['nav_console', 'Dropship nav console', 'story', 1, 'story', '#5a7a8a'],
-  ['insignia', 'Clan insignia', 'story', 2, 'story', '#b05a3a'], ['war_paint', 'War paint', 'story', 2, 'story', '#2a2a2a'], ['ember', 'The Ember', 'story', 5, 'story', '#ff8a3a'],
-  ['blackvein', 'Black-vein sample', 'story', 4, 'story', '#1a1a1a'], ['greyhold_card', 'Greyhold access card', 'story', 4, 'story', '#d8d8d8'], ['greyhold_files', 'Greyhold medical files', 'story', 4, 'story', '#c8c0a8'],
-  ['halcyon_chip', 'HALCYON chip', 'story', 5, 'story', '#5ab0ff'], ['arden_notes', "Dr. Arden's notebook", 'story', 5, 'story', '#7a5a3a'], ['sunfall_data', 'Sunfall warning data', 'story', 5, 'story', '#e8a040'],
-  ['lantern_key', 'Lantern vault key', 'story', 5, 'story', '#c0a050'], ['meridian_gear', 'Meridian equipment', 'story', 6, 'story', '#9aa0b0'], ['spindle', 'Mind spindle', 'story', 6, 'story', '#b0a0e0'], ['gate_codes', 'Gate Stone codes', 'story', 6, 'story', '#a080c0'],
+  ['herb_med', 'Medicinal herbs', 'med', 1, 'ren', .02], ['bandage', 'Bandage', 'med', 1, 'craft', .05], ['herb_bandage', 'Herbal bandage', 'med', 1, 'craft', .05], ['splint', 'Splint', 'med', 1, 'craft', .4],
+  ['poultice', 'Herbal poultice', 'med', 1, 'craft', .1], ['disinfect', 'Disinfectant', 'med', 2, 'craft', .2], ['painkiller', 'Painkillers', 'med', 1, 'craft', .05], ['antibiotic', 'Antibiotics', 'med', 3, 'craft', .05],
+  ['sutures', 'Surgical thread', 'med', 2, 'craft', .02], ['alcohol', 'Medical alcohol', 'med', 2, 'craft', .3], ['purify_tab', 'Purification tablets', 'med', 2, 'salv', .02], ['medkit', 'Medical kit', 'med', 2, 'craft', .6],
+  ['surgical_kit', 'Surgical kit', 'med', 3, 'craft', .5], ['iv', 'IV supplies', 'med', 3, 'craft', .4], ['blood_bag', 'Blood bag', 'med', 4, 'salv', .4], ['rust_med', 'Rust medicine', 'med', 4, 'craft', .1],
+  ['lab_sample', 'Laboratory sample', 'med', 4, 'salv', .05], ['blood_kit', 'Blood-testing kit', 'med', 4, 'salv', .3], ['inject', 'Protective injection', 'med', 4, 'craft', .05], ['serum', 'Black-vein serum', 'med', 5, 'craft', .05],
+  // documents + odds and ends
+  ['map', 'Old map', 'doc', 1, 'salv', .05], ['notebook', 'Notebook', 'doc', 1, 'salv', .1], ['photo', 'Photograph', 'doc', 1, 'salv', .01], ['documents', 'Documents', 'doc', 2, 'salv', .1],
+  ['war_paint', 'War paint', 'doc', 2, 'craft', .05],
+  // story items (keys, relics)
+  ['wristband', 'Arc wristband', 'story', 1, 'story', .1], ['id_chip', 'Arc ID chip', 'story', 3, 'story', .01], ['nav_console', 'Dropship nav console', 'story', 3, 'story', 2],
+  ['insignia', 'Clan insignia', 'story', 2, 'story', .1], ['ember', 'The Ember', 'story', 6, 'story', .3], ['blackvein', 'Black-vein sample', 'story', 5, 'story', .05],
+  ['greyhold_card', 'Greyhold access card', 'story', 4, 'story', .01], ['greyhold_files', 'Greyhold medical files', 'story', 4, 'story', .2], ['halcyon_chip', 'HALCYON chip', 'story', 5, 'story', .01],
+  ['arden_notes', "Dr. Arden's notebook", 'story', 5, 'story', .2], ['sunfall_data', 'Sunfall warning data', 'story', 5, 'story', .05], ['lantern_key', 'Lantern vault key', 'story', 5, 'story', .1],
+  ['meridian_gear', 'Meridian equipment', 'story', 6, 'story', 1], ['spindle', 'Mind spindle', 'story', 6, 'story', .2], ['gate_codes', 'Gate Stone codes', 'story', 6, 'story', .5],
+  // ammunition
+  ['ammo_556', 'Rifle rounds', 'ammo', 1, 'salv', .012], ['ammo_762', 'Heavy rifle rounds', 'ammo', 1, 'salv', .025], ['ammo_9', '9mm rounds', 'ammo', 3, 'craft', .01],
+  ['ammo_45', '.45 rounds', 'ammo', 3, 'craft', .015], ['ammo_12', 'Shotgun shells', 'ammo', 3, 'craft', .04], ['ammo_flare', 'Flares', 'ammo', 3, 'craft', .1],
+  ['arrows', 'Arrows', 'ammo', 2, 'craft', .04], ['bolts_xb', 'Crossbow bolts', 'ammo', 3, 'craft', .05], ['cell', 'Pulse cells', 'ammo', 6, 'salv', .1],
+  ['throw_spear', 'Throwing spear', 'ammo', 1, 'craft', 1], ['smoke_gren', 'Smoke grenade', 'ammo', 3, 'craft', .4], ['frag', 'Frag grenade', 'ammo', 3, 'craft', .4], ['molotov', 'Fire bottle', 'ammo', 2, 'craft', .5],
 ];
-const ITEMS = {}; for (const [id, n, c, t, src, col] of ITEM_DEFS) ITEMS[id] = { id, n, c, t, src, col };
+const ITEMS = {}; for (const [id, n, c, t, src, w] of ITEM_DEFS) ITEMS[id] = { id, n, c, t, src, w };
 
-/* tools, weapons, wear: individual pieces with durability + quality */
+/* tools, weapons and wear are individual pieces with durability + quality */
 const QUAL = [{ n: 'Crude', k: .7 }, { n: 'Standard', k: 1 }, { n: 'Fine', k: 1.4 }];
 const GEAR_DEFS = {
   // primitive tools
-  stone_axe: { n: 'Stone axe', kind: 'axe', pw: 1, dur: 40, t: 1 }, stone_pick: { n: 'Stone pickaxe', kind: 'pick', pw: 1, dur: 40, t: 1 },
-  flint_knife: { n: 'Flint knife', kind: 'knife', pw: 1, dur: 35, t: 1 }, bone_knife: { n: 'Bone knife', kind: 'knife', pw: 1, dur: 25, t: 1 },
-  wood_shovel: { n: 'Wooden shovel', kind: 'shovel', pw: 1, dur: 30, t: 1 }, fish_spear: { n: 'Fishing spear', kind: 'fish', pw: 1, dur: 25, t: 1 },
-  fish_rod: { n: 'Fishing rod', kind: 'fish', pw: 2, dur: 60, t: 1 }, hand_saw: { n: 'Hand saw', kind: 'saw', pw: 1, dur: 80, t: 2 },
-  torch_t: { n: 'Torch', kind: 'light', pw: 1, dur: 20, t: 1 }, fire_starter: { n: 'Flint fire starter', kind: 'fire', pw: 1, dur: 30, t: 1 },
-  wood_hammer: { n: 'Wooden hammer', kind: 'hammer', pw: 1, dur: 40, t: 1 }, needle: { n: 'Sewing needle', kind: 'needle', pw: 1, dur: 30, t: 1 },
-  // salvaged tools (found, never crafted in tier 1; last far longer)
-  metal_axe: { n: 'Metal axe', kind: 'axe', pw: 2, dur: 160, t: 3, salv: 1 }, pickaxe: { n: 'Pickaxe', kind: 'pick', pw: 2, dur: 160, t: 3, salv: 1 },
-  crowbar: { n: 'Crowbar', kind: 'pry', pw: 2, dur: 200, t: 3, salv: 1 }, wrench: { n: 'Wrench', kind: 'wrench', pw: 2, dur: 200, t: 3, salv: 1 },
-  screwdriver: { n: 'Screwdriver', kind: 'driver', pw: 2, dur: 150, t: 3, salv: 1 }, bolt_cutters: { n: 'Bolt cutters', kind: 'cutter', pw: 2, dur: 120, t: 3, salv: 1 },
-  pliers: { n: 'Pliers', kind: 'pliers', pw: 2, dur: 150, t: 3, salv: 1 }, welder: { n: 'Welding kit', kind: 'weld', pw: 2, dur: 80, t: 3, salv: 1 },
-  wire_cutters: { n: 'Wire cutters', kind: 'cutter', pw: 1, dur: 120, t: 3, salv: 1 }, flashlight: { n: 'Flashlight', kind: 'light', pw: 2, dur: 150, t: 3, salv: 1 },
-  radio: { n: 'Portable radio', kind: 'radio', pw: 2, dur: 200, t: 3, salv: 1 }, multitool: { n: 'Multitool', kind: 'knife', pw: 2, dur: 140, t: 3, salv: 1 },
-  hunting_knife: { n: 'Hunting knife', kind: 'knife', pw: 2, dur: 120, t: 2, salv: 1 },
+  stone_axe: { n: 'Stone axe', kind: 'axe', pw: 1, dur: 40, t: 1, w: 1.5 }, stone_pick: { n: 'Stone pickaxe', kind: 'pick', pw: 1, dur: 40, t: 1, w: 2 },
+  flint_knife: { n: 'Flint knife', kind: 'knife', pw: 1, dur: 35, t: 1, w: .3 }, bone_knife: { n: 'Bone knife', kind: 'knife', pw: 1, dur: 25, t: 1, w: .2 },
+  wood_shovel: { n: 'Wooden shovel', kind: 'shovel', pw: 1, dur: 30, t: 1, w: 1.5 }, fish_spear: { n: 'Fishing spear', kind: 'fish', pw: 1, dur: 25, t: 1, w: 1 },
+  fish_rod: { n: 'Fishing rod', kind: 'fish', pw: 2, dur: 60, t: 1, w: .8 }, torch_t: { n: 'Torch', kind: 'light', pw: 1, dur: 240, t: 1, w: .5 },
+  fire_starter: { n: 'Flint fire starter', kind: 'fire', pw: 1, dur: 30, t: 1, w: .2 }, wood_hammer: { n: 'Wooden hammer', kind: 'hammer', pw: 1, dur: 40, t: 1, w: 1 },
+  needle: { n: 'Sewing needle', kind: 'needle', pw: 1, dur: 30, t: 1, w: .01 }, hand_saw: { n: 'Hand saw', kind: 'saw', pw: 1, dur: 80, t: 2, w: 1 },
+  // metal tools
+  metal_axe: { n: 'Metal axe', kind: 'axe', pw: 2, dur: 160, t: 3, w: 2.2 }, pickaxe: { n: 'Pickaxe', kind: 'pick', pw: 2, dur: 160, t: 3, w: 3 },
+  hammer: { n: 'Hammer', kind: 'hammer', pw: 2, dur: 160, t: 3, w: 1 }, crowbar: { n: 'Crowbar', kind: 'pry', pw: 2, dur: 200, t: 3, w: 2 },
+  wrench: { n: 'Wrench', kind: 'wrench', pw: 2, dur: 200, t: 3, w: 1 }, screwdriver: { n: 'Screwdriver', kind: 'driver', pw: 2, dur: 150, t: 3, w: .3 },
+  bolt_cutters: { n: 'Bolt cutters', kind: 'cutter', pw: 2, dur: 120, t: 3, w: 2.5 }, pliers: { n: 'Pliers', kind: 'pliers', pw: 2, dur: 150, t: 3, w: .4 },
+  wire_cutters: { n: 'Wire cutters', kind: 'pliers', pw: 1, dur: 120, t: 3, w: .4 }, multitool: { n: 'Multitool', kind: 'multi', pw: 2, dur: 140, t: 3, w: .3 },
+  welder: { n: 'Welding kit', kind: 'weld', pw: 2, dur: 80, t: 3, w: 4 }, flashlight: { n: 'Flashlight', kind: 'light', pw: 2, dur: 900, t: 3, w: .5 },
+  radio: { n: 'Portable radio', kind: 'radio', pw: 2, dur: 400, t: 3, w: 1 }, binoculars: { n: 'Binoculars', kind: 'binoc', pw: 2, dur: 400, t: 3, w: .8 },
+  compass: { n: 'Compass', kind: 'compass', pw: 1, dur: 999, t: 2, w: .2 }, climb_gear: { n: 'Climbing gear', kind: 'climb', pw: 2, dur: 200, t: 3, w: 2 },
   // advanced equipment
-  rust_detector: { n: 'Rust detector', kind: 'detector', pw: 3, dur: 300, t: 4, salv: 1 }, med_scanner: { n: 'Medical scanner', kind: 'scanner', pw: 3, dur: 200, t: 4, salv: 1 },
-  lock_bypass: { n: 'Electronic lock bypass', kind: 'bypass', pw: 3, dur: 30, t: 4, salv: 1 }, solar_charger: { n: 'Portable solar charger', kind: 'charger', pw: 3, dur: 400, t: 3 },
-  transmitter: { n: 'Signal transmitter', kind: 'radio', pw: 3, dur: 300, t: 4, salv: 1 }, repair_drone: { n: 'Repair drone', kind: 'drone', pw: 3, dur: 200, t: 5, salv: 1 },
-  nvg: { n: 'Night-vision goggles', kind: 'nvg', pw: 3, dur: 300, t: 4, salv: 1 }, breather: { n: 'Breathing apparatus', kind: 'breather', pw: 3, dur: 120, t: 4, salv: 1 },
-  diag_pc: { n: 'Diagnostic computer', kind: 'diag', pw: 3, dur: 400, t: 4, salv: 1 },
-  // wear (body slot; protection 0–1 · fog = Rust resistance)
-  wraps: { n: 'Cloth wraps', kind: 'wear', pw: 0, dur: 30, t: 1, prot: .06 }, hide_coat: { n: 'Hide coat', kind: 'wear', pw: 0, dur: 60, t: 1, prot: .12 },
-  leather_armor: { n: 'Leather armor', kind: 'wear', pw: 0, dur: 90, t: 2, prot: .22 }, metal_chest: { n: 'Metal chest armor', kind: 'wear', pw: 0, dur: 140, t: 2, prot: .36 },
-  arc_jumpsuit: { n: 'Arc jumpsuit', kind: 'wear', pw: 0, dur: 80, t: 3, prot: .08, salv: 1 }, tac_armor: { n: 'Tactical armor', kind: 'wear', pw: 0, dur: 200, t: 3, prot: .42, salv: 1 },
-  hazmat: { n: 'Hazmat suit', kind: 'wear', pw: 0, dur: 100, t: 4, prot: .1, fog: .7, salv: 1 }, rust_suit: { n: 'Rust suit', kind: 'wear', pw: 0, dur: 160, t: 4, prot: .2, fog: .95 },
+  rust_detector: { n: 'Rust detector', kind: 'detector', pw: 3, dur: 600, t: 4, w: .6 }, med_scanner: { n: 'Medical scanner', kind: 'scanner', pw: 3, dur: 400, t: 4, w: .8 },
+  lock_bypass: { n: 'Electronic lock bypass', kind: 'bypass', pw: 3, dur: 12, t: 4, w: .4 }, solar_charger: { n: 'Portable solar charger', kind: 'charger', pw: 3, dur: 999, t: 3, w: 1 },
+  transmitter: { n: 'Signal transmitter', kind: 'transmit', pw: 3, dur: 20, t: 4, w: 1.5 }, repair_drone: { n: 'Repair drone', kind: 'drone', pw: 3, dur: 600, t: 5, w: 3 },
+  breather: { n: 'Breathing apparatus', kind: 'breather', pw: 3, dur: 300, t: 4, w: 2 }, diag_pc: { n: 'Diagnostic computer', kind: 'diag', pw: 3, dur: 999, t: 4, w: 3 },
+  // weapons (stats live in WDEF, in 2c-weapons.js)
+  stone_knife: { n: 'Stone knife', kind: 'weapon', dur: 40, t: 1, w: .3 }, bone_dagger: { n: 'Bone dagger', kind: 'weapon', dur: 35, t: 1, w: .2 },
+  hunting_knife: { n: 'Hunting knife', kind: 'knife', pw: 2, dur: 150, t: 2, w: .4 }, mil_knife: { n: 'Combat knife', kind: 'knife', pw: 2, dur: 220, t: 3, w: .4 },
+  wood_spear: { n: 'Wooden spear', kind: 'weapon', dur: 40, t: 1, w: 1.5 }, metal_spear: { n: 'Metal spear', kind: 'weapon', dur: 120, t: 2, w: 2 }, hunt_spear: { n: 'Hunting spear', kind: 'weapon', dur: 70, t: 2, w: 1.6 },
+  club: { n: 'Club', kind: 'weapon', dur: 60, t: 1, w: 2 }, staff: { n: 'Staff', kind: 'weapon', dur: 80, t: 1, w: 1.5 }, hatchet: { n: 'Hatchet', kind: 'axe', pw: 1, dur: 90, t: 2, w: 1.2 },
+  machete: { n: 'Machete', kind: 'weapon', dur: 140, t: 2, w: 1 }, sword: { n: 'Sword', kind: 'weapon', dur: 220, t: 3, w: 1.8 }, war_axe: { n: 'War axe', kind: 'axe', pw: 2, dur: 200, t: 3, w: 2.6 },
+  stun_baton: { n: 'Stun baton', kind: 'weapon', dur: 160, t: 3, w: 1 },
+  shortbow: { n: 'Shortbow', kind: 'weapon', dur: 120, t: 2, w: 1 }, recurve: { n: 'Recurve bow', kind: 'weapon', dur: 200, t: 2, w: 1.2 }, crossbow: { n: 'Crossbow', kind: 'weapon', dur: 220, t: 3, w: 3 },
+  pistol: { n: 'Pistol', kind: 'weapon', dur: 600, t: 3, w: 1 }, revolver: { n: 'Revolver', kind: 'weapon', dur: 700, t: 3, w: 1.3 }, shotgun: { n: 'Shotgun', kind: 'weapon', dur: 400, t: 3, w: 3.5 },
+  smg: { n: 'Submachine gun', kind: 'weapon', dur: 900, t: 4, w: 3 }, assault: { n: 'Assault rifle', kind: 'weapon', dur: 1200, t: 4, w: 3.8 }, sniper: { n: 'Sniper rifle', kind: 'weapon', dur: 300, t: 4, w: 5 },
+  lmg: { n: 'Light machine gun', kind: 'weapon', dur: 1600, t: 4, w: 8 }, flare_gun: { n: 'Flare gun', kind: 'weapon', dur: 200, t: 3, w: .8 },
+  grey_rifle: { n: 'Greyhold security rifle', kind: 'weapon', dur: 1600, t: 4, w: 3.6 }, pulse_rifle: { n: 'Meridian pulse rifle', kind: 'weapon', dur: 900, t: 6, w: 3 },
+  // wear: slot · prot (damage cut) · fog (Rust resistance) · mob (speed) · stealth (how close enemies get before noticing) · warm (slower hunger) · cap (carry)
+  wraps: { n: 'Torn clothing', kind: 'wear', slot: 'body', prot: .04, warm: .05, dur: 40, t: 1, w: .5 }, hide_coat: { n: 'Hide coat', kind: 'wear', slot: 'body', prot: .1, warm: .25, dur: 80, t: 1, w: 3 },
+  jacket: { n: 'Leather jacket', kind: 'wear', slot: 'body', prot: .12, warm: .2, dur: 140, t: 2, w: 2 }, hunt_outfit: { n: 'Hunting outfit', kind: 'wear', slot: 'body', prot: .1, warm: .15, stealth: .35, dur: 120, t: 2, w: 2 },
+  rain_cloak: { n: 'Rain cloak', kind: 'wear', slot: 'body', prot: .05, warm: .3, fog: .15, dur: 100, t: 2, w: 1.2 }, leather_armor: { n: 'Clan leather armor', kind: 'wear', slot: 'body', prot: .22, warm: .1, dur: 160, t: 2, w: 4 },
+  metal_chest: { n: 'Metal chestplate', kind: 'wear', slot: 'body', prot: .36, mob: -.08, dur: 220, t: 2, w: 8 }, arc_jumpsuit: { n: 'Arc jumpsuit', kind: 'wear', slot: 'body', prot: .06, warm: .1, mob: .04, dur: 160, t: 3, w: 1.2 },
+  util_vest: { n: 'Utility vest', kind: 'wear', slot: 'body', prot: .1, cap: 12, dur: 160, t: 3, w: 1.5 }, sec_uniform: { n: 'Security uniform', kind: 'wear', slot: 'body', prot: .18, dur: 200, t: 3, w: 3 },
+  tac_armor: { n: 'Tactical armor', kind: 'wear', slot: 'body', prot: .42, mob: -.04, cap: 6, dur: 320, t: 3, w: 7 }, hazmat: { n: 'Hazmat suit', kind: 'wear', slot: 'body', prot: .08, fog: .7, mob: -.06, dur: 160, t: 4, w: 4 },
+  grey_armor: { n: 'Greyhold security armor', kind: 'wear', slot: 'body', prot: .5, fog: .3, dur: 400, t: 4, w: 8 }, rust_suit: { n: 'Rust suit', kind: 'wear', slot: 'body', prot: .2, fog: .95, mob: -.05, dur: 260, t: 4, w: 5 },
+  mil_armor: { n: 'Reinforced military armor', kind: 'wear', slot: 'body', prot: .6, mob: -.06, dur: 500, t: 5, w: 10 }, sealed_suit: { n: 'Sealed environmental suit', kind: 'wear', slot: 'body', prot: .45, fog: 1, warm: .3, dur: 600, t: 6, w: 6 },
+  clan_mask: { n: 'Clan bone mask', kind: 'wear', slot: 'head', prot: .05, stealth: .2, dur: 80, t: 2, w: .8 }, gas_mask: { n: 'Gas mask', kind: 'wear', slot: 'head', fog: .6, dur: 200, t: 4, w: 1 },
+  helmet: { n: 'Helmet', kind: 'wear', slot: 'head', prot: .14, dur: 260, t: 3, w: 1.5 }, riot_helmet: { n: 'Riot helmet', kind: 'wear', slot: 'head', prot: .2, dur: 320, t: 4, w: 2 },
+  nvg: { n: 'Night-vision goggles', kind: 'wear', slot: 'head', nv: 1, dur: 900, t: 4, w: .8 },
+  gloves: { n: 'Gloves', kind: 'wear', slot: 'arms', prot: .02, gather: .3, dur: 120, t: 2, w: .2 }, arm_guards: { n: 'Arm guards', kind: 'wear', slot: 'arms', prot: .1, dur: 160, t: 2, w: 1.2 },
+  shield: { n: 'Reinforced shield', kind: 'wear', slot: 'arms', prot: .22, mob: -.05, dur: 260, t: 2, w: 5 }, riot_shield: { n: 'Riot shield', kind: 'wear', slot: 'arms', prot: .32, mob: -.07, dur: 400, t: 4, w: 6 },
+  boots: { n: 'Boots', kind: 'wear', slot: 'feet', prot: .02, mob: .06, dur: 200, t: 2, w: 1 }, hide_boots: { n: 'Hide boots', kind: 'wear', slot: 'feet', mob: .03, warm: .1, dur: 90, t: 1, w: .8 },
+  backpack: { n: 'Backpack', kind: 'wear', slot: 'pack', cap: 30, dur: 999, t: 2, w: 1 }, duffel: { n: 'Duffel bag', kind: 'wear', slot: 'pack', cap: 20, dur: 999, t: 2, w: 1 },
+  canteen: { n: 'Water canteen', kind: 'container', dur: 999, t: 2, w: .5 },
 };
-const gearDef = id => GEAR_DEFS[id];
+const WEAR_SLOTS = ['head', 'body', 'arms', 'feet', 'pack'];
 
-/* station: where a recipe can be made · tool: a tool kind you must carry (used once) */
+/* recipes · at: station (fire · cook · rack · bench · forge · lab · filter) · tool: a tool kind you must carry (wears once) */
+const R_ = (o, i, cat, t, extra = {}) => ({ o, i, cat, t, ...extra });
 const RECIPES = [
-  // survival & tools
-  { o: 'rope', n: 1, i: { fiber: 4 }, cat: 'surv', t: 1 },
-  { o: 'stone_axe', i: { stick: 1, stone: 2, fiber: 2 }, cat: 'surv', t: 1 },
-  { o: 'stone_pick', i: { stick: 2, stone: 3, rope: 1 }, cat: 'surv', t: 1 },
-  { o: 'flint_knife', i: { flint: 2, cloth: 1 }, cat: 'surv', t: 1 },
-  { o: 'bone_knife', i: { bone: 2, sinew: 1 }, cat: 'surv', t: 1 },
-  { o: 'wood_shovel', i: { stick: 2, bark: 2, rope: 1 }, cat: 'surv', t: 1 },
-  { o: 'fish_spear', i: { stick: 2, flint: 1, fiber: 1 }, cat: 'surv', t: 1 },
-  { o: 'hook', n: 2, i: { bone: 1 }, cat: 'surv', t: 1, tool: 'knife' },
-  { o: 'fish_rod', i: { stick: 2, fiber: 2, hook: 1 }, cat: 'surv', t: 1 },
-  { o: 'needle', i: { bone: 1 }, cat: 'surv', t: 1, tool: 'knife' },
-  { o: 'pot', i: { clay: 3 }, cat: 'surv', t: 1, at: 'fire' },
-  { o: 'charcoal', n: 2, i: { log: 1 }, cat: 'surv', t: 1, at: 'fire' },
-  { o: 'hide_coat', i: { hide: 3, sinew: 2 }, cat: 'surv', t: 1, tool: 'needle' },
-  { o: 'torch_t', i: { stick: 1, cloth: 1, fat: 1 }, cat: 'surv', t: 1, soon: 1 },
-  { o: 'water_filter', i: { charcoal: 2, cloth: 1, pot: 1 }, cat: 'surv', t: 2, soon: 1 },
-  { o: 'canteen', i: { leather: 2, fiber: 1 }, cat: 'surv', t: 2, soon: 1 },
-  { o: 'backpack', i: { cloth: 4, leather: 2, fiber: 2 }, cat: 'surv', t: 2, soon: 1 },
-  // food & medicine
-  { o: 'ration', i: { meat: 1 }, cat: 'food', t: 1, at: 'fire' },
-  { o: 'cooked_fish', i: { fish: 1 }, cat: 'food', t: 1, at: 'fire', alt: { lake_fish: 1 } },
-  { o: 'water_boiled', i: { water_dirty: 1 }, cat: 'food', t: 1, at: 'fire' },
-  { o: 'stew', i: { veg: 2, water_boiled: 1 }, cat: 'food', t: 1, at: 'fire' },
-  { o: 'fish_soup', i: { fish: 1, herb: 1, water_boiled: 1 }, cat: 'food', t: 1, at: 'fire', alt: { lake_fish: 1 } },
-  { o: 'dried_meat', n: 2, i: { meat: 2 }, cat: 'food', t: 1, at: 'rack' },
-  { o: 'herb_bandage', i: { cloth: 1, herb_med: 2 }, cat: 'food', t: 1 },
-  { o: 'poultice', i: { herb_med: 2, fat: 1 }, cat: 'food', t: 1 },
-  { o: 'splint', i: { stick: 2, cloth: 2 }, cat: 'food', t: 1 },
-  { o: 'medkit', i: { herb_bandage: 2, disinfect: 1, painkiller: 1 }, cat: 'food', t: 2 },
-  { o: 'purify_kit', i: { water_filter: 1, pot: 1 }, cat: 'food', t: 2, soon: 1 },
-  // weapons & armor
-  { o: 'leather', i: { hide: 1, fat: 1 }, cat: 'war', t: 2, at: 'rack' },
-  { o: 'leather_armor', i: { leather: 6, cloth: 3, fiber: 2 }, cat: 'war', t: 2, tool: 'needle' },
-  { o: 'metal_chest', i: { scrap: 5, leather: 3, fasteners: 2 }, cat: 'war', t: 2, at: 'bench' },
-  { o: 'hunt_spear', i: { stick: 2, sharp_rock: 1, rope: 1 }, cat: 'war', t: 2, soon: 1 },
-  { o: 'bow', i: { hardwood: 2, sinew: 2 }, cat: 'war', t: 2, soon: 1 },
-  { o: 'arrows', n: 5, i: { stick: 5, feather: 5, sharp_rock: 5 }, cat: 'war', t: 2, soon: 1 },
-  { o: 'shield', i: { plank: 4, scrap: 3, leather: 2 }, cat: 'war', t: 2, soon: 1 },
-  { o: 'repair_kit', i: { scrap: 2, spare_parts: 1, tool_kit: 1 }, cat: 'war', t: 3, soon: 1 },
-  // base building & technology
-  { o: 'campfire', i: { stone: 6, stick: 5 }, cat: 'base', t: 1 },
-  { o: 'drying_rack', i: { stick: 6, rope: 2 }, cat: 'base', t: 1 },
-  { o: 'plank', n: 2, i: { log: 1 }, cat: 'base', t: 2, at: 'bench', tool: 'saw' },
-  { o: 'wood_wall', i: { log: 6, rope: 2 }, cat: 'base', t: 2, soon: 1 },
-  { o: 'storage', i: { plank: 5, nails: 4 }, cat: 'base', t: 2, soon: 1 },
-  { o: 'rain_coll', i: { scrap: 4, cloth: 2, pot: 1 }, cat: 'base', t: 2, soon: 1 },
-  { o: 'cook_station', i: { stone: 8, scrap: 3 }, cat: 'base', t: 2, soon: 1 },
-  { o: 'workbench', i: { plank: 6, scrap: 4, tool_kit: 1 }, cat: 'base', t: 3, soon: 1 },
-  { o: 'radio_st', i: { circuit: 2, wire: 4, battery: 1, antenna: 1 }, cat: 'base', t: 3, soon: 1 },
-  { o: 'solar_charger', i: { solar_cell: 2, wire: 2, circuit: 1 }, cat: 'base', t: 3, soon: 1 },
-  { o: 'rust_detector', i: { sensor: 1, circuit: 1, battery: 1 }, cat: 'base', t: 4, soon: 1 },
-  { o: 'greenhouse', i: { plank: 4, soil: 3, cloth: 2 }, cat: 'base', t: 3, soon: 1 },
-  { o: 'med_station', i: { scrap: 4, medkit: 2 }, cat: 'base', t: 3, soon: 1 },
+  // materials
+  R_('rope', { fiber: 4 }, 'mat', 1), R_('rope', { vine: 3 }, 'mat', 1, { alt: 1 }), R_('thread', { fiber: 3 }, 'mat', 1, { n: 3 }), R_('sharp_rock', { flint: 1 }, 'mat', 1, { n: 2 }),
+  R_('plank', { log: 1 }, 'mat', 1, { tool: 'axe' }), R_('plank', { log: 1 }, 'mat', 2, { n: 3, at: 'bench', tool: 'saw' }),
+  R_('charcoal', { log: 1 }, 'mat', 1, { n: 2, at: 'fire' }), R_('ash', { stick: 3 }, 'mat', 1, { n: 2, at: 'fire' }), R_('pot', { clay: 3 }, 'mat', 1, { at: 'fire' }),
+  R_('hook', { bone: 1 }, 'mat', 1, { n: 2, tool: 'knife' }), R_('leather', { hide: 1, fat: 1 }, 'mat', 2, { at: 'rack' }), R_('leather', { hide: 1, bark: 3 }, 'mat', 2, { at: 'rack', alt: 1 }),
+  R_('cloth', { thread: 4 }, 'mat', 2, { n: 2, at: 'bench' }), R_('canvas', { cloth: 3, fat: 1 }, 'mat', 2), R_('fertilizer', { ash: 1, soil: 1, bone: 1 }, 'mat', 2, { n: 2 }),
+  R_('fasteners', { nails: 3, screws: 2 }, 'mat', 2, { n: 2 }), R_('copper', { cu_wiring: 2 }, 'mat', 2, { tool: 'knife' }), R_('salt', { water_dirty: 3 }, 'mat', 2, { at: 'cook' }),
+  R_('iron', { metal_ore: 2, charcoal: 1 }, 'mat', 3, { at: 'forge' }), R_('iron', { scrap: 3, charcoal: 1 }, 'mat', 3, { at: 'forge', alt: 1 }), R_('steel', { iron: 2, charcoal: 2 }, 'mat', 3, { at: 'forge' }),
+  R_('nails', { iron: 1 }, 'mat', 3, { n: 10, at: 'forge' }), R_('screws', { steel: 1 }, 'mat', 3, { n: 8, at: 'forge' }), R_('bolts', { steel: 1 }, 'mat', 3, { n: 5, at: 'forge' }),
+  R_('wire', { copper: 1 }, 'mat', 3, { n: 3, at: 'bench', tool: 'pliers' }), R_('pipe', { iron: 2 }, 'mat', 3, { at: 'forge' }), R_('springs', { steel: 1 }, 'mat', 3, { n: 3, at: 'forge' }),
+  R_('gears', { steel: 1 }, 'mat', 3, { n: 2, at: 'forge' }), R_('gunpowder', { charcoal: 2, salt: 1, ash: 1 }, 'mat', 3, { n: 5, at: 'bench' }),
+  R_('spare_parts', { gears: 1, springs: 1, screws: 2 }, 'mat', 3, { at: 'bench' }), R_('tool_kit', { scrap: 4, screws: 4, leather: 1 }, 'mat', 3, { at: 'bench', tool: 'wrench' }),
+  R_('fuel', { fat: 4, charcoal: 1 }, 'mat', 3, { at: 'forge' }), R_('glass', { limestone: 2, ash: 2, charcoal: 2 }, 'mat', 3, { at: 'forge' }),
+  // tools
+  R_('stone_axe', { stick: 1, stone: 2, fiber: 2 }, 'tool', 1), R_('stone_pick', { stick: 2, stone: 3, rope: 1 }, 'tool', 1), R_('flint_knife', { flint: 2, cloth: 1 }, 'tool', 1),
+  R_('flint_knife', { flint: 2, fiber: 2 }, 'tool', 1, { alt: 1 }), R_('bone_knife', { bone: 2, sinew: 1 }, 'tool', 1), R_('wood_shovel', { stick: 2, bark: 2, rope: 1 }, 'tool', 1),
+  R_('fish_spear', { stick: 2, flint: 1, fiber: 1 }, 'tool', 1), R_('fish_rod', { stick: 2, fiber: 2, hook: 1 }, 'tool', 1), R_('torch_t', { stick: 1, cloth: 1, fat: 1 }, 'tool', 1),
+  R_('fire_starter', { flint: 1, stone: 1 }, 'tool', 1), R_('wood_hammer', { log: 1, stick: 1, rope: 1 }, 'tool', 1), R_('needle', { bone: 1 }, 'tool', 1, { tool: 'knife' }),
+  R_('hand_saw', { scrap: 3, stick: 1 }, 'tool', 2, { at: 'bench' }), R_('compass', { iron: 1, glass: 1 }, 'tool', 3, { at: 'bench' }),
+  R_('metal_axe', { iron: 2, hardwood: 1, leather: 1 }, 'tool', 3, { at: 'forge' }), R_('pickaxe', { iron: 3, hardwood: 1 }, 'tool', 3, { at: 'forge' }), R_('hammer', { iron: 1, hardwood: 1 }, 'tool', 3, { at: 'forge' }),
+  R_('crowbar', { steel: 2 }, 'tool', 3, { at: 'forge' }), R_('wrench', { steel: 1, iron: 1 }, 'tool', 3, { at: 'forge' }), R_('screwdriver', { steel: 1, plank: 1 }, 'tool', 3, { at: 'bench' }),
+  R_('pliers', { steel: 1, rubber: 1 }, 'tool', 3, { at: 'forge' }), R_('wire_cutters', { steel: 1, rubber: 1 }, 'tool', 3, { at: 'forge' }), R_('bolt_cutters', { steel: 3, rubber: 1, bolts: 2 }, 'tool', 3, { at: 'forge' }),
+  R_('multitool', { steel: 2, screws: 2, springs: 1 }, 'tool', 3, { at: 'bench' }), R_('welder', { battery: 2, cu_wiring: 2, steel: 2, gas_tank: 1 }, 'tool', 3, { at: 'bench' }),
+  R_('flashlight', { battery: 1, glass: 1, aluminum: 1, wire: 1 }, 'tool', 3, { at: 'bench' }), R_('radio', { circuit: 1, battery: 1, antenna: 1, wire: 2 }, 'tool', 3, { at: 'bench' }),
+  R_('binoculars', { glass: 2, aluminum: 1, rubber: 1 }, 'tool', 3, { at: 'bench' }), R_('climb_gear', { rope: 3, steel: 1, leather: 2 }, 'tool', 3, { at: 'bench' }),
+  R_('solar_charger', { solar_cell: 2, wire: 2, circuit: 1 }, 'tool', 3, { at: 'bench' }), R_('canteen', { leather: 2, fiber: 1 }, 'tool', 2),
+  R_('rust_detector', { sensor: 1, circuit: 1, battery: 1 }, 'tool', 4, { at: 'bench' }), R_('med_scanner', { sensor: 2, circuit: 1, battery: 1, glass: 1 }, 'tool', 4, { at: 'lab' }),
+  R_('lock_bypass', { circuit: 1, battery: 1, wire: 2, sensor: 1 }, 'tool', 4, { at: 'bench', tool: 'driver' }), R_('transmitter', { circuit: 2, antenna: 1, battery: 2 }, 'tool', 4, { at: 'bench' }),
+  R_('breather', { rubber: 2, charcoal: 3, aluminum: 1, gas_tank: 1 }, 'tool', 4, { at: 'bench' }), R_('diag_pc', { circuit: 3, battery: 2, glass: 1, aluminum: 2 }, 'tool', 4, { at: 'bench' }),
+  R_('repair_drone', { circuit: 2, sensor: 2, battery: 2, arc_alloy: 2, spare_parts: 2 }, 'tool', 5, { at: 'bench' }),
+  // weapons + ammo
+  R_('stone_knife', { flint: 2, stick: 1, fiber: 1 }, 'weap', 1), R_('bone_dagger', { bone: 2, sinew: 1 }, 'weap', 1), R_('wood_spear', { hardwood: 1 }, 'weap', 1, { tool: 'knife' }),
+  R_('club', { hardwood: 1, fiber: 2 }, 'weap', 1), R_('staff', { hardwood: 2 }, 'weap', 1, { tool: 'knife' }), R_('throw_spear', { stick: 2, flint: 1, feather: 2 }, 'weap', 1, { n: 2 }),
+  R_('shortbow', { hardwood: 2, sinew: 2 }, 'weap', 2), R_('recurve', { hardwood: 2, bone: 2, sinew: 3, leather: 1 }, 'weap', 2, { at: 'bench' }),
+  R_('arrows', { stick: 5, feather: 5, sharp_rock: 5 }, 'weap', 2, { n: 5 }), R_('hunt_spear', { stick: 2, sharp_rock: 1, rope: 1 }, 'weap', 2),
+  R_('hatchet', { hardwood: 1, flint: 2, sinew: 1 }, 'weap', 2), R_('machete', { scrap: 3, leather: 1 }, 'weap', 2, { at: 'bench' }), R_('metal_spear', { scrap: 2, stick: 2, rope: 1 }, 'weap', 2, { at: 'bench' }),
+  R_('hunting_knife', { iron: 1, leather: 1 }, 'weap', 3, { at: 'forge' }), R_('molotov', { alcohol: 1, cloth: 1 }, 'weap', 2),
+  R_('crossbow', { plank: 2, steel: 1, springs: 1, sinew: 3 }, 'weap', 3, { at: 'bench' }), R_('bolts_xb', { stick: 5, iron: 1 }, 'weap', 3, { n: 5, at: 'forge' }),
+  R_('sword', { steel: 3, leather: 1 }, 'weap', 3, { at: 'forge' }), R_('war_axe', { steel: 2, hardwood: 1, leather: 1 }, 'weap', 3, { at: 'forge' }), R_('mil_knife', { steel: 1, rubber: 1 }, 'weap', 3, { at: 'forge' }),
+  R_('stun_baton', { battery: 2, cu_wiring: 2, rubber: 1, aluminum: 1 }, 'weap', 3, { at: 'bench' }),
+  R_('pistol', { steel: 2, springs: 2, spare_parts: 1 }, 'weap', 3, { at: 'bench', tool: 'driver' }), R_('revolver', { steel: 3, springs: 1, spare_parts: 1, hardwood: 1 }, 'weap', 3, { at: 'bench', tool: 'driver' }),
+  R_('shotgun', { pipe: 2, steel: 2, spare_parts: 2, hardwood: 1 }, 'weap', 3, { at: 'bench', tool: 'wrench' }), R_('flare_gun', { pipe: 1, springs: 1, scrap: 2 }, 'weap', 3, { at: 'bench' }),
+  R_('smg', { steel: 4, springs: 3, spare_parts: 3, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }), R_('assault', { steel: 5, springs: 3, spare_parts: 4, arc_alloy: 1, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }),
+  R_('sniper', { steel: 4, glass: 2, spare_parts: 3, hardwood: 1, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }), R_('lmg', { steel: 8, springs: 4, spare_parts: 6, arc_alloy: 2, tool_kit: 1 }, 'weap', 5, { at: 'bench', tool: 'weld' }),
+  R_('pulse_rifle', { meridian_gear: 1, power_cell: 2, arc_alloy: 3, circuit: 2 }, 'weap', 6, { at: 'bench' }),
+  R_('ammo_9', { scrap: 1, gunpowder: 1 }, 'weap', 3, { n: 15, at: 'bench' }), R_('ammo_45', { scrap: 1, gunpowder: 1 }, 'weap', 3, { n: 10, at: 'bench' }),
+  R_('ammo_556', { scrap: 2, gunpowder: 2 }, 'weap', 3, { n: 20, at: 'bench' }), R_('ammo_762', { scrap: 2, gunpowder: 2 }, 'weap', 3, { n: 8, at: 'bench' }),
+  R_('ammo_12', { scrap: 1, gunpowder: 2, cloth: 1 }, 'weap', 3, { n: 8, at: 'bench' }), R_('ammo_flare', { gunpowder: 1, scrap: 1, fat: 1 }, 'weap', 3, { n: 2, at: 'bench' }),
+  R_('smoke_gren', { charcoal: 2, scrap: 1, fiber: 2 }, 'weap', 3, { at: 'bench' }), R_('frag', { gunpowder: 3, scrap: 2, screws: 2 }, 'weap', 3, { at: 'bench' }),
+  R_('cell', { power_cell: 1 }, 'weap', 6, { n: 10, at: 'bench' }),
+  R_('repair_kit', { scrap: 2, spare_parts: 1, tool_kit: 1 }, 'weap', 3, { at: 'bench' }),
+  // clothing + armor
+  R_('wraps', { cloth: 3 }, 'wear', 1), R_('hide_coat', { hide: 3, sinew: 2 }, 'wear', 1, { tool: 'needle' }), R_('hide_boots', { hide: 2, sinew: 1 }, 'wear', 1, { tool: 'needle' }),
+  R_('jacket', { leather: 4, thread: 2 }, 'wear', 2, { tool: 'needle' }), R_('hunt_outfit', { leather: 3, hide: 2, thread: 2, leaves: 6 }, 'wear', 2, { tool: 'needle' }),
+  R_('rain_cloak', { canvas: 2, fat: 2 }, 'wear', 2), R_('leather_armor', { leather: 6, cloth: 3, fiber: 2 }, 'wear', 2, { tool: 'needle' }),
+  R_('metal_chest', { scrap: 5, leather: 3, fasteners: 2 }, 'wear', 2, { at: 'bench' }), R_('clan_mask', { bone: 2, leather: 1, feather: 1 }, 'wear', 2),
+  R_('war_paint', { charcoal: 1, fat: 1, berries: 1 }, 'wear', 2, { n: 2 }), R_('gloves', { leather: 1, thread: 1 }, 'wear', 2, { tool: 'needle' }),
+  R_('arm_guards', { leather: 2, bone: 2 }, 'wear', 2), R_('boots', { leather: 2, rubber: 1, thread: 1 }, 'wear', 2, { tool: 'needle' }),
+  R_('backpack', { cloth: 4, leather: 2, fiber: 2 }, 'wear', 2, { tool: 'needle' }), R_('duffel', { canvas: 3, leather: 1, rope: 1 }, 'wear', 2, { tool: 'needle' }),
+  R_('shield', { plank: 4, scrap: 3, leather: 2 }, 'wear', 2, { at: 'bench' }),
+  R_('util_vest', { canvas: 2, cloth: 2, fasteners: 2 }, 'wear', 3, { at: 'bench' }), R_('arc_jumpsuit', { synth: 3, thread: 2 }, 'wear', 3, { tool: 'needle' }),
+  R_('sec_uniform', { synth: 2, cloth: 2, thread: 2 }, 'wear', 3, { tool: 'needle' }), R_('tac_armor', { steel: 3, synth: 3, fasteners: 4 }, 'wear', 3, { at: 'bench' }),
+  R_('helmet', { steel: 2, leather: 1, fasteners: 1 }, 'wear', 3, { at: 'forge' }),
+  R_('gas_mask', { rubber: 2, charcoal: 3, glass: 1, aluminum: 1 }, 'wear', 4, { at: 'bench' }), R_('hazmat', { rubber: 4, synth: 4, glass: 1 }, 'wear', 4, { at: 'bench', tool: 'needle' }),
+  R_('rust_suit', { shielding: 2, rubber: 4, synth: 4, glass: 1 }, 'wear', 4, { at: 'bench' }), R_('nvg', { circuit: 1, sensor: 1, glass: 2, battery: 1 }, 'wear', 4, { at: 'bench' }),
+  R_('riot_helmet', { steel: 2, glass: 1, rubber: 1 }, 'wear', 4, { at: 'forge' }), R_('riot_shield', { steel: 3, glass: 2, rubber: 1 }, 'wear', 4, { at: 'forge' }),
+  R_('mil_armor', { steel: 4, arc_alloy: 2, synth: 3, fasteners: 4 }, 'wear', 5, { at: 'bench' }), R_('sealed_suit', { shielding: 3, arc_alloy: 2, rubber: 4, battery: 2, circuit: 1 }, 'wear', 6, { at: 'bench' }),
+  // food + cooking
+  R_('ration', { meat: 1 }, 'food', 1, { at: 'fire' }), R_('roast', { meat: 2, herb: 1 }, 'food', 1, { at: 'fire' }), R_('cooked_fish', { fish: 1 }, 'food', 1, { at: 'fire', alt2: { lake_fish: 1 } }),
+  R_('water_boiled', { water_dirty: 1 }, 'food', 1, { at: 'fire' }), R_('water_boiled', { water_rain: 1 }, 'food', 1, { at: 'fire', alt: 1 }),
+  R_('stew', { veg: 2, water_boiled: 1 }, 'food', 1, { at: 'fire' }), R_('veg_soup', { greens: 2, roots: 1, water_boiled: 1 }, 'food', 1, { at: 'fire' }),
+  R_('fish_soup', { fish: 1, herb: 1, water_boiled: 1 }, 'food', 1, { at: 'fire', alt2: { lake_fish: 1 } }),
+  R_('dried_meat', { meat: 2 }, 'food', 1, { n: 2, at: 'rack' }), R_('smoked_fish', { fish: 2 }, 'food', 1, { n: 2, at: 'rack', alt2: { lake_fish: 2 } }),
+  R_('oil', { fat: 2 }, 'food', 2, { at: 'fire' }), R_('oil', { corn: 3 }, 'food', 2, { at: 'cook', alt: 1 }), R_('flour', { wheat: 3 }, 'food', 2, { tool: 'hammer' }),
+  R_('bread', { flour: 2, water_boiled: 1 }, 'food', 2, { n: 2, at: 'cook' }), R_('water_filtered', { water_dirty: 3, charcoal: 1 }, 'food', 2, { n: 3 }),
+  R_('water_filtered', { water_dirty: 1 }, 'food', 2, { at: 'filter', alt: 1 }),
+  R_('seed_corn', { corn: 1 }, 'food', 2, { n: 3, tool: 'knife' }), R_('seed_potato', { potato: 1 }, 'food', 2, { n: 2, tool: 'knife' }), R_('seed_wheat', { wheat: 1 }, 'food', 2, { n: 3 }),
+  R_('seed_bean', { beans: 1 }, 'food', 2, { n: 3 }), R_('seed_squash', { squash: 1 }, 'food', 2, { n: 4, tool: 'knife' }), R_('seed_carrot', { carrot: 1 }, 'food', 2, { n: 2 }),
+  // medicine
+  R_('herb_bandage', { cloth: 1, herb_med: 2 }, 'med', 1), R_('bandage', { cloth: 1, water_boiled: 1 }, 'med', 1, { at: 'fire' }), R_('poultice', { herb_med: 2, fat: 1 }, 'med', 1),
+  R_('splint', { stick: 2, cloth: 2 }, 'med', 1), R_('painkiller', { bark: 2, water_boiled: 1 }, 'med', 1, { at: 'fire' }),
+  R_('alcohol', { corn: 3, pot: 1 }, 'med', 2, { at: 'cook' }), R_('alcohol', { wheat: 3, pot: 1 }, 'med', 2, { at: 'cook', alt: 1 }), R_('alcohol', { berries: 6, pot: 1 }, 'med', 2, { at: 'cook', alt: 1 }),
+  R_('disinfect', { alcohol: 1, water_boiled: 1 }, 'med', 2, { n: 2 }), R_('sutures', { thread: 2, alcohol: 1 }, 'med', 2, { n: 3 }),
+  R_('medkit', { herb_bandage: 2, disinfect: 1, painkiller: 1 }, 'med', 2), R_('medkit', { bandage: 2, disinfect: 1, painkiller: 1 }, 'med', 2, { alt: 1 }),
+  R_('antibiotic', { mushroom: 3, alcohol: 1, pot: 1 }, 'med', 3, { n: 2, at: 'lab' }), R_('surgical_kit', { sutures: 2, disinfect: 1, steel: 1 }, 'med', 3, { at: 'lab' }),
+  R_('iv', { med_parts: 1, water_filtered: 2, sutures: 1 }, 'med', 3, { at: 'lab' }),
+  R_('rust_med', { lab_sample: 1, herb_med: 3, alcohol: 1 }, 'med', 4, { at: 'lab' }), R_('inject', { lab_sample: 1, med_parts: 1, alcohol: 1 }, 'med', 4, { n: 2, at: 'lab' }),
+  R_('serum', { blackvein: 1, med_parts: 2, inject: 1 }, 'med', 5, { at: 'lab' }),
 ];
-// names for outputs that aren't inventory items (placeables, future gear)
-const EXTRA_NAMES = { campfire: 'Campfire', drying_rack: 'Drying rack', water_filter: 'Water filter', canteen: 'Water canteen', backpack: 'Basic backpack', purify_kit: 'Water purification kit',
-  hunt_spear: 'Hunting spear', bow: 'Improvised bow', arrows: 'Arrows', shield: 'Reinforced shield', repair_kit: 'Weapon repair kit', wood_wall: 'Wooden wall', storage: 'Storage crate',
-  rain_coll: 'Rain collector', cook_station: 'Cooking station', workbench: 'Workbench', radio_st: 'Radio station', greenhouse: 'Greenhouse plot', med_station: 'Medical station', soil: 'Soil' };
-const VEG = ['roots', 'greens', 'mushroom', 'potato', 'carrot', 'squash', 'corn', 'beans'];
-const PLACEABLE = { campfire: 1, drying_rack: 1 };
-const RCATS = [['surv', 'Survival & tools'], ['food', 'Food & medicine'], ['war', 'Weapons & armor'], ['base', 'Base building']];
-const nameOf = id => ITEMS[id]?.n || GEAR_DEFS[id]?.n || EXTRA_NAMES[id] || id;
 
-/* ---------- counts (scrap / raw meat / cooked meat keep their old INV slots so the story + upgrades still work) ---------- */
-const LINK = { scrap: 'scrap', meat: 'meat', ration: 'rations' };
-function invInit() { INV.items = INV.items && typeof INV.items === 'object' ? INV.items : {}; INV.tools = Array.isArray(INV.tools) ? INV.tools : []; }
+/* placeables (made into kits, then placed — see 2d-build.js for what each one does) */
+const BUILD_LIST = [
+  ['campfire', 'Campfire', 1, { stone: 6, stick: 5 }], ['sleeping_mat', 'Sleeping mat', 1, { fiber: 8, leaves: 6 }], ['tent', 'Tent', 1, { stick: 6, hide: 3, rope: 2 }],
+  ['wood_shelter', 'Wooden shelter', 1, { log: 6, stick: 8, rope: 3, leaves: 6 }], ['storage_chest', 'Storage chest', 1, { log: 2, plank: 2, rope: 1 }],
+  ['drying_rack', 'Drying rack', 1, { stick: 6, rope: 2 }], ['cooking_rack', 'Cooking rack', 1, { stick: 6, stone: 4, pot: 1 }], ['water_collector', 'Water collector', 1, { stick: 4, hide: 2, pot: 1 }],
+  ['palisade', 'Wooden palisade', 1, { log: 4, stick: 4 }], ['spikes', 'Spike barricade', 1, { stick: 8, rope: 2 }], ['watchtower', 'Watchtower', 1, { log: 10, rope: 6, plank: 4 }],
+  ['wood_wall', 'Wooden wall', 2, { log: 6, rope: 2 }], ['storage_crate', 'Storage crate', 2, { plank: 5, nails: 4 }], ['rain_coll', 'Rain collector', 2, { scrap: 4, cloth: 2, pot: 1 }],
+  ['cook_station', 'Cooking station', 2, { stone: 8, scrap: 3 }], ['workshop', 'Workshop', 2, { plank: 6, scrap: 4, fasteners: 2 }], ['farm_plot', 'Farm plot', 2, { log: 2, soil: 4, stick: 4 }],
+  ['greenhouse', 'Greenhouse plot', 2, { plank: 4, soil: 3, cloth: 2 }], ['water_filter', 'Water filter', 2, { charcoal: 2, cloth: 1, pot: 1 }],
+  ['chair', 'Chair', 2, { plank: 2, nails: 2 }], ['table', 'Table', 2, { plank: 4, nails: 4 }], ['bed', 'Bed', 2, { plank: 4, cloth: 4, hide: 2 }], ['shelves', 'Shelves', 2, { plank: 4, nails: 2 }],
+  ['lantern', 'Lantern', 2, { scrap: 2, fat: 2, glass: 1 }], ['weapon_rack', 'Weapon rack', 2, { plank: 3, nails: 2 }], ['map_table', 'Map table', 2, { plank: 4, nails: 2, map: 1 }],
+  ['bookshelf', 'Bookshelf', 2, { plank: 4, notebook: 2 }],
+  ['forge', 'Forge', 3, { stone: 20, clay: 8, log: 4 }], ['metal_wall', 'Metal wall', 3, { scrap: 6, steel: 1, fasteners: 2 }], ['door', 'Reinforced door', 3, { steel: 3, plank: 4, bolts: 4 }],
+  ['lockers', 'Lockers', 3, { steel: 2, fasteners: 2 }], ['ammo_box', 'Ammunition storage', 3, { scrap: 3, fasteners: 1 }], ['metal_crate', 'Metal crate', 3, { scrap: 6, bolts: 2 }],
+  ['barracks', 'Barracks', 3, { plank: 12, nails: 10, cloth: 6, hide: 4 }], ['med_station', 'Medical station', 3, { scrap: 4, medkit: 2, plank: 4 }],
+  ['generator', 'Generator', 3, { engine_part: 1, scrap: 6, cu_wiring: 2 }], ['solar_panel', 'Solar panels', 3, { solar_cell: 3, aluminum: 2, wire: 2 }],
+  ['radio_tower', 'Radio tower', 3, { circuit: 2, wire: 4, battery: 1, antenna: 1 }],
+  ['turret', 'Security station', 4, { circuit: 2, sensor: 2, steel: 4, battery: 2 }], ['lab', 'Research lab', 4, { diag_pc: 1, glass: 2, steel: 4, med_parts: 2 }],
+];
+const BUILD_N = {}; for (const [id, n, t] of BUILD_LIST) { BUILD_N[id] = n; ITEMS[id] = { id, n, c: 'build', t, src: 'craft', w: 2 }; RECIPES.push(R_(id, BUILD_LIST.find(b => b[0] === id)[3], 'build', t)); }
+for (const id of ['palisade', 'spikes', 'wood_wall', 'metal_wall', 'door']) RECIPES.find(r => r.o === id).n = 2;
+
+const VEG = ['roots', 'greens', 'mushroom', 'potato', 'carrot', 'squash', 'corn', 'beans'];
+const RCATS = [['mat', 'Materials'], ['tool', 'Tools'], ['weap', 'Weapons'], ['wear', 'Clothing'], ['food', 'Food'], ['med', 'Medicine'], ['build', 'Building']];
+const nameOf = id => ITEMS[id]?.n || GEAR_DEFS[id]?.n || id;
+const STATION_N = { fire: 'Fire', cook: 'Cooking station', rack: 'Drying rack', bench: 'Workbench', forge: 'Forge', lab: 'Lab', filter: 'Water filter' };
+const CAT_N = { wood: 'Wood', stone: 'Stone & earth', fiber: 'Plant fibers', metal: 'Metals', animal: 'Animal', textile: 'Textiles', elec: 'Electronics', indus: 'Industrial', rare: 'Rare salvage',
+  food: 'Food', seed: 'Seeds', water: 'Water', med: 'Medicine', doc: 'Documents', story: 'Relics & keys', ammo: 'Ammunition', build: 'To place' };
+const SRC_N = { ren: 'Renewable', salv: 'Salvage only', craft: 'Crafted', story: 'Story item' };
+const LORE = {
+  insignia: 'Thornkin clan mark. Studying it teaches the clans’ craft — Tier 2.', id_chip: 'An Arc crew chip. Opens Arc lockers and the old ring’s manuals — Tier 3.',
+  greyhold_card: 'A Greyhold security card. Opens the Grey Door and Greyhold technology — Tier 4.', arden_notes: 'Dr. Sel Arden’s research, from before Sunfall — Tier 5.',
+  gate_codes: 'Coordinates and sequences for the Gate Stone. Meridian technology — Tier 6.', ember: 'A warm, humming relic. Carrying it, wounds close faster and the Rust can’t touch you.',
+  blackvein: 'Blood that the Rust doesn’t poison. A lab can make a serum from it.', wristband: 'Arc vitals band — shows how long your injuries will last.',
+  nav_console: 'Lander navigation data — reveals every landmark on the map.', map: 'An old-world map — reveals every named place.', halcyon_chip: 'It whispers about a Quiet City.',
+  sunfall_data: 'The sun will flare again. Night 100 is the warning.', lantern_key: 'Opens the Lantern vault, if anyone can find it.', spindle: 'A mind spindle. Nobody knows what it holds.',
+  meridian_gear: 'Equipment from a ship that never came back. A bench can build a pulse rifle from it.', greyhold_files: 'Greyhold’s medical files — their labs made the Rust medicine.',
+};
+/* ---------- icons: one glyph per category, tinted per item ---------- */
+const GLYPH = {
+  wood: c => `<rect x="2" y="6" width="12" height="5" rx="2.5" fill="${c}" stroke="#000"/><circle cx="13" cy="8.5" r="2" fill="#d8b888" stroke="#000"/>`,
+  stone: c => `<path d="M2 12l2-6 5-3 5 4 0 5z" fill="${c}" stroke="#000"/>`,
+  fiber: c => `<path d="M8 14V5M8 14L4 4M8 14l4-10M8 14L2 8M8 14l6-6" stroke="${c}" stroke-width="1.6" fill="none"/>`,
+  metal: c => `<path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="${c}" stroke="#000"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" fill="none"/>`,
+  animal: c => `<path d="M4 4a1.6 1.6 0 1 1 2 2l4 4a1.6 1.6 0 1 1 2 2 1.6 1.6 0 1 1-2-2L6 6a1.6 1.6 0 1 1-2-2z" fill="${c}" stroke="#000" stroke-width=".8"/>`,
+  textile: c => `<path d="M3 3h10l-1 10H4z" fill="${c}" stroke="#000"/><path d="M5 6h6M5 9h6" stroke="#0006"/>`,
+  elec: c => `<rect x="3" y="3" width="10" height="10" rx="1" fill="${c}" stroke="#000"/><path d="M6 6h4v4H6zM1 6h2M1 10h2M13 6h2M13 10h2" stroke="#000" fill="none"/>`,
+  indus: c => `<circle cx="8" cy="8" r="5" fill="${c}" stroke="#000"/><circle cx="8" cy="8" r="2" fill="#0007"/>`,
+  rare: c => `<path d="M8 1l5 5-5 9-5-9z" fill="${c}" stroke="#000"/><path d="M3 6h10" stroke="#fff6"/>`,
+  food: c => `<path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="${c}" stroke="#000"/>`,
+  water: c => `<path d="M8 2C6 6 4 8 4 10.5a4 4 0 0 0 8 0C12 8 10 6 8 2z" fill="${c}" stroke="#000"/>`,
+  med: c => `<rect x="2" y="3" width="12" height="10" rx="2" fill="${c}" stroke="#000"/><path d="M8 5v6M5 8h6" stroke="#c0302a" stroke-width="2"/>`,
+  seed: c => `<path d="M8 2c4 3 4 9 0 12-4-3-4-9 0-12z" fill="${c}" stroke="#000"/>`,
+  doc: c => `<rect x="3" y="2" width="10" height="12" fill="${c}" stroke="#000"/>`,
+  ammo: c => `<path d="M4 14V6l1.5-4L7 6v8zM9 14V6l1.5-4L12 6v8z" fill="${c}" stroke="#000" stroke-width=".8"/>`,
+  story: c => `<path d="M8 1l2 5h5l-4 3 2 6-5-4-5 4 2-6-4-3h5z" fill="${c}" stroke="#000" stroke-width=".8"/>`,
+  tool: c => `<path d="M3 14l7-7" stroke="#8a6a44" stroke-width="2"/><path d="M8 3l5 1 1 5-3-1-3 1z" fill="${c}" stroke="#000"/>`,
+  wear: c => `<path d="M5 2h6l3 3-2 2v7H4V7L2 5z" fill="${c}" stroke="#000"/>`,
+  build: c => `<path d="M2 8l6-5 6 5v6H2z" fill="${c}" stroke="#000"/><path d="M6 14v-4h4v4" stroke="#000" fill="none"/>`,
+};
+// painted item icons in assets/icons (ICON_IDS is generated by build.sh from that folder); anything missing falls back to a drawn glyph
+const ICON_TINT = { ration: 'sepia(.7) saturate(1.4) brightness(.72)', roast: 'sepia(.8) saturate(1.5) brightness(.6)', cooked_fish: 'sepia(.6) brightness(.85)', smoked_fish: 'sepia(.9) brightness(.7)',
+hardwood: 'brightness(.75) saturate(1.2)', stick: 'brightness(1.15) saturate(.8)', limestone: 'grayscale(1) brightness(1.4)', 
+  stone_pick: 'sepia(.4) brightness(.8)', flint_knife: 'grayscale(.8) brightness(.7)', stone_knife: 'grayscale(.9) brightness(.6)', bone_knife: 'sepia(.6) brightness(1.3)', bone_dagger: 'sepia(.6) brightness(1.3)',
+  water_dirty: 'sepia(.7) hue-rotate(40deg) brightness(.75)', water_rain: 'hue-rotate(-20deg) brightness(1.1)', fish_soup: 'sepia(.3) brightness(1.15)', veg_soup: 'hue-rotate(40deg)',
+  mil_knife: 'grayscale(1) brightness(.6)', hunting_knife: 'sepia(.3)', wood_spear: 'sepia(.5) brightness(.9)', metal_spear: 'grayscale(.6) brightness(1.1)', staff: 'brightness(.8)', recurve: 'sepia(.3) brightness(.85)',
+  grey_rifle: 'grayscale(.6) brightness(1.3)', hide_coat: 'sepia(.6) brightness(1.1)', rain_cloak: 'hue-rotate(160deg) saturate(.6)', wraps: 'grayscale(.6) brightness(1.1)', hide_boots: 'sepia(.5) brightness(1.15)',
+  metal_chest: 'sepia(.4) brightness(.9)', sec_uniform: 'grayscale(.4) brightness(1.1)', grey_armor: 'grayscale(.9) brightness(1.2)', mil_armor: 'brightness(.75)', rust_suit: 'hue-rotate(-30deg) saturate(1.3)',
+  sealed_suit: 'grayscale(.8) brightness(1.3)', riot_shield: 'brightness(1.2)', clan_mask: 'sepia(.9) brightness(1.2)', arc_alloy: 'hue-rotate(180deg) saturate(.6) brightness(1.2)', shielding: 'sepia(.8) saturate(1.5)',
+  synth: 'hue-rotate(200deg) saturate(1.5)', thread: 'grayscale(.6) brightness(1.4)', bread: 'sepia(.7) brightness(.95)', lake_fish: 'hue-rotate(20deg)', shellfish: 'sepia(.6) hue-rotate(-20deg)',
+  nuts: 'sepia(.4) brightness(.9)', greens: 'hue-rotate(20deg)', squash: 'sepia(.5) saturate(2) hue-rotate(-10deg)', shield: 'sepia(.5) brightness(.9)', palisade: 'brightness(.85)',
+  drying_rack: 'sepia(.5)', cook_station: 'grayscale(.4)', storage_crate: 'sepia(.3) brightness(1.1)', ammo_box: 'hue-rotate(60deg) saturate(.6)' };
+function icon(id) {
+  if (ICON_IDS.has(id)) return `<img class="ic" src="assets/icons/${id}.png" alt="" draggable="false"${ICON_TINT[id] ? ` style="filter:${ICON_TINT[id]}"` : ''}>`;
+  const I = ITEMS[id], D = GEAR_DEFS[id];
+  const g = I ? GLYPH[I.c] || GLYPH.indus : D ? (D.kind === 'wear' ? GLYPH.wear : GLYPH.tool) : GLYPH.build;
+  const col = I ? '#a8a090' : D ? (D.salv ? '#b8c0c6' : '#9a968e') : '#a07a4e';
+  return `<svg viewBox="0 0 16 16">${g(col)}</svg>`;
+}
+
+/* ================= inventory, gear, crafting, food, injuries, gathering, loot ================= */
+
+/* ---------- counts (scrap / meat / cooked meat / the two rifle calibres keep their old INV slots) ---------- */
+const LINK = { scrap: 'scrap', meat: 'meat', ration: 'rations', ammo_556: 'res', ammo_762: 'resH' };
+function invInit() {
+  INV.items = INV.items && typeof INV.items === 'object' ? INV.items : {}; INV.tools = Array.isArray(INV.tools) ? INV.tools : [];
+  INV.uid = INV.uid || 1; for (const t of INV.tools) if (!t.u) t.u = INV.uid++;
+  INV.tools = INV.tools.filter(t => GEAR_DEFS[t.id]);
+  for (const k in INV.items) if (!ITEMS[k]) delete INV.items[k];
+}
 function cnt(id) {
   if (id === 'veg') return VEG.reduce((a, v) => a + cnt(v), 0);
   const k = LINK[id]; if (k) return INV[k] || 0;
@@ -2150,95 +2584,123 @@ function cnt(id) {
 function give(id, n = 1, q) {
   if (GEAR_DEFS[id]) { for (let i = 0; i < n; i++) newGear(id, q); return; }
   const k = LINK[id]; if (k) { INV[k] = Math.max(0, (INV[k] || 0) + n); return; }
-  const v = (INV.items[id] || 0) + n; if (v > 0) INV.items[id] = v; else delete INV.items[id];
+  const was = INV.items[id] || 0, v = was + n; if (v > 0) INV.items[id] = v; else delete INV.items[id];
+  if (n > 0 && !was && TIER_KEYS[id]) unlockTier(TIER_KEYS[id], id);
+  if (n > 0 && !was && (id === 'map' || id === 'nav_console')) revealAll(id);
 }
+const busy = t => t.on || (INV.eq && INV.eq.includes(t.u));
 function take(id, n) {
   if (id === 'veg') { for (const v of VEG) { const m = Math.min(n, cnt(v)); if (m) { take(v, m); n -= m; } if (!n) break; } return; }
-  if (GEAR_DEFS[id]) { for (let i = 0; i < n; i++) { const j = INV.tools.findIndex(t => t.id === id && !t.on); if (j >= 0) INV.tools.splice(j, 1); } return; }
+  if (GEAR_DEFS[id]) { for (let i = 0; i < n; i++) { let j = INV.tools.findIndex(t => t.id === id && !busy(t)); if (j < 0) j = INV.tools.findIndex(t => t.id === id); if (j >= 0) unequip(INV.tools.splice(j, 1)[0]); } return; }
   give(id, -n);
 }
 function newGear(id, q, wear = 0) {
   const D = GEAR_DEFS[id]; if (q == null) { const r = rnd(); q = r < .22 ? 0 : r < .85 ? 1 : 2; }
-  const max = Math.round(D.dur * QUAL[q].k), g = { id, q, max, d: Math.max(1, Math.round(max * (1 - wear))) };
+  const max = Math.round(D.dur * QUAL[q].k), g = { id, q, max, d: Math.max(1, Math.round(max * (1 - wear))), u: INV.uid = (INV.uid || 1) + 1 };
   INV.tools.push(g);
-  if (D.kind === 'wear' && !INV.tools.some(t => t.on)) g.on = true;
+  if (D.kind === 'wear' && !INV.tools.some(t => t.on && GEAR_DEFS[t.id].slot === D.slot)) g.on = true;
+  if (typeof autoEquip === 'function') autoEquip(g);
   return g;
 }
-const bestTool = kind => { let b = null; for (const t of INV.tools) { const D = GEAR_DEFS[t.id]; if (D.kind !== kind) continue; if (!b || D.pw > GEAR_DEFS[b.id].pw || (D.pw === GEAR_DEFS[b.id].pw && t.d > b.d)) b = t; } return b; };
+function unequip(g) { g.on = false; if (INV.eq) INV.eq = INV.eq.map(u => u === g.u ? null : u); }
+const bestTool = kind => { let b = null; for (const t of INV.tools) { const D = GEAR_DEFS[t.id]; if (D.kind !== kind && !(D.kind === 'multi' && ['knife', 'pliers', 'driver'].includes(kind))) continue; const pw = D.pw || 1, bp = b ? GEAR_DEFS[b.id].pw || 1 : -1; if (!b || pw > bp || (pw === bp && t.d > b.d)) b = t; } return b; };
 let lastTool = null;
 function wearTool(t, n = 1) {
-  if (!t) return; t.d -= n; lastTool = t;
-  if (t.d <= 0) { INV.tools.splice(INV.tools.indexOf(t), 1); sfx('no'); toast(`${QUAL[t.q].n} ${GEAR_DEFS[t.id].n.toLowerCase()} broke`, 2.6); if (lastTool === t) lastTool = null; }
+  if (!t) return; t.d -= n; if (GEAR_DEFS[t.id].kind !== 'wear') lastTool = t;
+  if (t.d <= 0) { INV.tools.splice(INV.tools.indexOf(t), 1); unequip(t); sfx('no'); toast(`${QUAL[t.q].n} ${GEAR_DEFS[t.id].n.toLowerCase()} broke`, 2.6); if (lastTool === t) lastTool = null; if (typeof onGearBroke === 'function') onGearBroke(t); }
 }
-const worn = () => INV.tools.find(t => t.on && GEAR_DEFS[t.id].kind === 'wear');
+const has = kind => !!bestTool(kind);
 
-/* ---------- stations: the camp fire, bench and smokehouse, plus anything you've placed ---------- */
-const PLACED = [];
+/* ---------- wear: five slots, stats add up ---------- */
+const wornAll = () => INV.tools.filter(t => t.on && GEAR_DEFS[t.id].kind === 'wear');
+function wearStat(k) { let v = 0; for (const t of wornAll()) v += GEAR_DEFS[t.id][k] || 0; return v; }
+function toggleWear(g) {
+  const D = GEAR_DEFS[g.id]; if (D.kind !== 'wear') return;
+  if (g.on) { g.on = false; return; }
+  for (const t of INV.tools) if (t.on && GEAR_DEFS[t.id].slot === D.slot) t.on = false;
+  g.on = true; sfx('pickup');
+}
+function hurtWear(n) { for (const t of wornAll()) if (GEAR_DEFS[t.id].prot) wearTool(t, n); }
+
+/* ---------- carry weight ---------- */
+const carryCap = () => 45 + wearStat('cap');
+function carryLoad() {
+  let w = 0;
+  for (const [id, n] of Object.entries(INV.items)) w += (ITEMS[id]?.w ?? .2) * n;
+  for (const id in LINK) w += (ITEMS[id]?.w || 0) * cnt(id);
+  for (const t of INV.tools) w += GEAR_DEFS[t.id].w || 1;
+  return Math.round(w * 10) / 10;
+}
+let loadT = 0;
+function updLoad(dt) { loadT -= dt; if (loadT > 0) return; loadT = .5; const was = P.over; P.over = carryLoad() > carryCap(); if (P.over && !was) toast('Overloaded — you\'re slower. Drop or store something, or wear a pack', 3.2); }
+
+/* ---------- tiers open when you find their key ---------- */
+const tierNow = () => G.flags.tier || 1;
+const tierOpen = t => t <= tierNow();
+function unlockTier(t, id) {
+  if (t <= tierNow()) return; G.flags.tier = t;
+  setTimeout(() => { card(`TIER ${t} · ${TIERS[t].toUpperCase()}`, `${nameOf(id)} studied — new recipes in the craft menu`, 4.5); music.sting?.('sting-drum-hit', .4); }, 600);
+  save();
+}
+function revealAll(id) {
+  const seen = G.flags.seen = G.flags.seen || {};
+  for (const R of REGIONS) if (!R.area && !R.river) seen[R.id] = 1;
+  if (id === 'nav_console' || id === 'map') { G.flags.mapAll = 1; toast(id === 'map' ? 'The old map marks every named place' : 'The console lists every landing site and ruin', 3); }
+}
+
+/* ---------- stations ---------- */
+const FIXED_ST = () => ({ fire: [[SPOTS.fire, 4.2]], cook: [[SPOTS.fire, 4.2]], bench: [[SPOTS.bench, 4.2]], rack: [[SPOTS.smoke, 4.6]], lab: [[SPOTS.med, 4]] });
 function nearStation(kind) {
-  const fixed = { fire: [SPOTS.fire, 4.2], bench: [SPOTS.bench, 4.2], rack: [SPOTS.smoke, 4.6] }[kind];
-  if (fixed && Math.hypot(P.x - fixed[0].x, P.z - fixed[0].z) < fixed[1]) return true;
-  const pk = kind === 'fire' ? 'campfire' : kind === 'rack' ? 'drying_rack' : null;
-  return !!pk && PLACED.some(p => p.k === pk && Math.hypot(P.x - p.x, P.z - p.z) < 3.4);
+  for (const [p, r] of FIXED_ST()[kind] || []) if (Math.hypot(P.x - p.x, P.z - p.z) < r) return true;
+  if (typeof PLACED === 'undefined') return false;
+  for (const p of PLACED) { const B = BUILD_DEF[p.k]; if (B && B.st && B.st.includes(kind) && Math.hypot(P.x - p.x, P.z - p.z) < (B.str || 3.6) && (!B.needPower || powered())) return true; }
+  for (const S of FACTION_ST) if (S.st.includes(kind) && Math.hypot(P.x - S.x, P.z - S.z) < 4) return true;
+  return false;
 }
-const STATION_N = { fire: 'Fire', bench: 'Workbench', rack: 'Drying rack' };
-function buildPlaced(p) {
-  const g = new THREE.Group(); g.position.set(p.x, heightAt(p.x, p.z), p.z); g.rotation.y = p.yaw || 0;
-  if (p.k === 'campfire') {
-    for (let i = 0; i < 8; i++) { const a = i / 8 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x8a8780), Math.cos(a) * .6, .1, Math.sin(a) * .6, g); }
-    for (let i = 0; i < 3; i++) { const l = mesh(new THREE.CylinderGeometry(.07, .08, .9, 5), M(0x5a3a22), 0, .2, 0, g); l.rotation.set(1.2, i * 2.1, 0); }
-    const fl = mesh(new THREE.ConeGeometry(.3, .8, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: .85 }), 0, .55, 0, g);
-    DECOR_ANIM.push(t => { fl.scale.set(1 + Math.sin(t * 13 + p.x) * .12, 1 + Math.sin(t * 9 + p.z) * .22, 1); fl.material.color.setHSL(.07 + Math.sin(t * 7) * .015, 1, .55); });
-  } else {
-    for (const x of [-.9, .9]) mesh(new THREE.CylinderGeometry(.05, .06, 1.7, 5), M(0x6a4a30), x, .85, 0, g);
-    const bar = mesh(new THREE.CylinderGeometry(.04, .04, 2, 5), M(0x6a4a30), 0, 1.6, 0, g); bar.rotation.z = Math.PI / 2;
-    for (let i = 0; i < 5; i++) mesh(new THREE.BoxGeometry(.12, .45, .03), M(0x8a3a24), -.6 + i * .3, 1.32, 0, g);
-  }
-  world.add(g); p.g = g; addCol(p.x, p.z, .55); PLACED.push(p);
-}
-function placeKit(k) {
-  if (cnt(k) <= 0) return;
-  if (Math.hypot(P.x, P.z) < 8) { sfx('no'); toast('Too close to the wreck — place it somewhere open'); return; }
-  const x = P.x - Math.sin(P.yaw) * 2.2, z = P.z - Math.cos(P.yaw) * 2.2;
-  if (waterAt(x, z) > heightAt(x, z) - .3) { sfx('no'); toast("Can't build in water"); return; }
-  take(k, 1); const p = { k, x, z, yaw: P.yaw }; buildPlaced(p);
-  (G.flags.placed ||= []).push({ k, x: +x.toFixed(1), z: +z.toFixed(1), yaw: +P.yaw.toFixed(2) });
-  sfx('buy'); toast(`${nameOf(k)} built`); save(); if (invOpen) renderInv();
-}
-function restorePlaced() { for (const p of PLACED) world.remove(p.g); PLACED.length = 0; for (const p of G.flags.placed || []) buildPlaced({ ...p }); }
+const FACTION_ST = [];                         // benches/forges in friendly bases (filled by the city/bases builder)
 
 /* ---------- crafting ---------- */
-const tierOpen = t => t <= 1 || (t === 2 && G.chapterDone);
-function recipeState(r) {
-  const ins = Object.entries(r.alt && cnt(Object.keys(r.i)[0]) < r.i[Object.keys(r.i)[0]] && Object.entries(r.alt).every(([k, n]) => cnt(k) >= n) ? { ...Object.fromEntries(Object.entries(r.i).slice(1)), ...r.alt } : r.i);
-  const miss = ins.some(([k, n]) => cnt(k) < n), stOK = !r.at || nearStation(r.at), toolOK = !r.tool || !!bestTool(r.tool);
-  return { ins, miss, stOK, toolOK, open: tierOpen(r.t) && !r.soon, ok: tierOpen(r.t) && !r.soon && !miss && stOK && toolOK };
+function recipeIns(r) {
+  if (!r.alt2) return Object.entries(r.i);
+  const [k0, n0] = Object.entries(r.i)[0];
+  if (cnt(k0) >= n0) return Object.entries(r.i);
+  return [...Object.entries(r.alt2), ...Object.entries(r.i).slice(1)];
 }
-function craft(r) {
-  const s = recipeState(r);
-  if (!s.open) { sfx('no'); return; }
-  if (s.miss) { sfx('no'); toast('Missing materials'); return; }
-  if (!s.stOK) { sfx('no'); toast(`Needs a ${STATION_N[r.at].toLowerCase()}`); return; }
-  if (!s.toolOK) { sfx('no'); toast(`Needs a ${r.tool}`); return; }
-  for (const [k, n] of s.ins) take(k, n);
-  if (r.tool) wearTool(bestTool(r.tool));
-  if (GEAR_DEFS[r.o]) {
-    // a proper bench and an engineer's hands make better tools
-    let q = null; if (nearStation('bench')) { const x = rnd(); q = x < .08 ? 0 : x < .7 ? 1 : 2; }
-    const g = newGear(r.o, q); toast(`${QUAL[g.q].n} ${GEAR_DEFS[r.o].n.toLowerCase()} · ${g.max} uses`, 2.6);
-  } else { give(r.o, r.n || 1); toast(`+${r.n || 1} ${nameOf(r.o)}`, 1.8); }
-  sfx(r.at === 'fire' ? 'eat' : 'buy');
-  if (r.o === 'ration' && G.step === 7) eat();
+function recipeState(r) {
+  const ins = recipeIns(r);
+  const miss = ins.some(([k, n]) => cnt(k) < n), stOK = !r.at || nearStation(r.at), toolOK = !r.tool || has(r.tool);
+  return { ins, miss, stOK, toolOK, open: tierOpen(r.t), ok: tierOpen(r.t) && !miss && stOK && toolOK };
+}
+function craft(r, times = 1) {
+  let made = 0;
+  for (let k = 0; k < times; k++) {
+    const s = recipeState(r);
+    if (!s.open) { sfx('no'); toast(`Tier ${r.t}: ${TIER_HOW[r.t]}`, 3.4); break; }
+    if (s.miss) { if (!made) { sfx('no'); toast('Missing materials'); } break; }
+    if (!s.stOK) { sfx('no'); toast(`Needs a ${STATION_N[r.at].toLowerCase()}`); break; }
+    if (!s.toolOK) { sfx('no'); toast(`Needs a ${r.tool === 'weld' ? 'welding kit' : r.tool === 'driver' ? 'screwdriver' : r.tool}`); break; }
+    for (const [k2, n] of s.ins) take(k2, n);
+    if (r.tool) wearTool(bestTool(r.tool));
+    if (GEAR_DEFS[r.o]) {
+      let q = null; if (nearStation('bench') || nearStation('forge')) { const x = rnd(); q = x < .08 ? 0 : x < .68 ? 1 : 2; }
+      const g = newGear(r.o, q); toast(`${QUAL[g.q].n} ${GEAR_DEFS[r.o].n.toLowerCase()} · ${g.max} uses`, 2.6);
+    } else give(r.o, r.n || 1);
+    made++;
+  }
+  if (!made) return;
+  if (!GEAR_DEFS[r.o]) toast(`+${(r.n || 1) * made} ${nameOf(r.o)}`, 1.8);
+  sfx(r.at === 'fire' || r.at === 'cook' ? 'eat' : 'buy');
   save(); renderInv();
 }
 
 /* ---------- food: variety matters, raw/dirty things can make you sick ---------- */
 const FOOD = {
-  ration: { f: 0, h: 0, k: 'meat', ration: 1 }, dried_meat: { f: 42, h: 10, k: 'meat' }, roast: { f: 55, h: 14, k: 'meat' }, meat: { f: 14, h: 0, k: 'meat', risk: .45 },
+  ration: { f: 0, h: 0, k: 'meat', ration: 1 }, dried_meat: { f: 42, h: 10, k: 'meat' }, roast: { f: 60, h: 16, k: 'meat' }, meat: { f: 14, h: 0, k: 'meat', risk: .45 },
   cooked_fish: { f: 32, h: 10, k: 'fish' }, smoked_fish: { f: 38, h: 10, k: 'fish' }, fish: { f: 10, h: 0, k: 'fish', risk: .4 }, lake_fish: { f: 10, h: 0, k: 'fish', risk: .4 }, shellfish: { f: 12, h: 2, k: 'fish', risk: .25 },
-  berries: { f: 8, h: 2, k: 'plant' }, nuts: { f: 12, h: 2, k: 'plant' }, greens: { f: 7, h: 3, k: 'plant' }, roots: { f: 10, h: 1, k: 'plant', risk: .08 }, mushroom: { f: 9, h: 0, k: 'plant', risk: .22 },
-  potato: { f: 14, h: 2, k: 'plant' }, carrot: { f: 9, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant' },
-  stew: { f: 46, h: 22, k: 'meal' }, fish_soup: { f: 52, h: 24, k: 'meal' }, bread: { f: 30, h: 6, k: 'meal' }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal' },
-  water_dirty: { f: 2, h: 0, k: 'water', risk: .35 }, water_boiled: { f: 3, h: 5, k: 'water' }, water_filtered: { f: 3, h: 6, k: 'water' }, water_rain: { f: 3, h: 4, k: 'water' },
+  berries: { f: 8, h: 2, k: 'plant' }, blueberries: { f: 8, h: 3, k: 'plant' }, nuts: { f: 12, h: 2, k: 'plant' }, greens: { f: 7, h: 3, k: 'plant' }, roots: { f: 10, h: 1, k: 'plant', risk: .08 },
+  mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant' },
+  stew: { f: 46, h: 22, k: 'meal' }, veg_soup: { f: 40, h: 22, k: 'meal' }, fish_soup: { f: 52, h: 24, k: 'meal' }, bread: { f: 30, h: 6, k: 'meal' }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal' },
+  water_dirty: { f: 2, h: 0, k: 'water', risk: .35 }, water_boiled: { f: 3, h: 5, k: 'water' }, water_filtered: { f: 3, h: 6, k: 'water' }, water_rain: { f: 3, h: 4, k: 'water', risk: .05 },
 };
 const DIET_N = 6;
 function eatItem(id, quiet) {
@@ -2258,70 +2720,81 @@ function eatItem(id, quiet) {
   if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 70); note = 'That was bad. You feel sick.'; sfx('cough'); }
   else sfx('eat');
   toast(note, 2.2);
-  if (id === 'ration') eat();
   return true;
 }
 function eatBest() {
   const have = Object.keys(FOOD).filter(id => cnt(id) > 0 && FOOD[id].k !== 'water' && !FOOD[id].risk);
   if (!have.length) { const raw = Object.keys(FOOD).filter(id => cnt(id) > 0 && FOOD[id].k !== 'water'); if (!raw.length) { sfx('no'); toast('Nothing to eat — hunt, forage or cook'); return; } toast('Only raw food left — cook it at a fire first', 2.4); return; }
-  // pick what the diet is missing most, then the most filling
   const seen = k => (P.diet || []).filter(x => x === k).length;
   have.sort((a, b) => seen(FOOD[a].k) - seen(FOOD[b].k) || (FOOD[b].f || 40) - (FOOD[a].f || 40));
   eatItem(have[0]);
 }
 const foodCount = () => Object.keys(FOOD).reduce((a, id) => a + (FOOD[id].k !== 'water' && !FOOD[id].risk ? cnt(id) : 0), 0);
 
-/* ---------- injuries: bleeding, fractures, sickness — each wants a different fix ---------- */
+/* ---------- injuries: bleeding, fractures, sickness, the Rust — each wants its own fix ---------- */
 const MEDS = {
   herb_bandage: { h: 15, fix: ['bleed'] }, bandage: { h: 20, fix: ['bleed'] }, splint: { h: 0, fix: ['frac'] }, poultice: { h: 5, fix: ['sick'] },
-  antibiotic: { h: 5, fix: ['sick'] }, painkiller: { h: 25, fix: [] }, medkit: { h: 60, fix: ['bleed', 'sick', 'frac'] }, purify_tab: { h: 0, fix: [] },
+  antibiotic: { h: 10, fix: ['sick'] }, disinfect: { h: 5, fix: ['sick'] }, painkiller: { h: 25, fix: [] }, medkit: { h: 60, fix: ['bleed', 'sick', 'frac'] },
+  surgical_kit: { h: 35, fix: ['bleed', 'frac'] }, iv: { h: 45, fix: [] }, blood_bag: { h: 55, fix: ['bleed'] },
+  rust_med: { h: 10, fix: ['dose'] }, inject: { h: 0, fix: [], fn: () => { P.immune = 600; return 'protected from the Rust for 10 minutes'; } },
+  serum: { h: 30, fix: ['dose'], fn: () => { G.flags.serum = 1; return 'the Rust can’t hurt you any more'; } },
+  war_paint: { h: 0, fix: [], fn: () => { P.paint = 600; return 'painted — the clans notice you later'; } },
+  purify_tab: { h: 0, fix: [], fn: () => { const n = Math.min(3, cnt('water_dirty')); if (!n) return 'nothing to purify'; take('water_dirty', n); give('water_filtered', n); return `${n} water purified`; } },
 };
 function useMed(id) {
   const M0 = MEDS[id]; if (!M0 || cnt(id) <= 0) return false;
   const fixes = M0.fix.filter(k => P[k] > 0);
-  if (!fixes.length && P.hp >= 99) { toast("You don't need that right now"); return false; }
+  if (!fixes.length && P.hp >= 99 && !M0.fn) { toast("You don't need that right now"); return false; }
   take(id, 1); for (const k of fixes) P[k] = 0; P.hp = Math.min(100, P.hp + M0.h);
-  sfx('pickup'); toast([M0.h ? `+${M0.h} health` : '', fixes.map(k => ({ bleed: 'bleeding stopped', frac: 'leg splinted', sick: 'fever breaking' })[k]).join(' · ')].filter(Boolean).join(' · '), 2.4);
+  const extra = M0.fn ? M0.fn() : '';
+  sfx('pickup'); toast([M0.h ? `+${M0.h} health` : '', fixes.map(k => ({ bleed: 'bleeding stopped', frac: 'leg splinted', sick: 'fever breaking', dose: 'Rust flushed out' })[k]).join(' · '), extra].filter(Boolean).join(' · '), 2.6);
   return true;
 }
 function healBest() {
-  const want = ['bleed', 'frac', 'sick'].filter(k => P[k] > 0);
-  const ids = Object.keys(MEDS).filter(id => cnt(id) > 0);
+  const want = ['bleed', 'frac', 'sick', 'dose'].filter(k => P[k] > (k === 'dose' ? 20 : 0));
+  const ids = Object.keys(MEDS).filter(id => cnt(id) > 0 && !MEDS[id].fn);
   let pickId = null;
   for (const w of want) { pickId = ids.filter(id => MEDS[id].fix.includes(w)).sort((a, b) => MEDS[a].fix.length - MEDS[b].fix.length)[0]; if (pickId) break; }
   if (!pickId && P.hp < 85) pickId = ids.filter(id => MEDS[id].h > 0).sort((a, b) => MEDS[a].h - MEDS[b].h)[0];
-  if (!pickId) { sfx('no'); toast(want.length ? `Nothing here treats ${want[0] === 'frac' ? 'a fracture — make a splint' : want[0] === 'bleed' ? 'bleeding — make a herbal bandage' : 'sickness — make a poultice'}` : 'Nothing to treat'); return; }
+  if (!pickId) { sfx('no'); toast(want.length ? `Nothing here treats ${{ frac: 'a fracture — make a splint', bleed: 'bleeding — make a bandage', sick: 'sickness — make a poultice', dose: 'Rust poisoning — find Rust medicine' }[want[0]]}` : 'Nothing to treat'); return; }
   useMed(pickId);
 }
-const medCount = () => Object.keys(MEDS).reduce((a, id) => a + cnt(id), 0);
-function clearInjuries() { P.bleed = 0; P.frac = 0; P.sick = 0; }
+const medCount = () => Object.keys(MEDS).reduce((a, id) => a + (MEDS[id].fn ? 0 : cnt(id)), 0);
+function clearInjuries() { P.bleed = 0; P.frac = 0; P.sick = 0; P.dose = 0; }
 function onHurt(n, melee) {
-  const w = worn();
-  if (w) { const D = GEAR_DEFS[w.id]; n *= 1 - D.prot; wearTool(w, 1); }
-  if (melee && rnd() < .22 + n / 120) { if (!(P.bleed > 0)) toast('You\'re bleeding — bandage it (slot 4)', 2.6); P.bleed = 45; }
+  n *= 1 - Math.min(.8, wearStat('prot')); hurtWear(1);
+  if (cnt('ember')) n *= .8;
+  if (melee && rnd() < .22 + n / 120) { if (!(P.bleed > 0)) toast('You\'re bleeding — bandage it (slot 5)', 2.6); P.bleed = 45; }
   return n;
 }
-function onFall(dmg) { if (dmg >= 12 && !(P.frac > 0)) { P.frac = 1; toast('Something cracked. A splint will fix the leg (slot 4)', 3); } }
+function onFall(dmg) { if (has('climb')) return; if (dmg >= 12 && !(P.frac > 0)) { P.frac = 1; toast('Something cracked. A splint will fix the leg (slot 5)', 3); } }
+const fogResist = () => G.flags.serum || P.immune > 0 || cnt('ember') ? 1 : Math.min(1, wearStat('fog') + (has('breather') ? .8 : 0));
 function updStatus(dt) {
   if (P.dead || cine) return;
-  if (P.bleed > 0) { P.bleed -= dt; P.hp -= dt * .9; }
+  if (P.bleed > 0) { P.bleed -= dt; P.hp -= dt * .9; if (P.bleed < 1 && rnd() < .3 && !(P.sick > 0)) { P.sick = 60; toast('The wound’s gone bad — infection', 2.6); } }
   if (P.sick > 0) { P.sick -= dt; P.food = Math.max(0, P.food - dt * .1); if (P.hp > 30) P.hp -= dt * .35; }
+  if (P.dose > 0) { if (P.dose > 40) { P.food = Math.max(0, P.food - dt * .08); if (P.hp > 20) P.hp -= dt * .25; } if (rust.state === 'none') P.dose = Math.max(0, P.dose - dt * .05); }
   if (P.fed > 0) { P.fed -= dt; if (P.hp < 100 && P.hurtT <= 0 && P.food > 45) P.hp = Math.min(100, P.hp + dt * .6); }
+  if (cnt('ember') && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .8);
+  if (P.immune > 0) P.immune -= dt; if (P.paint > 0) P.paint -= dt;
+  const br = rust.state === 'active' && !P.safe ? bestTool('breather') : null; if (br && Math.random() < dt) wearTool(br);
   if (P.hp <= 0) die();
 }
-const statusTags = () => [P.bleed > 0 && ['Bleeding', '#e0573d'], P.frac > 0 && ['Fractured leg', '#e0a040'], P.sick > 0 && ['Sick', '#a8c050'], P.fed > 0 && ['Well fed', '#7fc4b8']].filter(Boolean);
+const statusTags = () => [P.bleed > 0 && ['Bleeding', '#e0573d'], P.frac > 0 && ['Fractured leg', '#e0a040'], P.sick > 0 && ['Sick', '#a8c050'], P.dose > 20 && ['Rust poisoning', '#c0603a'],
+  P.fed > 0 && ['Well fed', '#7fc4b8'], P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
+const stealthK = () => Math.max(.35, 1 - wearStat('stealth') - (P.paint > 0 ? .3 : 0));
 
 /* ---------- gathering: trees, rocks, undergrowth, water ---------- */
 const RCELL = 6, RGRID = new Map(), RDEPL = new Map();
-function addRes(kind, x, z, s = 1) { const k = gkey(Math.floor(x / RCELL), Math.floor(z / RCELL)); let L = RGRID.get(k); if (!L) RGRID.set(k, L = []); L.push({ kind, x, z, s, id: RGRID.size * 64 + L.length }); }
-const NODE_USES = { fir: 4, alder: 4, snag: 3, boulder: 4, stone: 1, fern: 2 };
-const NODE_REGROW = { fir: 420, alder: 420, snag: 600, boulder: 600, stone: 360, fern: 240 };
+function addRes(kind, x, z, s = 1) { if (kind !== 'rubble' && (inCity(x, z, 4) || inBase(x, z, 4))) return; const k = gkey(Math.floor(x / RCELL), Math.floor(z / RCELL)); let L = RGRID.get(k); if (!L) RGRID.set(k, L = []); L.push({ kind, x, z, s }); }
+const NODE_USES = { fir: 4, alder: 4, snag: 3, boulder: 4, stone: 1, fern: 2, rubble: 3 };
+const NODE_REGROW = { fir: 420, alder: 420, snag: 600, boulder: 600, stone: 360, fern: 240, rubble: 900 };
 function nodeLeft(n) { const d = RDEPL.get(n); if (!d) return NODE_USES[n.kind]; if (G.t > d.at) { RDEPL.delete(n); return NODE_USES[n.kind]; } return NODE_USES[n.kind] - d.used; }
 function useNode(n) { let d = RDEPL.get(n); if (!d || G.t > d.at) RDEPL.set(n, d = { used: 0, at: 0 }); d.used++; d.at = G.t + NODE_REGROW[n.kind]; }
 function nearNode() {
   const ci = Math.floor(P.x / RCELL), cj = Math.floor(P.z / RCELL); let b = null, bd = 1e9;
   for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) for (const n of RGRID.get(gkey(i, j)) || []) {
-    const reach = n.kind === 'boulder' ? n.s * 1.1 + 1.4 : n.kind === 'fir' || n.kind === 'alder' || n.kind === 'snag' ? 1.9 : 1.6;
+    const reach = n.kind === 'boulder' || n.kind === 'rubble' ? n.s * 1.1 + 1.4 : n.kind === 'fir' || n.kind === 'alder' || n.kind === 'snag' ? 1.9 : 1.6;
     const d = Math.hypot(n.x - P.x, n.z - P.z) - reach; if (d < 0 && d < bd && nodeLeft(n) > 0) { bd = d; b = n; }
   }
   return b;
@@ -2331,32 +2804,42 @@ function nearWater() {
   for (let a = 0; a < 6.28; a += .785) for (const r of [0, 1.6, 3]) { const x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r; if (waterAt(x, z) > heightAt(x, z) + .15) return { x, z, lake: LAKES.some(L => Math.hypot(x - L.x, z - L.z) < L.R + 10) }; }
   return null;
 }
+const gSpeed = () => 1 / (1 + wearStat('gather'));
 const TREE_N = { fir: 'fir', alder: 'alder', snag: 'dead tree' };
 function nodeAction(n) {
-  if (n.kind in TREE_N) { const ax = bestTool('axe'); return ax ? { l: `Chop the ${TREE_N[n.kind]}`, t: 1.6 / GEAR_DEFS[ax.id].pw, fn: () => chop(n, ax) } : { l: n.kind === 'snag' ? 'Snap off dry branches' : 'Gather sticks', t: 1.1, fn: () => sticks(n) }; }
-  if (n.kind === 'boulder') { const pk = bestTool('pick'); return pk ? { l: 'Mine the rock', t: 1.8 / GEAR_DEFS[pk.id].pw, fn: () => mine(n, pk) } : { l: 'Prise loose stones', t: 1.3, fn: () => looseStones(n) }; }
-  if (n.kind === 'stone') return { l: 'Take the stone', t: .5, fn: () => { useNode(n); gain([['stone', 1], ['flint', rnd() < .25 ? 1 : 0], ['sharp_rock', rnd() < .2 ? 1 : 0]]); } };
-  if (n.kind === 'fern') return { l: 'Forage the undergrowth', t: 1, fn: () => forage(n) };
+  const g = gSpeed();
+  if (n.kind in TREE_N) { const ax = bestTool('axe'); return ax ? { l: `Chop the ${TREE_N[n.kind]}`, t: 1.6 / (GEAR_DEFS[ax.id].pw || 1) * g, fn: () => chop(n, ax) } : { l: n.kind === 'snag' ? 'Snap off dry branches' : 'Gather sticks', t: 1.1 * g, fn: () => sticks(n) }; }
+  if (n.kind === 'boulder') { const pk = bestTool('pick'); return pk ? { l: 'Mine the rock', t: 1.8 / (GEAR_DEFS[pk.id].pw || 1) * g, fn: () => mine(n, pk) } : { l: 'Prise loose stones', t: 1.3 * g, fn: () => looseStones(n) }; }
+  if (n.kind === 'rubble') { const pr = bestTool('pry') || bestTool('pick'); return { l: pr ? 'Pry through the rubble' : 'Dig through the rubble', t: (pr ? 1.4 : 2.6) * g, fn: () => rubble(n, pr) }; }
+  if (n.kind === 'stone') return { l: 'Take the stone', t: .5, fn: () => { useNode(n); gain([['stone', 1], ['flint', rnd() < .25 ? 1 : 0]]); } };
+  if (n.kind === 'fern') { const sh = bestTool('shovel'); return { l: sh ? 'Forage + dig' : 'Forage the undergrowth', t: 1 * g, fn: () => forage(n) }; }
 }
 function gain(list) {
   const got = list.filter(([, n]) => n > 0); for (const [id, n] of got) give(id, n);
   if (got.length) { sfx('pickup'); toast(got.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 1.8); gatherHint(); }
 }
-function chop(n, ax) { useNode(n); const pw = GEAR_DEFS[ax.id].pw; wearTool(ax); sfx('thud'); gain([['log', pw + (rnd() < .4 ? 1 : 0)], ['stick', 1 + Math.floor(rnd() * 2)], ['bark', rnd() < .5 ? 1 : 0], ['hardwood', n.kind === 'alder' && rnd() < .55 ? 1 : 0]]); }
-function sticks(n) { useNode(n); useNode(n); gain([['stick', 2 + Math.floor(rnd() * 2)], ['bark', rnd() < .3 ? 1 : 0], ['leaves', rnd() < .3 ? 1 : 0], ['branch', n.kind === 'snag' && rnd() < .4 ? 1 : 0]]); }
-function mine(n, pk) { useNode(n); const pw = GEAR_DEFS[pk.id].pw; wearTool(pk); sfx('metal', .6); gain([['stone', 2 + pw], ['flint', rnd() < .35 + pw * .1 ? 1 : 0], ['limestone', rnd() < .25 ? 1 : 0], ['sharp_rock', rnd() < .3 ? 1 : 0]]); }
+function chop(n, ax) { useNode(n); const pw = GEAR_DEFS[ax.id].pw || 1; wearTool(ax); sfx('thud'); gain([['log', pw + (rnd() < .4 ? 1 : 0)], ['stick', 1 + Math.floor(rnd() * 2)], ['bark', rnd() < .5 ? 1 : 0], ['hardwood', n.kind === 'alder' && rnd() < .55 ? 1 : 0], ['honey', rnd() < .03 ? 1 : 0]]); }
+function sticks(n) { useNode(n); useNode(n); gain([['stick', 2 + Math.floor(rnd() * 2)], ['bark', rnd() < .3 ? 1 : 0], ['leaves', rnd() < .4 ? 2 : 0], ['branch', n.kind === 'snag' && rnd() < .4 ? 1 : 0], ['feather', rnd() < .06 ? 2 : 0]]); }
+function mine(n, pk) { useNode(n); const pw = GEAR_DEFS[pk.id].pw || 1; wearTool(pk); sfx('metal', .6); gain([['stone', 2 + pw], ['flint', rnd() < .35 + pw * .1 ? 1 : 0], ['limestone', rnd() < .25 ? 1 : 0], ['metal_ore', rnd() < (pw > 1 ? .35 : .08) ? 1 : 0]]); }
 function looseStones(n) { useNode(n); useNode(n); gain([['stone', 1 + Math.floor(rnd() * 2)], ['flint', rnd() < .18 ? 1 : 0]]); }
+function rubble(n, pr) {
+  useNode(n); if (pr) wearTool(pr); sfx('metal', .5);
+  const r = (id, p, a = 1, b = a) => [id, rnd() < p ? a + Math.floor(rnd() * (b - a + 1)) : 0];
+  gain([r('scrap', .8, 1, 3), r('stone', .5, 1, 2), r('nails', .3, 2, 5), r('screws', .2, 2, 4), r('pipe', .12), r('glass', .15), r('cu_wiring', .14), r('wire', .15), r('rubber', .1), r('metal_ore', .1), r('fuse', .05), r('springs', .06), r('gears', .05), r('documents', .04), r('photo', .04)]);
+}
 function forage(n) {
-  useNode(n); const kn = bestTool('knife'), sh = bestTool('shovel');
-  const L = [['fiber', 2 + (kn ? 1 : 0)], ['vine', rnd() < .2 ? 1 : 0], ['berries', rnd() < .22 ? 1 + Math.floor(rnd() * 2) : 0], ['herb_med', rnd() < .18 ? 1 : 0], ['herb', rnd() < .14 ? 1 : 0],
-    ['mushroom', rnd() < .14 ? 1 : 0], ['greens', rnd() < .16 ? 1 : 0], ['nuts', rnd() < .08 ? 1 : 0], ['roots', sh ? (rnd() < .6 ? 1 + Math.floor(rnd() * 2) : 0) : rnd() < .1 ? 1 : 0]];
-  if (kn && rnd() < .5) wearTool(kn); if (sh && L[8][1]) wearTool(sh);
+  useNode(n); const kn = bestTool('knife'), sh = bestTool('shovel'), seed = pick(['seed_corn', 'seed_potato', 'seed_wheat', 'seed_bean', 'seed_squash', 'seed_carrot']);
+  const L = [['fiber', 2 + (kn ? 1 : 0)], ['vine', rnd() < .2 ? 1 : 0], ['berries', rnd() < .2 ? 1 + Math.floor(rnd() * 2) : 0], ['blueberries', rnd() < .1 ? 2 : 0], ['herb_med', rnd() < .18 ? 1 : 0],
+    ['herb', rnd() < .14 ? 1 : 0], ['mushroom', rnd() < .14 ? 1 : 0], ['greens', rnd() < .16 ? 1 : 0], ['nuts', rnd() < .08 ? 1 : 0], ['leaves', rnd() < .4 ? 2 : 0], [seed, rnd() < .03 ? 1 : 0],
+    ['roots', sh ? (rnd() < .6 ? 1 + Math.floor(rnd() * 2) : 0) : rnd() < .1 ? 1 : 0], ['soil', sh ? 1 + Math.floor(rnd() * 2) : 0], ['clay', sh && rnd() < .15 ? 1 : 0]];
+  if (kn && rnd() < .5) wearTool(kn); if (sh) wearTool(sh);
   gain(L);
 }
+const container = () => cnt('pot') > 0 || cnt('canteen') > 0;
 function waterAction(w) {
   const fi = bestTool('fish'), sh = bestTool('shovel'), acts = [];
-  if (cnt('pot') > 0) acts.push({ l: 'Fill the pot (dirty water)', t: 1, fn: () => gain([['water_dirty', 2]]) });
-  if (fi) acts.push({ l: GEAR_DEFS[fi.id].kind === 'fish' && fi.id === 'fish_rod' ? 'Cast a line' : 'Spear fish', t: fi.id === 'fish_rod' ? 3.2 : 2.4, fn: () => {
+  if (container()) acts.push({ l: 'Fill up (dirty water)', t: 1, fn: () => gain([['water_dirty', cnt('canteen') ? 3 : 2]]) });
+  if (fi) acts.push({ l: fi.id === 'fish_rod' ? 'Cast a line' : 'Spear fish', t: fi.id === 'fish_rod' ? 3.2 : 2.4, fn: () => {
     wearTool(fi); if (rnd() < (fi.id === 'fish_rod' ? .78 : .55)) gain([[w.lake ? 'lake_fish' : 'fish', 1], ['shellfish', rnd() < .1 ? 1 : 0]]); else { toast('Nothing bit', 1.4); sfx('splash'); } } });
   if (sh && !w.lake) acts.push({ l: 'Dig clay from the bank', t: 1.8, fn: () => { wearTool(sh); gain([['clay', 2 + Math.floor(rnd() * 2)]]); } });
   acts.push({ l: 'Cut reeds', t: .9, fn: () => gain([['reed', 1 + Math.floor(rnd() * 2)], ['fiber', 1], ['shellfish', rnd() < .08 ? 1 : 0]]) });
@@ -2374,7 +2857,6 @@ function updChan(dt) {
   chan.t -= dt; if (Math.random() < dt * 2.5) sfx('swing');
   if (chan.t <= 0) { const f = chan.fn; chan = null; f(); if (invOpen) renderInv(); }
 }
-/* what the E key does out in the wilds, when nothing in INTERACT is closer */
 let waterPick = 0;
 function wildInteract() {
   if (chan) return { l: `${chan.l}…`, prog: 1 - chan.t / chan.t0, act: () => {} };
@@ -2390,54 +2872,573 @@ function butcherYield(e) {
   else L.push(['bone', rnd() < .5 ? 1 : 0]);
   return { L, kn };
 }
-/* salvage tables: ruins hold the things nobody can make any more */
-const RUIN_AT = () => [[POI.halvard, 110], [POI.burn, 75], [POI.cinder, 130]];
-function crateSalvage(c) {
-  const ruin = RUIN_AT().some(([p, r]) => p && Math.hypot(c.x - p.x, c.z - p.z) < r), L = [];
-  const roll = (id, p, a = 1, b = a) => { if (rnd() < p) L.push([id, a + Math.floor(rnd() * (b - a + 1))]); };
-  roll('cloth', .55, 1, 3); roll('rope', .25); roll('nails', .35, 2, 5); roll('screws', .25, 2, 4); roll('wire', .3, 1, 2); roll('fasteners', .2, 1, 2);
-  roll('bandage', .25); roll('painkiller', .15); roll('disinfect', .12); roll('antibiotic', .06); roll('canned', .2); roll('purify_tab', .1);
-  if (ruin) { roll('circuit', .2); roll('battery', .22); roll('cu_wiring', .2); roll('sensor', .08); roll('fuse', .15); roll('arc_alloy', .07); roll('solar_cell', .05); roll('med_parts', .08); roll('spare_parts', .25); roll('tool_kit', .06); roll('pipe', .2); roll('rubber', .15); }
-  const tools = [];
-  if (rnd() < (ruin ? .16 : .07)) { const id = pick(['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'hunting_knife', 'multitool', 'flashlight', 'pliers', 'screwdriver', 'hand_saw']); tools.push(newGear(id, pick([0, 1, 1, 2]), rr(.2, .65))); }
-  for (const [id, n] of L) give(id, n);
-  return [...L.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`), ...tools.map(t => `${GEAR_DEFS[t.id].n} (${Math.round(t.d / t.max * 100)}%)`)];
-}
-function clanDrop() { const L = []; if (rnd() < .3) L.push(['cloth', 1 + Math.floor(rnd() * 2)]); if (rnd() < .18) L.push(['bone', 1]); if (rnd() < .15) L.push(['feather', 2]); if (rnd() < .1) L.push(['rope', 1]); if (rnd() < .06) L.push(['herb_med', 1]); for (const [id, n] of L) give(id, n); return L; }
 
-/* ---------- icons: one glyph per category, tinted per item ---------- */
-const GLYPH = {
-  wood: c => `<rect x="2" y="6" width="12" height="5" rx="2.5" fill="${c}" stroke="#000"/><circle cx="13" cy="8.5" r="2" fill="#d8b888" stroke="#000"/>`,
-  stone: c => `<path d="M2 12l2-6 5-3 5 4 0 5z" fill="${c}" stroke="#000"/>`,
-  fiber: c => `<path d="M8 14V5M8 14L4 4M8 14l4-10M8 14L2 8M8 14l6-6" stroke="${c}" stroke-width="1.6" fill="none"/>`,
-  metal: c => `<path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="${c}" stroke="#000"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" fill="none"/>`,
-  animal: c => `<path d="M4 4a1.6 1.6 0 1 1 2 2l4 4a1.6 1.6 0 1 1 2 2 1.6 1.6 0 1 1-2-2L6 6a1.6 1.6 0 1 1-2-2z" fill="${c}" stroke="#000" stroke-width=".8"/>`,
-  textile: c => `<path d="M3 3h10l-1 10H4z" fill="${c}" stroke="#000"/><path d="M5 6h6M5 9h6" stroke="#0006"/>`,
-  elec: c => `<rect x="3" y="3" width="10" height="10" rx="1" fill="${c}" stroke="#000"/><path d="M6 6h4v4H6zM1 6h2M1 10h2M13 6h2M13 10h2" stroke="#000" fill="none"/>`,
-  indus: c => `<circle cx="8" cy="8" r="5" fill="${c}" stroke="#000"/><circle cx="8" cy="8" r="2" fill="#0007"/>`,
-  rare: c => `<path d="M8 1l5 5-5 9-5-9z" fill="${c}" stroke="#000"/><path d="M3 6h10" stroke="#fff6"/>`,
-  food: c => `<path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="${c}" stroke="#000"/>`,
-  water: c => `<path d="M8 2C6 6 4 8 4 10.5a4 4 0 0 0 8 0C12 8 10 6 8 2z" fill="${c}" stroke="#000"/>`,
-  med: c => `<rect x="2" y="3" width="12" height="10" rx="2" fill="${c}" stroke="#000"/><path d="M8 5v6M5 8h6" stroke="#c0302a" stroke-width="2"/>`,
-  story: c => `<path d="M8 1l2 5h5l-4 3 2 6-5-4-5 4 2-6-4-3h5z" fill="${c}" stroke="#000" stroke-width=".8"/>`,
-  tool: c => `<path d="M3 14l7-7" stroke="#8a6a44" stroke-width="2"/><path d="M8 3l5 1 1 5-3-1-3 1z" fill="${c}" stroke="#000"/>`,
-  wear: c => `<path d="M5 2h6l3 3-2 2v7H4V7L2 5z" fill="${c}" stroke="#000"/>`,
-  build: c => `<path d="M2 8l6-5 6 5v6H2z" fill="${c}" stroke="#000"/><path d="M6 14v-4h4v4" stroke="#000" fill="none"/>`,
+/* ---------- loot tables: the further from home and the better guarded, the better ---------- */
+const GUNS_LOW = ['pistol', 'revolver', 'shotgun', 'flare_gun'], GUNS_HIGH = ['smg', 'assault', 'sniper', 'lmg', 'grey_rifle'];
+const LOOT = {
+  wild: { cloth: [.55, 1, 3], rope: [.25], nails: [.3, 2, 5], screws: [.2, 2, 4], wire: [.25, 1, 2], bandage: [.2], painkiller: [.12], canned: [.2], purify_tab: [.08], ammo_556: [.4, 10, 25], seed_corn: [.06, 2, 4], seed_potato: [.06, 1, 3], map: [.03] },
+  ruin: { cloth: [.5, 1, 3], nails: [.4, 3, 8], screws: [.3, 2, 6], bolts: [.2, 2, 4], wire: [.35, 1, 3], cu_wiring: [.3, 1, 2], pipe: [.2], glass: [.25, 1, 2], rubber: [.2], circuit: [.15], battery: [.2], fuse: [.18], sensor: [.06],
+    spare_parts: [.18], springs: [.15], gears: [.12], gas_tank: [.05], fuel: [.1], disinfect: [.1], antibiotic: [.06], canned: [.3, 1, 2], documents: [.1], photo: [.08], notebook: [.06], ammo_9: [.25, 6, 15], ammo_556: [.25, 10, 25], synth: [.15, 1, 2], aluminum: [.15] },
+  city: { scrap: [.7, 2, 5], nails: [.5, 4, 10], screws: [.4, 3, 8], bolts: [.35, 2, 5], cu_wiring: [.35, 1, 3], pipe: [.25], glass: [.35, 1, 2], rubber: [.3], circuit: [.25, 1, 2], battery: [.3], fuse: [.25], sensor: [.12],
+    antenna: [.08], spare_parts: [.25], springs: [.25], gears: [.2], tool_kit: [.06], engine_part: [.05], fuel: [.15], gas_tank: [.08], solar_cell: [.06], arc_alloy: [.05], synth: [.25, 1, 3], aluminum: [.25, 1, 2], copper: [.2],
+    canned: [.3, 1, 2], disinfect: [.15], antibiotic: [.1], med_parts: [.08], painkiller: [.2], alcohol: [.12], ammo_9: [.35, 8, 20], ammo_45: [.2, 6, 12], ammo_12: [.2, 4, 10], ammo_556: [.3, 15, 30], data_drive: [.08], camera: [.05], tablet: [.03], id_chip: [.025] },
+  mil: { ammo_556: [.8, 30, 60], ammo_762: [.5, 8, 20], ammo_9: [.5, 15, 30], ammo_12: [.35, 8, 16], frag: [.3, 1, 2], smoke_gren: [.3, 1, 2], medkit: [.35], blood_bag: [.1], iv: [.12], inject: [.12], rust_med: [.1],
+    battery: [.4, 1, 2], circuit: [.3], sensor: [.2], synth: [.4, 2, 4], steel: [.3, 1, 2], lab_sample: [.12], greyhold_files: [.05], shielding: [.1] },
+  op: { ammo_556: [.9, 40, 90], ammo_762: [.6, 15, 30], ammo_12: [.5, 10, 20], frag: [.6, 2, 4], medkit: [.6, 1, 2], inject: [.3], rust_med: [.3], arc_alloy: [.5, 1, 3], solar_cell: [.4, 1, 2], power_cell: [.15],
+    circuit: [.6, 1, 3], sensor: [.4, 1, 2], tool_kit: [.4], spare_parts: [.6, 2, 4], shielding: [.3, 1, 2], blackvein: [.08], halcyon_chip: [.1], sunfall_data: [.1], spindle: [.06] },
+  clan: { hide: [.5, 1, 3], leather: [.3, 1, 2], bone: [.5, 1, 3], sinew: [.4, 1, 2], feather: [.4, 2, 5], fat: [.3, 1, 2], herb_med: [.4, 1, 3], dried_meat: [.4, 1, 3], arrows: [.3, 3, 8], rope: [.3],
+    war_paint: [.3, 1, 2], seed_wheat: [.2, 2, 4], seed_bean: [.2, 2, 4], seed_squash: [.15, 1, 3], honey: [.15], salt: [.2, 1, 2] },
+  arc: { arc_pack: [.6, 1, 3], cloth: [.5, 1, 3], synth: [.4, 1, 2], battery: [.3], circuit: [.2], wire: [.4, 1, 3], bandage: [.4], purify_tab: [.3], arc_alloy: [.2], ammo_556: [.4, 15, 30], wristband: [.2], photo: [.2], notebook: [.15] },
+  trade: {},
 };
-// painted item icons in assets/icons (cut from Bryce's icon sheet + pickup pack); anything missing falls back to a drawn glyph
-const ICON_IDS = new Set('ammo_rifle ammo_hunt alcohol aluminum antenna antibiotic arc_alloy arc_jumpsuit arc_pack arden_notes arrows backpack bandage bark battery beans berries blackvein blood_bag blood_kit bolt_cutters bolts bone bone_knife bow branch bread breather campfire canned canteen canvas carrot charcoal circuit clay cloth cook_station cooked_fish copper corn crowbar cu_wiring diag_pc disinfect dried_meat ember fasteners fat feather fiber fire_starter fish fish_soup fish_spear flashlight flint flint_knife flour fuse gate_codes gears greenhouse greens greyhold_card greyhold_files halcyon_chip hardwood hazmat herb herb_bandage herb_med hide hide_coat honey hook hunt_spear hunting_knife id_chip inject insignia iron iv lab_sample lake_fish lantern_key leather leather_armor leaves limestone lock_bypass log meat med_parts med_scanner med_station medkit meridian_gear metal_axe metal_chest multitool mushroom nails nav_console nuts nvg oil painkiller pickaxe pipe plank pliers pot potato poultice purify_kit purify_tab radio radio_st rain_coll ration reed repair_drone repair_kit roast roots rope rubber rust_detector rust_med rust_suit salt scrap screwdriver screws sensor sharp_rock shellfish shielding sinew smoked_fish soil solar_cell solar_charger spare_parts spindle splint springs squash steel stew stick stone stone_axe stone_pick storage sunfall_data sutures synth tac_armor teeth thread tool_kit torch_t transmitter vine war_paint water_boiled water_dirty water_filter water_filtered water_rain welder wheat wire wire_cutters wood_hammer wood_wall wraps wrench wristband'.split(' '));
-const ICON_TINT = { ration: 'sepia(.7) saturate(1.4) brightness(.72)', roast: 'sepia(.7) saturate(1.4) brightness(.65)', cooked_fish: 'sepia(.6) brightness(.85)', smoked_fish: 'sepia(.9) brightness(.7)',
-  leather: 'brightness(.65) saturate(1.3)', hardwood: 'brightness(.75) saturate(1.2)', limestone: 'grayscale(1) brightness(1.1)', clay: 'saturate(1.6) hue-rotate(-10deg)', hook: 'brightness(1.05)', stone_pick: 'sepia(.4) brightness(.8)',
-  flint_knife: 'grayscale(.8) brightness(.7)', bone_knife: 'sepia(.5) brightness(1.25)', water_dirty: 'sepia(.6) hue-rotate(40deg) brightness(.8)', herb_med: 'hue-rotate(15deg) saturate(1.2)', fish_soup: 'sepia(.3) brightness(1.15)' };
-function icon(id) {
-  if (ICON_IDS.has(id)) return `<img class="ic" src="assets/icons/${id}.png" alt="" draggable="false"${ICON_TINT[id] ? ` style="filter:${ICON_TINT[id]}"` : ''}>`;
-  const I = ITEMS[id], D = GEAR_DEFS[id];
-  const g = I ? GLYPH[I.c] || GLYPH.indus : D ? (D.kind === 'wear' ? GLYPH.wear : GLYPH.tool) : GLYPH.build;
-  const col = I ? I.col : D ? (D.salv ? '#b8c0c6' : '#9a968e') : '#a07a4e';
-  return `<svg viewBox="0 0 16 16">${g(col)}</svg>`;
+const GEAR_LOOT = {
+  wild: [.05, ['crowbar', 'wrench', 'hunting_knife', 'flashlight', 'hand_saw', 'compass', 'machete', 'canteen', 'gloves', 'boots', 'jacket']],
+  ruin: [.14, ['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'screwdriver', 'pliers', 'hammer', 'flashlight', 'radio', 'binoculars', 'pistol', 'revolver', 'machete', 'backpack', 'duffel', 'util_vest', 'helmet', 'boots', 'gloves']],
+  city: [.2, ['bolt_cutters', 'crowbar', 'multitool', 'welder', 'flashlight', 'radio', 'binoculars', 'wire_cutters', 'pistol', 'revolver', 'shotgun', 'smg', 'flare_gun', 'stun_baton', 'mil_knife', 'backpack', 'tac_armor', 'sec_uniform', 'helmet', 'gas_mask', 'arc_jumpsuit', 'climb_gear']],
+  mil: [.45, ['assault', 'smg', 'shotgun', 'sniper', 'grey_rifle', 'tac_armor', 'grey_armor', 'gas_mask', 'riot_helmet', 'riot_shield', 'helmet', 'nvg', 'hazmat', 'rust_detector', 'med_scanner', 'mil_knife', 'stun_baton', 'breather']],
+  op: [.9, ['lmg', 'assault', 'sniper', 'grey_rifle', 'mil_armor', 'grey_armor', 'rust_suit', 'nvg', 'lock_bypass', 'transmitter', 'repair_drone', 'diag_pc', 'solar_charger']],
+  clan: [.2, ['shortbow', 'recurve', 'hunt_spear', 'hatchet', 'war_axe', 'club', 'clan_mask', 'leather_armor', 'arm_guards', 'hide_coat', 'bone_dagger', 'staff']],
+  arc: [.15, ['flashlight', 'radio', 'arc_jumpsuit', 'pistol', 'multitool', 'med_scanner']],
+};
+function rollLoot(table, extraRolls = 0) {
+  const T = LOOT[table] || LOOT.wild, out = [];
+  for (const [id, [p, a = 1, b = a]] of Object.entries(T)) if (rnd() < p) out.push([id, a + Math.floor(rnd() * (b - a + 1))]);
+  for (const [id, n] of out) give(id, n);
+  const msg = out.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`);
+  const GL = GEAR_LOOT[table];
+  for (let k = 0; k <= extraRolls; k++) if (GL && rnd() < GL[0]) { const g = newGear(pick(GL[1]), pick([0, 1, 1, 2]), table === 'op' || table === 'mil' ? rr(0, .3) : rr(.2, .65)); msg.unshift(`${GEAR_DEFS[g.id].n} (${Math.round(g.d / g.max * 100)}%)`); }
+  return msg;
 }
-const CAT_N = { wood: 'Wood', stone: 'Stone', fiber: 'Plant fibers', metal: 'Metals', animal: 'Animal', textile: 'Textiles', elec: 'Electronics', indus: 'Industrial', rare: 'Rare salvage', food: 'Food', water: 'Water', med: 'Medicine', story: 'Story' };
-const SRC_N = { ren: 'Renewable', salv: 'Salvage only', craft: 'Crafted', story: 'Story item' };
+const RUIN_AT = () => [[POI.halvard, 110], [POI.burn, 75]];
+function crateTable(c) {
+  if (c.table) return c.table;
+  if (inCity(c.x, c.z, 0)) return 'city';
+  if (RUIN_AT().some(([p, r]) => Math.hypot(c.x - p.x, c.z - p.z) < r)) return Math.hypot(c.x - POI.burn.x, c.z - POI.burn.z) < 75 ? 'arc' : 'ruin';
+  if (HOLDS.some(H => Math.hypot(c.x - H.x, c.z - H.z) < H.R + 10) || Math.hypot(c.x - POI.ashmere.x, c.z - POI.ashmere.z) < 80) return 'clan';
+  return 'wild';
+}
+function crateSalvage(c) { return rollLoot(crateTable(c)); }
+function clanDrop(e) {
+  const L = [], T = e && e.fac === 'iron' ? [['scrap', .6, 1, 3], ['ammo_9', .35, 4, 10], ['ammo_12', .15, 2, 5], ['nails', .3, 2, 6], ['cloth', .3, 1, 2], ['canned', .15], ['fuel', .05], ['bolts', .2, 1, 3]]
+    : e && e.fac === 'grey' ? [['ammo_556', .7, 10, 25], ['battery', .2], ['inject', .1], ['medkit', .15], ['synth', .3, 1, 2], ['greyhold_card', .04], ['lab_sample', .06]]
+      : [['cloth', .3, 1, 2], ['bone', .18], ['feather', .15, 2, 2], ['rope', .1], ['herb_med', .06], ['arrows', .1, 2, 4], ['insignia', .05], ['war_paint', .05]];
+  for (const [id, p, a = 1, b = a] of T) if (rnd() < p) L.push([id, a + Math.floor(rnd() * (b - a + 1))]);
+  for (const [id, n] of L) give(id, n); return L;
+}
+
+/* ================= weapons: three slots (1–2 guns, 3 melee or bow), throwables on G =================
+   The Arc rifle (bench upgrades) and the hunting rifle are always yours; everything else is a piece of gear with
+   durability. Guns are hitscan (shotguns fire pellets), bows and crossbows loose real arrows, melee swings hit what's
+   in front of you, grenades bounce and go off. */
+
+// stats: cls gun|bow|melee · ammo item · dmg · mag · rate (s between shots) · spread · pellets · auto · scope · reach · stun · burn · spd (projectile)
+const WDEF = {
+  hunter: { cls: 'gun', ammo: 'ammo_762', dmg: 150, mag: 5, rate: 1.05, spread: .0015, scope: 5, reload: 2.2 },
+  pistol: { cls: 'gun', ammo: 'ammo_9', dmg: 30, mag: 12, rate: .16, spread: .018, scope: 1.25, reload: 1.3 },
+  revolver: { cls: 'gun', ammo: 'ammo_45', dmg: 58, mag: 6, rate: .42, spread: .012, scope: 1.3, reload: 2 },
+  shotgun: { cls: 'gun', ammo: 'ammo_12', dmg: 15, pellets: 9, mag: 6, rate: .85, spread: .055, scope: 1.2, reload: 2.4 },
+  smg: { cls: 'gun', ammo: 'ammo_9', dmg: 22, mag: 30, rate: .07, spread: .022, auto: 1, scope: 1.3, reload: 1.6 },
+  assault: { cls: 'gun', ammo: 'ammo_556', dmg: 40, mag: 30, rate: .095, spread: .01, auto: 1, scope: 1.6, reload: 1.8 },
+  sniper: { cls: 'gun', ammo: 'ammo_762', dmg: 210, mag: 5, rate: 1.2, spread: .0008, scope: 7, reload: 2.4 },
+  lmg: { cls: 'gun', ammo: 'ammo_556', dmg: 36, mag: 80, rate: .085, spread: .02, auto: 1, scope: 1.4, reload: 3.6 },
+  grey_rifle: { cls: 'gun', ammo: 'ammo_556', dmg: 50, mag: 30, rate: .1, spread: .007, auto: 1, scope: 2.2, reload: 1.8 },
+  pulse_rifle: { cls: 'gun', ammo: 'cell', dmg: 85, mag: 20, rate: .2, spread: .002, auto: 1, scope: 2, reload: 1.5, pulse: 1 },
+  flare_gun: { cls: 'bow', ammo: 'ammo_flare', dmg: 25, mag: 1, rate: .8, spd: 55, grav: 4, burn: 6, flare: 1, reload: 1.4 },
+  shortbow: { cls: 'bow', ammo: 'arrows', dmg: 55, mag: 1, rate: .85, spd: 48, grav: 9, reload: .01 },
+  recurve: { cls: 'bow', ammo: 'arrows', dmg: 80, mag: 1, rate: .95, spd: 62, grav: 8, reload: .01 },
+  crossbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 120, mag: 1, rate: .3, spd: 80, grav: 5, reload: 1.8, scope: 1.8 },
+  // melee (tools double as weapons, weaker)
+  stone_knife: { cls: 'melee', dmg: 22, rate: .42, reach: 2 }, bone_dagger: { cls: 'melee', dmg: 24, rate: .4, reach: 2 }, flint_knife: { cls: 'melee', dmg: 18, rate: .42, reach: 2 },
+  bone_knife: { cls: 'melee', dmg: 16, rate: .42, reach: 2 }, hunting_knife: { cls: 'melee', dmg: 32, rate: .38, reach: 2.1 }, mil_knife: { cls: 'melee', dmg: 40, rate: .34, reach: 2.1 },
+  multitool: { cls: 'melee', dmg: 14, rate: .45, reach: 1.9 }, wood_spear: { cls: 'melee', dmg: 34, rate: .7, reach: 3.2 }, metal_spear: { cls: 'melee', dmg: 52, rate: .7, reach: 3.3 },
+  hunt_spear: { cls: 'melee', dmg: 44, rate: .65, reach: 3.2 }, fish_spear: { cls: 'melee', dmg: 22, rate: .7, reach: 3 }, club: { cls: 'melee', dmg: 40, rate: .8, reach: 2.3, stun: .6 },
+  staff: { cls: 'melee', dmg: 26, rate: .55, reach: 2.8, stun: .3 }, hatchet: { cls: 'melee', dmg: 42, rate: .6, reach: 2.2 }, machete: { cls: 'melee', dmg: 55, rate: .55, reach: 2.4 },
+  sword: { cls: 'melee', dmg: 75, rate: .55, reach: 2.6 }, war_axe: { cls: 'melee', dmg: 90, rate: .85, reach: 2.5 }, stun_baton: { cls: 'melee', dmg: 25, rate: .6, reach: 2.2, stun: 2.6 },
+  stone_axe: { cls: 'melee', dmg: 30, rate: .75, reach: 2.2 }, metal_axe: { cls: 'melee', dmg: 50, rate: .7, reach: 2.3 }, crowbar: { cls: 'melee', dmg: 40, rate: .65, reach: 2.3, stun: .4 },
+  pickaxe: { cls: 'melee', dmg: 45, rate: .85, reach: 2.3 }, stone_pick: { cls: 'melee', dmg: 26, rate: .85, reach: 2.2 }, hammer: { cls: 'melee', dmg: 34, rate: .6, reach: 2, stun: .5 },
+  wood_hammer: { cls: 'melee', dmg: 20, rate: .6, reach: 2, stun: .3 }, wrench: { cls: 'melee', dmg: 30, rate: .55, reach: 2, stun: .3 }, wood_shovel: { cls: 'melee', dmg: 22, rate: .75, reach: 2.4 },
+};
+const isWeapon = id => !!WDEF[id];
+const SLOT_OF = id => WDEF[id]?.cls === 'gun' ? 'gun' : 'hand';
+const THROWS = ['frag', 'molotov', 'smoke_gren', 'throw_spear'];
+
+/* ---------- viewmodels: three models from the kit for the rifles, everything else built from parts ---------- */
+const VMAT = { gun: () => S(0x1c1d1f, { metalness: .65, roughness: .38 }), steel: () => S(0x9aa0a4, { metalness: .8, roughness: .3 }), wood: () => M(0x6a4528), dark: () => M(0x141414),
+  leather: () => M(0x3a2618), bone: () => M(0xd8ccb2), orange: () => S(0xd0441e, { metalness: .2, roughness: .5 }), glow: c => new THREE.MeshBasicMaterial({ color: c, toneMapped: false }) };
+function vbox(g, w, h, d, m, x, y, z, rx = 0, ry = 0, rz = 0) { const o = mesh(new THREE.BoxGeometry(w, h, d), m, x, y, z, g); o.rotation.set(rx, ry, rz); return o; }
+function vcyl(g, r0, r1, l, m, x, y, z, rx = Math.PI / 2, ry = 0, rz = 0, seg = 10) { const o = mesh(new THREE.CylinderGeometry(r0, r1, l, seg), m, x, y, z, g); o.rotation.set(rx, ry, rz); return o; }
+const PROC = {
+  pistol: g => { const m = VMAT.gun(); vbox(g, .036, .045, .2, m, 0, .01, 0); vbox(g, .032, .1, .05, m, 0, -.055, .06, -.25); vbox(g, .03, .02, .05, m, 0, -.03, .02); },
+  flare_gun: g => { const m = VMAT.orange(); vcyl(g, .025, .025, .18, m, 0, .01, -.02); vbox(g, .04, .05, .1, m, 0, .01, .06); vbox(g, .035, .1, .05, m, 0, -.06, .08, -.3); },
+  revolver: g => { const m = VMAT.steel(); vcyl(g, .012, .012, .2, m, 0, .02, -.06); vcyl(g, .028, .028, .05, m, 0, .01, .04); vbox(g, .03, .03, .08, m, 0, .02, .06); vbox(g, .032, .1, .045, VMAT.wood(), 0, -.05, .1, -.35); },
+  shotgun: g => { const m = VMAT.gun(), w = VMAT.wood(); vcyl(g, .018, .018, .62, m, 0, .025, -.18); vcyl(g, .016, .016, .5, m, 0, -.01, -.14); vbox(g, .05, .06, .16, m, 0, .01, .18); vbox(g, .05, .07, .28, w, 0, -.02, .38, .12); vbox(g, .04, .04, .16, w, 0, -.02, -.12); },
+  smg: g => { const m = VMAT.gun(); vbox(g, .05, .07, .34, m, 0, 0, 0); vcyl(g, .014, .014, .14, m, 0, .01, -.24); vbox(g, .03, .14, .04, m, 0, -.1, -.02); vbox(g, .035, .09, .045, m, 0, -.07, .1, -.25); vbox(g, .02, .03, .18, m, 0, .02, .24); },
+  pulse_rifle: g => { const m = S(0xd8dde2, { metalness: .5, roughness: .3 }); vbox(g, .06, .08, .7, m, 0, 0, 0); vbox(g, .045, .05, .3, VMAT.dark(), 0, .06, -.05); vbox(g, .012, .012, .5, VMAT.glow(0x6ad8ff), .032, 0, 0); vbox(g, .012, .012, .5, VMAT.glow(0x6ad8ff), -.032, 0, 0); vbox(g, .04, .1, .05, m, 0, -.08, .12, -.25); },
+  shortbow: g => { const w = VMAT.wood(), a = new THREE.Mesh(new THREE.TorusGeometry(.34, .01, 5, 20, 2), w); a.rotation.set(0, Math.PI / 2, -1); a.position.set(0, 0, .3); g.add(a); vcyl(g, .0015, .0015, .58, VMAT.bone(), 0, 0, .03, 0); vbox(g, .025, .07, .025, VMAT.leather(), 0, 0, -.04); },
+  recurve: g => { PROC.shortbow(g); vbox(g, .03, .08, .03, VMAT.leather(), 0, 0, -.12); },
+  crossbow: g => { const w = VMAT.wood(), m = VMAT.gun(); vbox(g, .05, .05, .6, w, 0, 0, 0); vbox(g, .5, .025, .04, m, 0, .02, -.24); vcyl(g, .002, .002, .5, VMAT.bone(), 0, .03, -.17, 0, 0, Math.PI / 2); vbox(g, .035, .1, .05, w, 0, -.07, .15, -.3); },
+  knife: (g, blade = VMAT.steel(), hilt = VMAT.leather(), L = .2) => { vbox(g, .01, .035, L, blade, 0, 0, -L / 2); vbox(g, .03, .03, .11, hilt, 0, 0, .05); },
+  spear: (g, tip = VMAT.steel()) => { vcyl(g, .014, .014, 1.3, VMAT.wood(), 0, 0, .1); mesh(new THREE.ConeGeometry(.03, .16, 5), tip, 0, 0, -.62, g).rotation.x = -Math.PI / 2; },
+  club: g => { vcyl(g, .03, .05, .55, VMAT.wood(), 0, 0, -.1); for (let i = 0; i < 6; i++) { const s = mesh(new THREE.ConeGeometry(.012, .06, 4), VMAT.steel(), Math.cos(i) * .05, Math.sin(i) * .05, -.3 + (i % 3) * .05, g); s.rotation.set(Math.PI / 2, 0, i); } },
+  axe: (g, head = VMAT.steel(), L = .5) => { vcyl(g, .016, .02, L, VMAT.wood(), 0, 0, 0); vbox(g, .02, .13, .09, head, 0, .05, -L / 2 + .04); },
+  hammer: (g, head = VMAT.steel()) => { vcyl(g, .015, .018, .38, VMAT.wood(), 0, 0, 0); vbox(g, .05, .05, .1, head, 0, .02, -.18, 0, Math.PI / 2); },
+  baton: g => { vcyl(g, .02, .02, .5, VMAT.dark(), 0, 0, -.05); vcyl(g, .022, .022, .06, VMAT.glow(0x5ab0ff), 0, 0, -.32); },
+  sword: g => { vbox(g, .012, .045, .7, VMAT.steel(), 0, 0, -.35); vbox(g, .13, .02, .03, VMAT.gun(), 0, 0, .02); vbox(g, .03, .03, .14, VMAT.leather(), 0, 0, .1); },
+  crowbar: g => { vcyl(g, .012, .012, .7, S(0xb02a1a, { metalness: .4 }), 0, 0, -.1); vcyl(g, .012, .012, .1, S(0xb02a1a), 0, .04, -.46, 0); },
+  shovel: g => { vcyl(g, .015, .015, .8, VMAT.wood(), 0, 0, 0); vbox(g, .14, .01, .18, VMAT.wood(), 0, 0, -.45); },
+};
+const VIEWS = {
+  pistol: { proc: PROC.pistol, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .05], scope: 1.25, sound: 'machine-gun-clean-single' },
+  flare_gun: { proc: PROC.flare_gun, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .06] },
+  revolver: { proc: PROC.revolver, len: .3, at: [.17, -.18, -.38], grip: [0, -.09, .1], fore: [-.01, -.09, .09], sound: 'gun-shot-heavy' },
+  shotgun: { proc: PROC.shotgun, len: .9, at: [.2, -.2, -.44], grip: [0, -.07, .2], fore: [0, -.04, -.12], sound: 'gun-shot-heavy' },
+  smg: { proc: PROC.smg, len: .5, at: [.19, -.2, -.4], grip: [0, -.09, .1], fore: [0, -.05, -.1], sound: 'machine-gun-clean-single' },
+  assault: { model: 'gun-night', len: .84, axis: 'z', tint: 0x6a6a5a, at: [.2, -.21, -.43], grip: [0, -.07, .09], fore: [0, -.03, -.19], sound: 'rifle-m16-b' },
+  grey_rifle: { model: 'gun-desert', len: .86, axis: 'z', tint: 0x9aa0a6, at: [.2, -.215, -.44], grip: [0, -.08, .1], fore: [0, -.04, -.2], sound: 'rifle-m16-b' },
+  lmg: { model: 'gun-desert', len: 1, axis: 'z', tint: 0x4a4e44, at: [.21, -.23, -.46], grip: [0, -.08, .12], fore: [0, -.04, -.24], sound: 'gun-shot-heavy', extra: g => vcyl(g, .07, .07, .08, VMAT.gun(), 0, -.09, -.02, 0, 0, Math.PI / 2) },
+  sniper: { model: 'sniper', len: 1.2, axis: 'x', yaw: Math.PI / 2, tint: 0x5a5e62, at: [.2, -.2, -.52], grip: [0, -.07, .22], fore: [0, -.04, -.22], sound: 'gun-shot-heavy' },
+  pulse_rifle: { proc: PROC.pulse_rifle, len: .7, at: [.2, -.2, -.42], grip: [0, -.08, .12], fore: [0, -.05, -.18] },
+  shortbow: { proc: PROC.shortbow, len: .3, at: [-.06, -.1, -.55], grip: [0, -.02, -.04], fore: [0, -.02, -.04], bow: 1 },
+  recurve: { proc: PROC.recurve, len: .3, at: [-.06, -.1, -.55], grip: [0, -.02, -.04], fore: [0, -.02, -.04], bow: 1 },
+  crossbow: { proc: PROC.crossbow, len: .6, at: [.18, -.2, -.42], grip: [0, -.07, .15], fore: [0, -.03, -.12] },
+};
+const MELEE_VIEW = { stone_knife: g => PROC.knife(g, M(0x4a4e56)), flint_knife: g => PROC.knife(g, M(0x4a4e56), M(0x8aa04a)), bone_dagger: g => PROC.knife(g, VMAT.bone()), bone_knife: g => PROC.knife(g, VMAT.bone()),
+  hunting_knife: g => PROC.knife(g), mil_knife: g => PROC.knife(g, VMAT.gun(), VMAT.dark(), .22), multitool: g => PROC.knife(g, VMAT.steel(), VMAT.orange(), .1), machete: g => PROC.knife(g, VMAT.steel(), VMAT.dark(), .5),
+  wood_spear: g => PROC.spear(g, VMAT.wood()), metal_spear: g => PROC.spear(g), hunt_spear: g => PROC.spear(g, M(0x4a4e56)), fish_spear: g => PROC.spear(g, M(0x4a4e56)), staff: g => vcyl(g, .02, .02, 1.5, VMAT.wood(), 0, 0, 0),
+  club: PROC.club, hatchet: g => PROC.axe(g, M(0x4a4e56), .4), stone_axe: g => PROC.axe(g, M(0x7a7870), .45), metal_axe: g => PROC.axe(g), war_axe: g => PROC.axe(g, VMAT.steel(), .7), sword: PROC.sword,
+  stun_baton: PROC.baton, crowbar: PROC.crowbar, pickaxe: g => { PROC.axe(g, VMAT.steel(), .6); vbox(g, .02, .3, .03, VMAT.steel(), 0, .02, -.27); }, stone_pick: g => { PROC.axe(g, M(0x7a7870), .55); vbox(g, .02, .26, .04, M(0x7a7870), 0, .02, -.24); },
+  hammer: g => PROC.hammer(g), wood_hammer: g => PROC.hammer(g, VMAT.wood()), wrench: g => { vbox(g, .015, .03, .32, VMAT.steel(), 0, 0, -.05); vbox(g, .015, .07, .05, VMAT.steel(), 0, .02, -.22); }, wood_shovel: PROC.shovel };
+for (const id in MELEE_VIEW) VIEWS[id] = { proc: MELEE_VIEW[id], len: .5, at: [.24, -.24, -.42], grip: [0, 0, .05], fore: [0, 0, .05], melee: 1 };
+for (const id in VIEWS) { const V = VIEWS[id], D = GEAR_DEFS[id]; WEAPONS[id] = { name: D ? D.n : id, axis: 'z', auto: !!WDEF[id]?.auto, scope: WDEF[id]?.scope || 1, sound: V.sound || 'rifle-m16-a', ...V }; }
+WEAPONS.hunter.name = 'Hunting rifle';
+
+/* ---------- what's in each slot ---------- */
+function eqInit() {
+  if (!Array.isArray(INV.eq) || INV.eq.length !== 3) INV.eq = ['arc', G.flags.hunter ? 'hunter' : null, null];
+  INV.eq = INV.eq.map(u => u === 'arc' || u === 'hunter' || u == null ? u : INV.tools.some(t => t.u === u) ? u : null);
+  if (!INV.eq[0] && !INV.eq[1] && !INV.eq[2]) INV.eq[0] = 'arc';
+}
+function slotWeapon(i) {
+  const u = INV.eq?.[i]; if (u == null) return null;
+  if (u === 'arc') { const R = RIFLE[UP.rifle]; return { key: R.id, g: null, st: { cls: 'gun', ammo: 'ammo_556', dmg: R.dmg, mag: R.mag, rate: R.rate, spread: R.spread, auto: 1, scope: WEAPONS[R.id].scope, reload: 1.7 }, name: WEAPONS[R.id].name };
+  }
+  if (u === 'hunter') return { key: 'hunter', g: null, st: WDEF.hunter, name: 'Hunting rifle' };
+  const g = INV.tools.find(t => t.u === u); if (!g || !WDEF[g.id]) return null;
+  return { key: g.id, g, st: WDEF[g.id], name: GEAR_DEFS[g.id].n };
+}
+const curW = () => slotWeapon(P.slot) || slotWeapon(0) || { key: 'carbine', g: null, st: { cls: 'melee', dmg: 8, rate: .5, reach: 1.6 }, name: 'Fists' };
+const gunId = () => curW().key;
+const magOf = w => w.g ? (w.g.mag ?? 0) : INV.mags[w.key] ?? 0;
+function setMag(w, n) { if (w.g) w.g.mag = n; else INV.mags[w.key] = n; }
+const ammoLeft = w => w.st.ammo ? cnt(w.st.ammo) : 0;
+function selectSlot(i) {
+  if (!slotWeapon(i)) { if (i === 2) toast('Slot 3 is for a melee weapon or bow — equip one from the bag', 2.4); return; }
+  if (P.slot === i || P.reload > 0) return;
+  P.slot = i; P.swapT = .4; selectGunView(gunId()); sfx('reload'); toast(curW().name, 1.2);
+}
+function swapGun() { for (let k = 1; k <= 3; k++) { const i = (P.slot + k) % 3; if (slotWeapon(i)) { selectSlot(i); return; } } }
+function equipTo(g, i) {
+  const cls = WDEF[g.id]?.cls; if (!cls) return;
+  if (cls === 'gun' && i === 2) i = 0; if (cls !== 'gun' && i !== 2) i = 2;
+  INV.eq = INV.eq.map(u => u === g.u ? null : u); INV.eq[i] = g.u;
+  if (P.slot === i) selectGunView(gunId()); toast(`${GEAR_DEFS[g.id].n} → slot ${i + 1}`, 1.8); sfx('reload'); save();
+}
+function autoEquip(g) {
+  if (!WDEF[g.id] || !INV.eq || GEAR_DEFS[g.id].kind !== 'weapon' && !['hunting_knife', 'mil_knife', 'hatchet', 'war_axe'].includes(g.id)) return;
+  const i = WDEF[g.id].cls === 'gun' ? (INV.eq[1] == null ? 1 : INV.eq[0] == null ? 0 : -1) : (INV.eq[2] == null ? 2 : -1);
+  if (i >= 0) { INV.eq[i] = g.u; setTimeout(() => toast(`${GEAR_DEFS[g.id].n} ready in slot ${i + 1}`, 2.2), 1200); }
+}
+function onGearBroke(g) { if (!slotWeapon(P.slot)) { P.slot = slotWeapon(0) ? 0 : slotWeapon(1) ? 1 : 0; selectGunView(gunId()); } }
+
+/* ---------- firing ---------- */
+const ray = new THREE.Vector3(), rayO = new THREE.Vector3();
+function rayHit(o, d, maxT) {
+  let best = null, bt = maxT, mult = 1;
+  for (const e of ents) {
+    if (e.dead || e.type === 'npc') continue;
+    if (Math.hypot(e.x - o.x, e.z - o.z) > maxT + 3) continue;
+    for (const [cx, cy, cz, r, m] of hitSpheres(e)) {
+      const ox = o.x - cx, oy = o.y - cy, oz = o.z - cz;
+      const b = ox * d.x + oy * d.y + oz * d.z, c = ox * ox + oy * oy + oz * oz - r * r, h = b * b - c;
+      if (h < 0) continue; const t = -b - Math.sqrt(h);
+      if (t > 0 && t < bt) { bt = t; best = e; mult = m; }
+    }
+  }
+  let tHit = bt, solid = false;
+  for (let t = .8; t < bt; t += 1) {
+    const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+    if (y < heightAt(x, z)) { tHit = t; best = null; solid = true; break; }
+    if (t > 2 && (t | 0) % 2 === 0) for (const c of nearCols(x, z)) if (Math.hypot(x - c.x, z - c.z) < c.r * .8 && y < heightAt(c.x, c.z) + (c.h < 99 ? c.h : 8)) { tHit = t; best = null; solid = true; break; }
+    if (solid) break;
+  }
+  return { e: best, t: tHit, mult, solid };
+}
+function shoot() {
+  const w = curW(), R = w.st;
+  if (P.reload > 0 || P.fire > 0 || P.dead || P.swapT > 0) return;
+  if (R.cls === 'melee') return swing(w);
+  if (magOf(w) <= 0) { sfx('dry'); P.fire = .25; if (ammoLeft(w) > 0) reload(); else toast(`Out of ${nameOf(R.ammo).toLowerCase()}`); input.fire = false; return; }
+  setMag(w, magOf(w) - 1); P.fire = R.rate; P.kick = Math.min(P.kick + (R.dmg > 100 ? .09 : R.pellets ? .11 : .028), .14);
+  if (!R.auto) input.fire = false;
+  if (w.g) wearTool(w.g, 1);
+  camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
+  if (R.cls === 'bow') { fireProj(R, w.key); sfx(R.flare ? 'shot' : 'whoosh'); if (magOf(w) === 0 && ammoLeft(w) > 0) setTimeout(reload, 120); return; }
+  sfx('shot'); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 40);
+  const mz = new THREE.Vector3(); muzzle.getWorldPosition(mz);
+  let hitAny = false, head = false;
+  for (let p = 0; p < (R.pellets || 1); p++) {
+    const sp = R.spread * (1 - P.ads * .7) * (P.onGround ? 1 : 2.5);
+    const d = ray.clone(); d.x += rr(-sp, sp); d.y += rr(-sp, sp); d.normalize();
+    const h = rayHit(rayO, d, 400), end = rayO.clone().addScaledVector(d, h.t);
+    if (p < 3) tracer(mz, end, R.pulse ? 0x7ae0ff : undefined);
+    if (h.e) { damage(h.e, R.dmg * h.mult * (h.t > 40 && R.pellets ? .5 : 1), true, end); hitAny = true; head = head || h.mult > 1.5; }
+    else if (h.t < 399 && p < 3) { puff(end.x, end.y + .1, end.z, 0x6a5a48, 4, 1.5, .1, .4); if (p === 0) sfx('impact', .7); }
+  }
+  if (hitAny) { sfx(head ? 'head' : 'hit'); hud.hitm.classList.add('on'); setTimeout(() => hud.hitm.classList.remove('on'), 90); hud.hitm.style.filter = head ? 'drop-shadow(0 0 3px #f44)' : ''; }
+  if (magOf(w) === 0 && ammoLeft(w) > 0) setTimeout(reload, 240);
+}
+function reload() {
+  const w = curW(), R = w.st;
+  if (R.cls === 'melee' || P.reload > 0 || magOf(w) >= R.mag || ammoLeft(w) <= 0) return;
+  P.reload = R.reload || 1.7; P.reloadMax = P.reload; if (R.cls !== 'bow' || R.reload > .5) sfx('reload');
+}
+function finishReload() { const w = curW(), R = w.st; if (!R.ammo) return; const n = Math.min(R.mag - magOf(w), ammoLeft(w)); setMag(w, magOf(w) + n); take(R.ammo, n); }
+
+/* melee: a short swing, then whatever's in reach in front of you takes the hit */
+function swing(w) {
+  const R = w.st; P.fire = R.rate; P.swingT = .32; sfx('swing'); input.fire = !!R.auto;
+  setTimeout(() => {
+    if (P.dead) return;
+    const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw); let best = null, bd = R.reach + .6;
+    for (const e of ents) { if (e.dead || e.type === 'npc') continue; const dx = e.x - P.x, dz = e.z - P.z, d = Math.hypot(dx, dz); if (d > bd || Math.abs(e.y - P.y) > 2.5) continue; if ((dx * fx + dz * fz) / (d || 1) < .45) continue; bd = d; best = e; }
+    if (best) {
+      const at = new THREE.Vector3(best.x, best.y + 1.2, best.z), sneak = best.state === 'idle' || best.state === 'graze' || best.state === 'root';
+      damage(best, R.dmg * (sneak ? 2 : 1), true, at); sfx('hit'); if (R.stun) best.stun = Math.max(best.stun || 0, R.stun);
+      if (w.g) wearTool(w.g, 1); hud.hitm.classList.add('on'); setTimeout(() => hud.hitm.classList.remove('on'), 90);
+      if (sneak) toast('Sneak attack ×2', 1);
+    } else { const n = nearNode(); if (n && w.g && ['stone_axe', 'metal_axe', 'hatchet', 'war_axe', 'pickaxe', 'stone_pick'].includes(w.g.id)) sfx('thud'); }
+  }, 130);
+}
+
+/* projectiles: arrows, bolts, flares, thrown spears, grenades, fire bottles */
+const PROJ = [];
+function projMesh(kind) {
+  const g = new THREE.Group();
+  if (kind === 'frag' || kind === 'smoke_gren') mesh(new THREE.SphereGeometry(.07, 8, 6), M(kind === 'frag' ? 0x4a5a3a : 0x6a6a62), 0, 0, 0, g);
+  else if (kind === 'molotov') { mesh(new THREE.CylinderGeometry(.04, .05, .2, 8), M(0x7a4a1a), 0, 0, 0, g); mesh(new THREE.SphereGeometry(.04, 6, 4), VMAT.glow(0xff8a2a), 0, .12, 0, g); }
+  else if (kind === 'flare') mesh(new THREE.SphereGeometry(.08, 8, 6), VMAT.glow(0xff4a3a), 0, 0, 0, g);
+  else { const L = kind === 'throw_spear' ? 1.6 : kind === 'bolt' ? .45 : .7; vcyl(g, .008, .008, L, VMAT.wood(), 0, 0, 0); mesh(new THREE.ConeGeometry(.018, .07, 4), VMAT.steel(), 0, 0, -L / 2, g).rotation.x = -Math.PI / 2; }
+  world.add(g); return g;
+}
+function fireProj(R, key) {
+  const kind = R.flare ? 'flare' : key === 'crossbow' ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
+  const p = { g, kind, x: rayO.x + d.x * .6, y: rayO.y + d.y * .6 - .05, z: rayO.z + d.z * .6, vx: d.x * R.spd, vy: d.y * R.spd, vz: d.z * R.spd, grav: R.grav, dmg: R.dmg, burn: R.burn || 0, t: 0, owner: 'p' };
+  PROJ.push(p);
+}
+function throwNext() {
+  if (P.dead || cine || G.mode !== 'play') return;
+  const id = (P.thr && cnt(P.thr) > 0) ? P.thr : THROWS.find(k => cnt(k) > 0);
+  if (!id) { toast('Nothing to throw — craft grenades or throwing spears', 2); sfx('no'); return; }
+  take(id, 1); camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
+  const spd = id === 'throw_spear' ? 32 : 18, g = projMesh(id);
+  PROJ.push({ g, kind: id, x: rayO.x + ray.x * .5, y: rayO.y + ray.y * .5, z: rayO.z + ray.z * .5, vx: ray.x * spd, vy: ray.y * spd + (id === 'throw_spear' ? 1 : 3.5), vz: ray.z * spd, grav: 12, dmg: id === 'throw_spear' ? 70 : 0, t: 0, owner: 'p', fuse: id === 'frag' ? 2.4 : id === 'smoke_gren' ? 1.6 : 0 });
+  sfx('whoosh'); toast(`${nameOf(id)} · ${cnt(id)} left`, 1.2);
+}
+const FIRES = [], SMOKES_P = [];
+function explode(x, y, z) {
+  sfx('boom'); puff(x, y + .5, z, 0xffa040, 18, 7, .3, .5, 2); puff(x, y + .5, z, 0x3a3a36, 16, 4, .5, 1.6, -1);
+  for (const e of [...ents]) { if (e.dead || e.type === 'npc') continue; const d = Math.hypot(e.x - x, e.z - z, (e.y + 1) - y); if (d < 7) damage(e, 160 * (1 - d / 7) + 20, true, new THREE.Vector3(e.x, e.y + 1, e.z)); }
+  const dp = Math.hypot(P.x - x, P.z - z, P.y + 1 - y); if (dp < 6) hurtPlayer(70 * (1 - dp / 6), x + .01, z);
+  for (const p of PLACED || []) if (Math.hypot(p.x - x, p.z - z) < 4 && p.hp != null) p.hp -= 60;
+}
+function updProj(dt) {
+  for (let i = PROJ.length - 1; i >= 0; i--) {
+    const p = PROJ[i]; p.t += dt;
+    if (!p.stuck) {
+      const steps = 3, sd = dt / steps;
+      for (let s = 0; s < steps && !p.stuck; s++) {
+        p.vy -= p.grav * sd; p.x += p.vx * sd; p.y += p.vy * sd; p.z += p.vz * sd;
+        const gh = heightAt(p.x, p.z);
+        if (p.owner === 'p' && p.dmg > 0) for (const e of ents) { if (e.dead || e.type === 'npc') continue; if (Math.hypot(e.x - p.x, e.z - p.z) > 2.5) continue;
+          for (const [cx, cy, cz, r, m] of hitSpheres(e)) if (Math.hypot(p.x - cx, p.y - cy, p.z - cz) < r + .05) { damage(e, p.dmg * m, true, new THREE.Vector3(p.x, p.y, p.z)); sfx(m > 1.5 ? 'head' : 'hit'); if (p.burn) e.burn = p.burn; p.stuck = 1; p.hitE = e; p.t = 20; break; }
+          if (p.stuck) break; }
+        if (!p.stuck && p.y < gh) {
+          p.y = gh + .05;
+          if (p.kind === 'frag' || p.kind === 'smoke_gren') { p.vx *= .35; p.vz *= .35; p.vy = Math.abs(p.vy) * .3; if (Math.abs(p.vy) < .6) { p.vy = 0; p.grav = 0; p.vx = p.vz = 0; } }
+          else p.stuck = 1;
+          if (p.kind === 'molotov') { FIRES.push({ x: p.x, z: p.z, y: gh, t: 7 }); sfx('boom', .5); p.t = 99; }
+          if (p.kind === 'flare') { FIRES.push({ x: p.x, z: p.z, y: gh, t: 1.2, small: 1 }); }
+        }
+        if (!p.stuck && p.t > .1) for (const c of nearCols(p.x, p.z)) if (Math.hypot(p.x - c.x, p.z - c.z) < c.r * .8 && p.y < heightAt(c.x, c.z) + 8) { if (p.kind === 'frag' || p.kind === 'smoke_gren') { p.vx *= -.3; p.vz *= -.3; } else p.stuck = 1; break; }
+      }
+      p.g.position.set(p.x, p.y, p.z);
+      if (!p.stuck && p.grav && p.kind !== 'frag' && p.kind !== 'smoke_gren') p.g.lookAt(p.x - p.vx, p.y - p.vy, p.z - p.vz);
+      if (p.kind === 'flare' && Math.random() < .5) puff(p.x, p.y, p.z, 0xff6a3a, 1, .5, .06, .3, 1);
+    }
+    if (p.hitE && !p.hitE.dead) p.g.position.set(p.hitE.x, p.hitE.y + 1.2, p.hitE.z);
+    if (p.fuse) { p.fuse -= dt; if (p.fuse <= 0) { if (p.kind === 'frag') explode(p.x, p.y, p.z); else SMOKES_P.push({ x: p.x, z: p.z, y: p.y, t: 14 }); p.t = 99; p.fuse = 0; } }
+    if (p.t > (p.kind === 'arrow' || p.kind === 'bolt' || p.kind === 'throw_spear' ? 25 : 30) || p.t >= 99) { world.remove(p.g); PROJ.splice(i, 1); }
+  }
+  for (let i = FIRES.length - 1; i >= 0; i--) { const f = FIRES[i]; f.t -= dt; if (Math.random() < dt * (f.small ? 8 : 20)) puff(f.x + rr(-1.5, 1.5) * (f.small ? .2 : 1), f.y + .3, f.z + rr(-1.5, 1.5) * (f.small ? .2 : 1), pick([0xff8a2a, 0xffb04a, 0xe0502a]), 2, 1.5, .18, .6, 3);
+    if (!f.small) { for (const e of ents) if (!e.dead && e.type !== 'npc' && Math.hypot(e.x - f.x, e.z - f.z) < 3.2) e.burn = Math.max(e.burn || 0, 3); if (Math.hypot(P.x - f.x, P.z - f.z) < 2.4) hurtPlayer(14 * dt, f.x + .01, f.z); }
+    if (f.t <= 0) FIRES.splice(i, 1); }
+  for (let i = SMOKES_P.length - 1; i >= 0; i--) { const s = SMOKES_P[i]; s.t -= dt; if (Math.random() < dt * 14) puff(s.x + rr(-3, 3), s.y + rr(.5, 3), s.z + rr(-3, 3), 0xa8a8a0, 2, .6, rr(.6, 1.2), 2.5, -.3);
+    for (const e of ents) if (e.type === 'clan' && Math.hypot(e.x - s.x, e.z - s.z) < 9 && e.state === 'chase') { e.state = e.mode === 'raid' ? 'raid' : 'idle'; e.blind = 3; }
+    if (s.t <= 0) SMOKES_P.splice(i, 1); }
+}
+const inSmoke = (x, z) => SMOKES_P.some(s => Math.hypot(x - s.x, z - s.z) < 9);
+
+/* melee + bow viewmodel motion */
+function weaponAnim(dt) {
+  const V = WEAPONS[gunId()];
+  if (P.swingT > 0) { P.swingT -= dt; const k = Math.sin((1 - P.swingT / .32) * Math.PI); vm.rotation.x -= k * 1.1; vm.rotation.z += k * .5; vm.position.x -= k * .12; vm.position.z -= k * .15; }
+  if (V?.melee && !(P.swingT > 0)) { vm.rotation.x += .25; vm.rotation.z -= .2; }
+  if (V?.bow) { vm.rotation.z += .15; const draw = P.fire > 0 ? Math.min(1, P.fire * 1.5) : 0; vm.position.z += draw * .05; }
+}
+
+/* ---------- enemy gunners (Ironjaw scavengers, Greyhold soldiers) ---------- */
+function gunnerShoot(e) {
+  const dx = P.x - e.x, dz = P.z - e.z, d = Math.hypot(dx, dz);
+  e.yaw = Math.atan2(dx, dz);
+  const from = new THREE.Vector3(e.x + Math.sin(e.yaw) * .5, e.y + 1.45, e.z + Math.cos(e.yaw) * .5), to = new THREE.Vector3(P.x + rr(-.4, .4), P.y + 1.2, P.z + rr(-.4, .4));
+  // line of sight: terrain + walls between us
+  const dir = to.clone().sub(from), L = dir.length(); dir.normalize();
+  for (let t = 1.5; t < L - 1; t += 1.5) { const x = from.x + dir.x * t, y = from.y + dir.y * t, z = from.z + dir.z * t; if (y < heightAt(x, z)) return false; if (t > 3) for (const c of nearCols(x, z)) if (Math.hypot(x - c.x, z - c.z) < c.r * .7 && y < heightAt(c.x, c.z) + Math.min(c.h || 8, 8)) return false; }
+  if (inSmoke(P.x, P.z) || inSmoke(e.x, e.z)) return false;
+  const moving = Math.hypot(input.mx, input.my) > .3, hitP = clamp((e.fac === 'grey' ? .46 : .36) - d / (e.fac === 'grey' ? 120 : 90) - (moving ? .14 : 0) - (P.over ? -.05 : 0), .05, .45);
+  tracer(from, to, 0xffd890); sfx(d < 40 ? 'turret' : 'impact', Math.max(.15, 1 - d / 90));
+  if (rnd() < hitP) hurtPlayer(e.fac === 'grey' ? rr(8, 12) : rr(5, 9), e.x, e.z); else if (rnd() < .3) sfx('whoosh');
+  return true;
+}
+function updGunner(e, dt, dp) {
+  // keep a fighting distance, strafe, shoot when there's a clear line
+  const p = e.p; let tx = e.x, tz = e.z, spd = 0;
+  const want = e.fac === 'grey' ? 20 : 15;
+  if (dp > want + 8) { tx = P.x; tz = P.z; spd = e.speed; }
+  else if (dp < want - 8) { tx = e.x - (P.x - e.x); tz = e.z - (P.z - e.z); spd = e.speed * .8; }
+  else { e.strafe = (e.strafe || (rnd() < .5 ? 1 : -1)); if (rnd() < dt * .4) e.strafe *= -1; const a = Math.atan2(P.x - e.x, P.z - e.z) + Math.PI / 2 * e.strafe; tx = e.x + Math.sin(a) * 4; tz = e.z + Math.cos(a) * 4; spd = e.speed * .55; }
+  if (e.cool <= 0 && dp < 70) { e.cool = e.fac === 'grey' ? rr(.8, 1.3) : rr(1.2, 2.1); e.burst = (e.burst || 0) + 1; if (e.burst > 3) { e.burst = 0; e.cool = rr(2.5, 4); } if (!gunnerShoot(e)) { e.cool = .4; spd = e.speed; tx = P.x; tz = P.z; } }
+  return [tx, tz, spd];
+}
+
+/* ================= base building: everything you can place =================
+   Kits are crafted, then placed in front of you (walls face you). Q on a placed thing dismantles it for half back. */
+
+/* colliders near a point (used by shots, projectiles and line-of-sight checks) */
+function nearCols(x, z) { const L = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL))); return L || []; }
+
+const WOOD = () => new THREE.MeshLambertMaterial({ map: texWood, color: 0x9a7a58 });
+const MB = (g, w, h, d, m, x, y, z, ry = 0) => { const o = mesh(new THREE.BoxGeometry(w, h, d), m, x, y, z, g); o.rotation.y = ry; o.castShadow = o.receiveShadow = true; return o; };
+const MC = (g, r0, r1, h, m, x, y, z, seg = 8) => { const o = mesh(new THREE.CylinderGeometry(r0, r1, h, seg), m, x, y, z, g); o.castShadow = true; return o; };
+const glowM = c => new THREE.MeshBasicMaterial({ color: c, toneMapped: false });
+
+// wall-type pieces are a 4m run, built across your view
+const WALLS = { palisade: { h: 3.4, m: 'logs', spike: 1 }, wood_wall: { h: 3, m: 'planks' }, metal_wall: { h: 3.4, m: 'metal' }, door: { h: 3, m: 'door' } };
+function wallMesh(g, k) {
+  const W = WALLS[k];
+  if (W.m === 'logs') for (let i = 0; i < 9; i++) { MC(g, .2, .22, W.h, WOOD(), -1.8 + i * .45, W.h / 2, 0, 7); mesh(new THREE.ConeGeometry(.21, .5, 7), WOOD(), -1.8 + i * .45, W.h + .25, 0, g); }
+  else if (W.m === 'planks') { for (let i = 0; i < 6; i++) MB(g, 4, .44, .12, WOOD(), 0, .3 + i * .5, 0); for (const x of [-1.9, 0, 1.9]) MB(g, .2, W.h, .2, M(0x5a3e28), x, W.h / 2, .12); }
+  else if (W.m === 'metal') { const mt = new THREE.MeshLambertMaterial({ map: texCorr, color: pick([0x8a8478, 0x7a6a5a, 0x6a7072]) }); for (let i = 0; i < 4; i++) MB(g, 1.05, W.h, .08, mt, -1.5 + i * 1, W.h / 2, (i % 2) * .04); for (const y of [.5, W.h - .4]) MB(g, 4.1, .12, .14, M(0x3a3a3a), 0, y, .08); }
+  else { for (const x of [-1.6, 1.6]) MB(g, .8, W.h, .3, M(0x5a5a5a), x, W.h / 2, 0); const dr = new THREE.Group(); dr.position.set(-1.2, 0, 0); g.add(dr); MB(dr, 2.4, 2.6, .12, new THREE.MeshLambertMaterial({ map: texCorr, color: 0x6a6a64 }), 1.2, 1.3, 0); MB(dr, .1, .1, .2, M(0x222222), 2.1, 1.3, .1); g.userData.leaf = dr; MB(g, 4, .4, .3, M(0x5a5a5a), 0, W.h - .2, 0); }
+}
+// what each placeable is and does · st: stations it counts as · store: storage slots · rest: you can set your respawn here
+const BUILD_DEF = {
+  campfire: { st: ['fire'], light: 1, mk: g => { for (let i = 0; i < 8; i++) { const a = i / 8 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x8a8780), Math.cos(a) * .6, .1, Math.sin(a) * .6, g); } for (let i = 0; i < 3; i++) mesh(new THREE.CylinderGeometry(.07, .08, .9, 5), M(0x5a3a22), 0, .2, 0, g).rotation.set(1.2, i * 2.1, 0); g.userData.flame = mesh(new THREE.ConeGeometry(.3, .8, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: .85 }), 0, .55, 0, g); }, r: .55 },
+  sleeping_mat: { rest: 1, mk: g => { MB(g, .9, .08, 2, M(0x7a8a4a), 0, .04, 0); MB(g, .8, .14, .35, M(0x8a7a5a), 0, .1, -.8); }, r: 0 },
+  tent: { rest: 1, shelter: 2.2, mk: g => { const t = mesh(new THREE.ConeGeometry(1.9, 2.2, 4), M(0x6a6a3a), 0, 1.1, 0, g); t.rotation.y = Math.PI / 4; t.scale.z = 1.4; MB(g, .8, 1.2, .05, M(0x1a1a14), 0, .6, 1.3); }, r: 1.3 },
+  wood_shelter: { rest: 1, shelter: 3, mk: g => { for (const [x, z] of [[-1.8, -1.6], [1.8, -1.6], [-1.8, 1.6], [1.8, 1.6]]) MC(g, .12, .14, 2.6, WOOD(), x, 1.3, z, 6); const r = MB(g, 4.4, .15, 4, WOOD(), 0, 2.7, 0); r.rotation.x = .12; for (let i = 0; i < 5; i++) MB(g, .25, 2.4, .2, WOOD(), -1.8 + i * .9, 1.2, -1.7); }, cols: [[-1.8, -1.6, .2], [1.8, -1.6, .2], [-1.8, 1.6, .2], [1.8, 1.6, .2], [0, -1.7, .4], [-1, -1.7, .4], [1, -1.7, .4]] },
+  storage_chest: { store: 24, mk: g => { MB(g, 1.2, .6, .7, WOOD(), 0, .3, 0); MB(g, 1.25, .1, .75, M(0x5a3e28), 0, .62, 0); }, r: .6 },
+  drying_rack: { st: ['rack'], mk: g => { for (const x of [-.9, .9]) MC(g, .05, .06, 1.7, M(0x6a4a30), x, .85, 0, 5); MC(g, .04, .04, 2, M(0x6a4a30), 0, 1.6, 0, 5).rotation.z = Math.PI / 2; for (let i = 0; i < 5; i++) MB(g, .12, .45, .03, M(0x8a3a24), -.6 + i * .3, 1.32, 0); }, r: .5 },
+  cooking_rack: { st: ['fire', 'cook'], light: 1, mk: g => { for (let i = 0; i < 3; i++) { const l = MC(g, .04, .05, 2, M(0x5a3a22), Math.cos(i * 2.1) * .5, .9, Math.sin(i * 2.1) * .5, 5); l.rotation.set(Math.sin(i * 2.1) * .25, 0, -Math.cos(i * 2.1) * .25); } MC(g, .25, .2, .3, M(0x2a2a2a), 0, .8, 0, 10); for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28; mesh(new THREE.DodecahedronGeometry(.16, 0), M(0x8a8780), Math.cos(a) * .4, .08, Math.sin(a) * .4, g); } g.userData.flame = mesh(new THREE.ConeGeometry(.22, .5, 6), new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: .85 }), 0, .3, 0, g); }, r: .6 },
+  water_collector: { make: ['water_rain', 150, 6], mk: g => { for (const [x, z] of [[-.7, -.7], [.7, -.7], [-.7, .7], [.7, .7]]) MC(g, .04, .04, 1.4, M(0x6a4a30), x, .7, z, 5); const h = mesh(new THREE.ConeGeometry(1, .5, 4, 1, true), new THREE.MeshLambertMaterial({ color: 0x8a6a48, side: THREE.DoubleSide }), 0, 1.2, 0, g); h.rotation.set(Math.PI, Math.PI / 4, 0); MC(g, .3, .25, .4, M(0xa8643c), 0, .2, 0, 10); }, r: .8 },
+  palisade: { wall: 1, hp: 300 }, wood_wall: { wall: 1, hp: 400 }, metal_wall: { wall: 1, hp: 900 }, door: { wall: 1, door: 1, hp: 900 },
+  spikes: { spikes: 1, mk: g => { for (let i = 0; i < 7; i++) { const s = MC(g, .04, .07, 1.8, WOOD(), -1.6 + i * .53, .6, 0, 5); s.rotation.x = i % 2 ? .7 : -.7; } MC(g, .08, .08, 3.6, WOOD(), 0, .5, 0, 5).rotation.z = Math.PI / 2; }, r: 0 },
+  watchtower: { tower: 5.2, mk: g => { for (const [x, z] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) MC(g, .12, .16, 5.6, WOOD(), x, 2.8, z, 6); MB(g, 3, .2, 3, WOOD(), 0, 5.2, 0); for (const [x, z, ry] of [[0, -1.45, 0], [0, 1.45, 0], [-1.45, 0, Math.PI / 2], [1.45, 0, Math.PI / 2]]) MB(g, 3, .9, .08, WOOD(), x, 5.75, z, ry); const r = mesh(new THREE.ConeGeometry(2.4, 1.2, 4), M(0x5a4430), 0, 7.4, 0, g); r.rotation.y = Math.PI / 4; for (const [x, z] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) MC(g, .06, .06, 1.6, WOOD(), x, 6.4, z, 5); }, cols: [[-1.2, -1.2, .2], [1.2, -1.2, .2], [-1.2, 1.2, .2], [1.2, 1.2, .2]] },
+  storage_crate: { store: 32, mk: g => { MB(g, 1.3, .9, .9, new THREE.MeshLambertMaterial({ map: texWood, color: 0xb08a5a }), 0, .45, 0); }, r: .7 },
+  rain_coll: { make: ['water_rain', 90, 10], mk: g => { MC(g, .55, .55, 1.4, S(0x3a6a9a, { metalness: .4 }), 0, .9, 0, 14); for (const [x, z] of [[-.4, -.4], [.4, -.4], [-.4, .4], [.4, .4]]) MB(g, .1, .2, .1, WOOD(), x, .1, z); MC(g, .7, .5, .1, S(0x8a8a8a), 0, 1.65, 0, 14); }, r: .6 },
+  cook_station: { st: ['fire', 'cook'], light: 1, mk: g => { MB(g, 1.6, .9, 1, new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x9a968e }), 0, .45, 0); MB(g, 1.4, .06, .8, M(0x2a2a2a), 0, .93, 0); MC(g, .2, .2, .3, M(0x3a3a3a), -.3, 1.1, 0, 10); g.userData.flame = mesh(new THREE.BoxGeometry(.9, .05, .4), glowM(0xff7a2a), 0, .7, .51, g); }, r: .9 },
+  workshop: { st: ['bench'], mk: g => { MB(g, 2.2, .1, 1, WOOD(), 0, .95, 0); for (const [x, z] of [[-1, -.4], [1, -.4], [-1, .4], [1, .4]]) MB(g, .1, .95, .1, WOOD(), x, .47, z); MB(g, .4, .3, .3, M(0x3a3a3a), -.6, 1.15, 0); MB(g, 2.2, 1, .06, WOOD(), 0, 1.5, -.5); for (let i = 0; i < 5; i++) MB(g, .04, .3, .02, S(0x9a9a9a), -.8 + i * .4, 1.5, -.45); }, r: 1 },
+  farm_plot: { farm: 1, mk: g => { MB(g, 2, .3, 1.4, WOOD(), 0, .15, 0); MB(g, 1.8, .05, 1.2, M(0x3e2e1e), 0, .31, 0); }, r: 0 },
+  greenhouse: { farm: 2, mk: g => { const gl = new THREE.MeshLambertMaterial({ color: 0xc8e0e8, transparent: true, opacity: .32, side: THREE.DoubleSide }); MB(g, 3, .3, 2.2, WOOD(), 0, .15, 0); MB(g, 2.8, .05, 2, M(0x3e2e1e), 0, .31, 0); MB(g, 3, 1.8, 2.2, gl, 0, 1.2, 0); const r = mesh(new THREE.ConeGeometry(2.1, .9, 4), gl, 0, 2.55, 0, g); r.rotation.y = Math.PI / 4; r.scale.z = .75; for (const [x, z] of [[-1.5, -1.1], [1.5, -1.1], [-1.5, 1.1], [1.5, 1.1]]) MB(g, .06, 2.1, .06, WOOD(), x, 1.2, z); }, r: 1.4 },
+  water_filter: { st: ['filter'], mk: g => { for (const [x, z] of [[-.35, -.35], [.35, -.35], [-.35, .35], [.35, .35]]) MB(g, .06, 1.2, .06, S(0x8a8a8a), x, .6, z); mesh(new THREE.ConeGeometry(.45, .7, 10), S(0xa0a4a8, { metalness: .6 }), 0, 1.4, 0, g).rotation.x = Math.PI; MC(g, .3, .3, .3, S(0x6a8aa0), 0, .3, 0, 10); }, r: .5 },
+  chair: { mk: g => { MB(g, .5, .06, .5, WOOD(), 0, .45, 0); for (const [x, z] of [[-.2, -.2], [.2, -.2], [-.2, .2], [.2, .2]]) MB(g, .05, .45, .05, WOOD(), x, .22, z); MB(g, .5, .5, .05, WOOD(), 0, .72, -.23); }, r: 0 },
+  table: { mk: g => { MB(g, 1.6, .08, .9, WOOD(), 0, .8, 0); for (const [x, z] of [[-.7, -.35], [.7, -.35], [-.7, .35], [.7, .35]]) MB(g, .08, .8, .08, WOOD(), x, .4, z); }, r: .6 },
+  bed: { rest: 1, mk: g => { MB(g, 1.1, .4, 2.1, WOOD(), 0, .2, 0); MB(g, 1, .18, 1.9, M(0x8a8a7a), 0, .48, 0); MB(g, .7, .12, .35, M(0xd8d0c0), 0, .62, -.75); MB(g, 1.1, .9, .08, WOOD(), 0, .45, -1.05); }, r: .7 },
+  shelves: { store: 16, mk: g => { for (const x of [-.7, .7]) MB(g, .06, 1.8, .4, WOOD(), x, .9, 0); for (let i = 0; i < 4; i++) MB(g, 1.4, .05, .4, WOOD(), 0, .2 + i * .5, 0); for (let i = 0; i < 6; i++) MB(g, .25, .25, .25, M(pick([0x8a6a48, 0x5a6a4a, 0x6a6a6a])), -.5 + (i % 3) * .5, .35 + Math.floor(i / 3) * .5, 0); }, r: .5 },
+  lantern: { light: 1, mk: g => { MC(g, .03, .03, 1.6, M(0x3a3a3a), 0, .8, 0, 5); MC(g, .1, .12, .25, glowM(0xffd080), 0, 1.7, 0, 8); MC(g, .12, .12, .04, M(0x2a2a2a), 0, 1.85, 0, 8); }, r: 0 },
+  weapon_rack: { store: 8, gearOnly: 1, mk: g => { MB(g, 1.6, 1.4, .1, WOOD(), 0, .7, -.15); for (let i = 0; i < 4; i++) MB(g, .05, .05, .3, WOOD(), -.6 + i * .4, 1.1, 0); for (let i = 0; i < 3; i++) MB(g, .06, 1.1, .06, M(0x1a1a1a), -.4 + i * .4, .65, .05).rotation.z = .1; }, r: 0 },
+  map_table: { map: 1, mk: g => { MB(g, 1.6, .08, 1, WOOD(), 0, .85, 0); for (const [x, z] of [[-.7, -.4], [.7, -.4], [-.7, .4], [.7, .4]]) MB(g, .08, .85, .08, WOOD(), x, .42, z); MB(g, 1.3, .01, .8, M(0xc8b890), 0, .9, 0); }, r: .6 },
+  bookshelf: { books: 1, mk: g => { MB(g, 1.4, 1.9, .4, WOOD(), 0, .95, 0); for (let r = 0; r < 4; r++) for (let i = 0; i < 7; i++) MB(g, .14, .32, .3, M(pick([0x6a2a1a, 0x2a3a5a, 0x3a5a2a, 0x7a6a4a])), -.5 + i * .16, .25 + r * .45, .04); }, r: .5 },
+  forge: { st: ['forge', 'fire'], light: 1, mk: g => { MB(g, 2, 1.6, 1.6, new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x7a7470 }), 0, .8, 0); MB(g, .7, 2.2, .7, new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x6a6460 }), .5, 2.6, -.3); g.userData.flame = MB(g, .9, .5, .05, glowM(0xff6a1a), 0, .9, .81); MB(g, .5, .35, .25, M(0x2a2a2a), 1.5, .75, .4); MC(g, .15, .15, .7, M(0x4a3a2a), 1.5, .35, .4, 8); }, r: 1.2 },
+  lockers: { store: 24, mk: g => { for (let i = 0; i < 3; i++) { MB(g, .5, 1.9, .5, S(0x5a6a6a, { metalness: .5 }), -.52 + i * .52, .95, 0); MB(g, .3, .05, .02, M(0x222222), -.52 + i * .52, 1.6, .26); } }, r: .7 },
+  ammo_box: { store: 16, mk: g => { MB(g, .9, .5, .5, S(0x4a5a3a, { metalness: .3 }), 0, .25, 0); MB(g, .2, .06, .1, M(0x1a1a1a), 0, .53, 0); }, r: .5 },
+  metal_crate: { store: 48, mk: g => { MB(g, 1.5, 1, 1, S(0x7a7e80, { metalness: .6 }), 0, .5, 0); for (const x of [-.6, .6]) MB(g, .08, 1.02, 1.02, M(0x3a3a3a), x, .5, 0); }, r: .8 },
+  barracks: { rest: 1, guards: 2, shelter: 3.5, mk: g => { const cv = M(0x8a8a6a); MB(g, 6, 2.6, 4, cv, 0, 1.3, 0); const r = mesh(new THREE.CylinderGeometry(2.3, 2.3, 6, 12, 1, false, 0, Math.PI), cv, 0, 2.6, 0, g); r.rotation.z = Math.PI / 2; r.scale.y = 1; r.scale.x = .5; MB(g, 1.2, 2, .05, M(0x1a1a14), 0, 1, 2.02); }, cols: [[-2, 0, 1.9], [0, 0, 1.9], [2, 0, 1.9]] },
+  med_station: { st: ['lab'], heal: 1, mk: g => { MB(g, 2, .9, .8, S(0xd8d8d0), 0, .45, 0); MB(g, .5, .5, .05, glowM(0xe04040), 0, 1.3, -.38); MB(g, .2, .5, .05, glowM(0xffffff), 0, 1.3, -.36); MB(g, .5, .2, .05, glowM(0xffffff), 0, 1.3, -.355); MB(g, 2, 1.2, .1, S(0xc8c8c0), 0, 1.4, -.4); }, r: 1 },
+  generator: { power: 'fuel', light: 1, mk: g => { MB(g, 1.3, .9, .8, S(0xd8a828, { metalness: .4 }), 0, .55, 0); MB(g, 1.5, .1, 1, M(0x1a1a1a), 0, .1, 0); MC(g, .1, .1, .5, M(0x2a2a2a), .5, 1.1, .2, 8); g.userData.lamp = MB(g, .1, .1, .05, glowM(0x40ff60), -.4, .8, .41); }, r: .8 },
+  solar_panel: { power: 'sun', mk: g => { for (let i = 0; i < 3; i++) { const p = MB(g, 1, .05, 1.6, S(0x1a2a5a, { metalness: .6, roughness: .2 }), -1.1 + i * 1.1, 1.1, 0); p.rotation.x = -.5; MB(g, .06, 1, .06, M(0x6a6a6a), -1.1 + i * 1.1, .5, .3); } }, r: 0 },
+  radio_tower: { radio: 1, mk: g => { for (const [x, z] of [[-.6, -.6], [.6, -.6], [-.6, .6], [.6, .6]]) { const l = MC(g, .05, .05, 9, M(0x8a3a2a), x * .6, 4.5, z * .6, 5); l.rotation.set(z * -.06, 0, x * .06); } for (let i = 1; i < 8; i++) MB(g, .9 - i * .08, .04, .04, M(0x8a3a2a), 0, i * 1.1, 0); g.userData.lamp = mesh(new THREE.SphereGeometry(.15, 8, 6), glowM(0xff3020), 0, 9.1, 0, g); MB(g, .8, .9, .6, S(0x6a6a6a), 0, .45, 1.2); }, r: .8 },
+  turret: { turret: 1, needPower: 1, mk: g => { MB(g, 1, 1, 1, S(0x5a5e60, { metalness: .5 }), 0, .5, 0); const head = new THREE.Group(); head.position.y = 1.2; g.add(head); MB(head, .5, .4, .6, S(0x3a3e40, { metalness: .6 }), 0, 0, 0); MC(head, .04, .04, .9, M(0x1a1a1a), 0, .05, -.6, 8).rotation.x = Math.PI / 2; MB(head, .1, .1, .05, glowM(0xff3030), 0, .15, -.31); g.userData.head = head; }, r: .7 },
+  lab: { st: ['lab', 'bench'], mk: g => { MB(g, 2.4, .9, .9, S(0xe0e0d8), 0, .45, 0); MB(g, .6, .4, .05, glowM(0x60c0ff), -.5, 1.2, -.3); MB(g, .5, .35, .4, S(0x2a2a2a), -.5, 1.1, -.1); for (let i = 0; i < 4; i++) MC(g, .05, .05, .2, new THREE.MeshLambertMaterial({ color: pick([0x8ad0a0, 0xd0a08a, 0xa08ad0]), transparent: true, opacity: .8 }), .4 + i * .15, 1, .1, 8); }, r: 1 },
+};
+for (const k in WALLS) BUILD_DEF[k].mk = g => wallMesh(g, k);
+
+/* ---------- the placed list, its state is saved inside G.flags.placed ---------- */
+const PLACED = [];
+let powerSun = false;
+const powered = () => PLACED.some(p => (BUILD_DEF[p.k].power === 'fuel' && p.rec.fuel > 0) || (BUILD_DEF[p.k].power === 'sun' && !isNight()));
+function buildPlaced(rec) {
+  const B = BUILD_DEF[rec.k]; if (!B) return;
+  const g = new THREE.Group(); g.position.set(rec.x, heightAt(rec.x, rec.z), rec.z); g.rotation.y = rec.yaw || 0;
+  B.mk(g); world.add(g);
+  const p = { k: rec.k, x: rec.x, z: rec.z, yaw: rec.yaw || 0, g, rec, cols: [] };
+  const C = (lx, lz, r) => { const [a, b] = rotXZ(lx, lz, p.yaw); p.cols.push(addCol(p.x + a, p.z + b, r)); };
+  if (B.wall) for (let i = -4; i <= 4; i++) { if (B.door && Math.abs(i) <= 2) continue; C(i * .45, 0, .32); }
+  else if (B.cols) for (const [x, z, r] of B.cols) C(x, z, r);
+  else if (B.r) C(0, 0, B.r);
+  if (B.door) { p.doorCols = []; for (let i = -2; i <= 2; i++) { const [a, b] = rotXZ(i * .45, 0, p.yaw); p.doorCols.push(addCol(p.x + a, p.z + b, rec.open ? -9 : .32)); } if (rec.open) g.userData.leaf.rotation.y = -1.5; }
+  if (B.shelter) { p.sh = { x: p.x, z: p.z, kind: 'placed', r: B.shelter }; SHELTERS.push(p.sh); }
+  if (B.tower) { addFloor(p.x, p.z, p.yaw, 1.4, 1.4, heightAt(p.x, p.z) + B.tower + .1); }
+  if (B.store) rec.inv = rec.inv || {}, rec.gear = rec.gear || [];
+  if (B.farm && rec.crop) farmShow(p);
+  if (B.guards) spawnGuards(p);
+  PLACED.push(p); return p;
+}
+function placeKit(k) {
+  if (cnt(k) <= 0) return;
+  if (Math.hypot(P.x, P.z) < 14 && Math.abs(P.x) < 12 && P.z < 6) { sfx('no'); toast('Too close to the wreck — place it somewhere open'); return; }
+  const B = BUILD_DEF[k], dist = B.wall ? 2.6 : B.tower || B.guards || k === 'greenhouse' ? 4.5 : 2.4;
+  const x = P.x - Math.sin(P.yaw) * dist, z = P.z - Math.cos(P.yaw) * dist;
+  if (waterAt(x, z) > heightAt(x, z) - .3) { sfx('no'); toast("Can't build in water"); return; }
+  if (PLACED.some(p => Math.hypot(p.x - x, p.z - z) < (BUILD_DEF[p.k].wall && B.wall ? 1.5 : 1))) { sfx('no'); toast('Something is already there'); return; }
+  take(k, 1);
+  const rec = { k, x: +x.toFixed(2), z: +z.toFixed(2), yaw: +(B.wall ? P.yaw : P.yaw + Math.PI).toFixed(3) };
+  (G.flags.placed ||= []).push(rec); buildPlaced(rec);
+  sfx('buy'); puff(x, heightAt(x, z) + .3, z, 0x8a7a6a, 8, 2, .15, .6);
+  toast(`${nameOf(k)} built${B.rest ? ' · use it to set your respawn' : B.store ? ' · use it to store things' : B.farm ? ' · plant seeds in it' : ''}`, 2.6); save();
+}
+function unplace(p, refund) {
+  world.remove(p.g); for (const c of [...p.cols, ...(p.doorCols || [])]) c.r = -9;
+  if (p.sh) SHELTERS.splice(SHELTERS.indexOf(p.sh), 1);
+  if (p.guardEnts) for (const e of p.guardEnts) removeEnt(e);
+  PLACED.splice(PLACED.indexOf(p), 1); G.flags.placed = (G.flags.placed || []).filter(r => r !== p.rec);
+  if (refund) {
+    const R = RECIPES.find(r => r.o === p.k); const back = [];
+    if (R) for (const [id, n] of Object.entries(R.i)) { const m = Math.floor(n / (R.n || 1) / 2); if (m > 0) { give(id, m); back.push(`+${m} ${nameOf(id).toLowerCase()}`); } }
+    for (const [id, n] of Object.entries(p.rec.inv || {})) give(id, n); for (const g of p.rec.gear || []) INV.tools.push(g);
+    toast(`Dismantled ${nameOf(p.k).toLowerCase()}${back.length ? ' · ' + back.join(' · ') : ''}`, 2.6); sfx('thud');
+  }
+  save();
+}
+function restorePlaced() { for (const p of [...PLACED]) { world.remove(p.g); for (const c of [...p.cols, ...(p.doorCols || [])]) c.r = -9; if (p.sh) SHELTERS.splice(SHELTERS.indexOf(p.sh), 1); if (p.guardEnts) for (const e of p.guardEnts) removeEnt(e); } PLACED.length = 0; for (const r of G.flags.placed || []) buildPlaced(r); }
+const nearPlaced = (r = 3.2) => { let b = null, bd = r; for (const p of PLACED) { const B = BUILD_DEF[p.k], rr0 = B.wall ? 2.4 : B.guards ? 4 : (B.r || .5) + 2; const d = Math.hypot(p.x - P.x, p.z - P.z); if (d < Math.max(r, rr0) && d - rr0 < bd) { bd = d - rr0; b = p; } } return b; };
+
+/* ---------- what using a placeable does (E), and Q to dismantle ---------- */
+function placedAction(p) {
+  const B = BUILD_DEF[p.k], rec = p.rec, n = nameOf(p.k);
+  if (B.st) return { l: `${n} · craft`, act: () => openCraft(B.st.includes('forge') ? 'mat' : B.st.includes('bench') ? 'tool' : B.st.includes('lab') ? 'med' : 'food') };
+  if (B.store) return { l: `Open ${n.toLowerCase()}`, act: () => openStore(p) };
+  if (B.rest) return { l: G.flags.spawn && Math.hypot(G.flags.spawn.x - p.x, G.flags.spawn.z - p.z) < 1 ? `${n} · rest (respawn set)` : `${n} · set respawn here`, act: () => { G.flags.spawn = { x: p.x, z: p.z }; P.hp = Math.min(100, P.hp + 15); sfx('pickup'); toast('You\'ll wake up here if you go down', 2.4); save(); } };
+  if (B.door) return { l: rec.open ? 'Close the door' : 'Open the door', act: () => { rec.open = !rec.open; p.g.userData.leaf.rotation.y = rec.open ? -1.5 : 0; for (const c of p.doorCols) c.r = rec.open ? -9 : .32; sfx('gate'); save(); } };
+  if (B.tower) { const top = heightAt(p.x, p.z) + B.tower + .1; return { l: P.y < top - 2 ? 'Climb the watchtower' : 'Climb down', act: () => { if (P.y < top - 2) { P.x = p.x; P.z = p.z; P.y = top; } else { P.x = p.x + 2.4; P.z = p.z + 2.4; P.y = heightAt(P.x, P.z); } P.vy = 0; sfx('step'); } }; }
+  if (B.make) { const [id, , cap] = B.make, have = rec.n || 0; return { l: have ? `Collect ${have} ${nameOf(id).toLowerCase()}` : `${n} · filling (${have}/${cap})`, act: () => { if (rec.n) { give(id, rec.n); toast(`+${rec.n} ${nameOf(id).toLowerCase()}`); rec.n = 0; sfx('pickup'); save(); } } }; }
+  if (B.farm) return farmAction(p);
+  if (B.power === 'fuel') return { l: `Generator · fuel ${Math.ceil(rec.fuel || 0)}%${cnt('fuel') ? ' · add fuel' : ''}`, act: () => { if (!cnt('fuel')) { sfx('no'); toast('Needs fuel'); return; } take('fuel', 1); rec.fuel = Math.min(100, (rec.fuel || 0) + 50); sfx('reload'); save(); } };
+  if (B.map) return { l: 'Study the map table', act: () => { revealAll('map'); } };
+  if (B.books) return { l: 'Read', act: () => { toast(pick(['A field guide to edible plants — mushrooms with white gills are the ones that kill you.', 'A pre-fire almanac. The winters used to be colder.', 'A schematic for a hand-cranked generator, half the pages missing.', TIER_HOW[Math.min(6, tierNow() + 1)] || 'Nothing you don’t know.']), 4); } };
+  if (B.radio) return { l: 'Radio tower · listen', act: () => { G.flags.radioTower = 1; for (const R of REGIONS) if (R.base) (G.flags.seen ||= {})[R.id] = 1; toast('Chatter on every band — faction bases marked on the map, and you\'ll hear raiders coming', 3.4); save(); } };
+  if (B.turret) return { l: powered() ? 'Security station · armed' : 'Security station · needs power (generator or solar)', act: () => {} };
+  if (B.heal) return { l: 'Medical station', act: () => openCraft('med') };
+  if (B.guards) return { l: `Barracks · ${p.guardEnts?.filter(e => !e.dead).length || 0} guards`, act: () => { spawnGuards(p, true); } };
+  return { l: n, act: () => {} };
+}
+
+/* ---------- farming ---------- */
+const CROP_OF = { seed_corn: 'corn', seed_potato: 'potato', seed_wheat: 'wheat', seed_bean: 'beans', seed_squash: 'squash', seed_carrot: 'carrot' };
+const GROW = 360;
+function farmAction(p) {
+  const rec = p.rec, B = BUILD_DEF[p.k];
+  if (!rec.crop) { const seed = Object.keys(CROP_OF).find(s => cnt(s) > 0); return { l: seed ? `Plant ${nameOf(seed).toLowerCase()}` : 'Farm plot · needs seeds', act: () => { if (!seed) { sfx('no'); toast('No seeds — forage, trade, or cut them from crops'); return; } take(seed, 1); rec.crop = seed; rec.g = 0; if (cnt('fertilizer')) { take('fertilizer', 1); rec.fert = 1; } farmShow(p); sfx('pickup'); toast(`Planted${rec.fert ? ' (fertilized)' : ''} · ready in about ${Math.round(GROW / B.farm / (rec.fert ? 2 : 1) / 60)} min`); save(); } }; }
+  if (rec.g < 1) return { l: `${nameOf(CROP_OF[rec.crop])} growing · ${Math.round(rec.g * 100)}%`, act: () => {} };
+  return { l: `Harvest ${nameOf(CROP_OF[rec.crop]).toLowerCase()}`, act: () => { const n = (3 + Math.floor(rnd() * 3)) * B.farm; give(CROP_OF[rec.crop], n); const s = 1 + Math.floor(rnd() * 2); give(rec.crop, s); toast(`+${n} ${nameOf(CROP_OF[rec.crop]).toLowerCase()} · +${s} seeds`); rec.crop = null; farmShow(p); sfx('pickup'); save(); } };
+}
+function farmShow(p) {
+  if (p.g.userData.plants) { p.g.remove(p.g.userData.plants); p.g.userData.plants = null; }
+  if (!p.rec.crop) return;
+  const pl = new THREE.Group(), k = .2 + Math.min(1, p.rec.g || 0) * .8, col = { seed_corn: 0x7a9a3a, seed_wheat: 0xb8a050, seed_squash: 0x4a8a3a, seed_carrot: 0x5a9a3a, seed_potato: 0x4a7a3a, seed_bean: 0x5a8a4a }[p.rec.crop];
+  const W = BUILD_DEF[p.k].farm > 1 ? 2.6 : 1.6;
+  for (let i = 0; i < (W > 2 ? 12 : 8); i++) { const c = mesh(new THREE.ConeGeometry(.12, .7, 5), M(col), -W / 2 + .2 + (i % 4) * W / 4, .35 * k + .3, -.4 + Math.floor(i / 4) * .45, pl); c.scale.setScalar(k); if ((p.rec.g || 0) >= 1) mesh(new THREE.SphereGeometry(.07, 6, 4), M(0xe0a030), c.position.x, c.position.y + .3, c.position.z, pl); }
+  p.g.add(pl); p.g.userData.plants = pl;
+}
+
+/* ---------- barracks guards: Arc folk with rifles who shoot at raiders ---------- */
+function spawnGuards(p, refill) {
+  p.guardEnts = (p.guardEnts || []).filter(e => !e.dead && ents.includes(e));
+  const want = BUILD_DEF[p.k].guards; if (refill && p.guardEnts.length >= want) { toast('Barracks is fully manned'); return; }
+  if (refill && cnt('ration') + cnt('dried_meat') + cnt('canned') < 2) { sfx('no'); toast('Feed a new guard: 2 cooked/dried meat or canned food'); return; }
+  while (p.guardEnts.length < want) {
+    if (refill) { for (let k = 0; k < 2; k++) { const f = ['ration', 'dried_meat', 'canned'].find(id => cnt(id) > 0); if (f) take(f, 1); } }
+    const e = spawnNPC('guard', p.x + rr(-3, 3), p.z + rr(-3, 3), { model: 'michael', tint: 0x4a5a6a, wander: true }); e.guard = 1; e.home = { x: p.x, z: p.z }; e.hp = 100; e.fireT = 0;
+    const gm = modelCopy('gun-night', .7, 'z'); if (gm) { gm.position.set(.25, e.p.H * .55, .25); e.p.body.add(gm); }
+    p.guardEnts.push(e); if (refill) { toast('A new guard joins the barracks'); break; }
+  }
+}
+function updGuard(e, dt) {
+  e.fireT -= dt; if (e.fireT > 0) return false;
+  let best = null, bd = 42; for (const t of ents) if (t.type === 'clan' && !t.dead) { const d = Math.hypot(t.x - e.x, t.z - e.z); if (d < bd) { bd = d; best = t; } }
+  if (!best) { e.fireT = .5; return false; }
+  e.fireT = rr(.6, 1.1); e.yaw = Math.atan2(best.x - e.x, best.z - e.z);
+  const from = new THREE.Vector3(e.x, e.y + 1.4, e.z), to = new THREE.Vector3(best.x + rr(-.3, .3), best.y + 1.2, best.z + rr(-.3, .3));
+  tracer(from, to, 0xffe0a0); sfx('turret', Math.max(.15, 1 - Math.hypot(e.x - P.x, e.z - P.z) / 80));
+  if (rnd() < .6) damage(best, 24, false, to);
+  return true;
+}
+
+/* ---------- per-frame: fires, lights, spikes, turrets, crops, water, fuel, healing ---------- */
+const PLIGHTS = []; for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffa860, 0, 16, 1.6); world.add(l); PLIGHTS.push(l); }
+let placeT = 0;
+function updPlaced(dt) {
+  placeT -= dt; const slow = placeT <= 0; if (slow) placeT = 1;
+  const pw = slow ? powered() : null, nightK = isNight() ? 1 : .25;
+  const lit = [];
+  for (const p of PLACED) {
+    const B = BUILD_DEF[p.k], rec = p.rec, d = Math.hypot(p.x - P.x, p.z - P.z);
+    if (p.g.userData.flame) { const f = p.g.userData.flame; f.scale.y = 1 + Math.sin(G.t * 13 + p.x) * .15; }
+    if (B.light && d < 60) lit.push([d, p]);
+    if (B.spikes) for (const e of ents) if (e.type === 'clan' && !e.dead && Math.hypot(e.x - p.x, e.z - p.z) < 2) { e.hp -= 35 * dt; e.slow = .5; if (e.hp <= 0) damage(e, 1, false, new THREE.Vector3(e.x, e.y + 1, e.z)); }
+    if (B.turret && (slow ? (p.pw = pw) : p.pw)) {
+      p.cool = (p.cool || 0) - dt;
+      if (p.cool <= 0) { let best = null, bd = 46; for (const e of ents) if (e.type === 'clan' && !e.dead) { const dd = Math.hypot(e.x - p.x, e.z - p.z); if (dd < bd) { bd = dd; best = e; } }
+        p.cool = best ? .4 : .5;
+        if (best) { const h = p.g.userData.head; h.rotation.y = Math.atan2(best.x - p.x, best.z - p.z) - p.yaw + Math.PI; const from = new THREE.Vector3(p.x, heightAt(p.x, p.z) + 1.3, p.z), to = new THREE.Vector3(best.x, best.y + 1.2, best.z); tracer(from, to, 0xff8080); sfx('turret', Math.max(.15, 1 - d / 90)); if (rnd() < .75) damage(best, 26, false, to); } }
+    }
+    if (!slow) continue;
+    if (B.farm && rec.crop && rec.g < 1) { rec.g = Math.min(1, (rec.g || 0) + B.farm * (rec.fert ? 2 : 1) / GROW); if (Math.round(rec.g * 10) !== Math.round((rec.g - B.farm / GROW) * 10) || rec.g >= 1) farmShow(p); }
+    if (B.make) { const [, every, cap] = B.make; rec.t = (rec.t || 0) + (rust.state === 'none' ? 1 : 2); if (rec.t >= every) { rec.t = 0; rec.n = Math.min(cap, (rec.n || 0) + 1); } }
+    if (B.power === 'fuel' && rec.fuel > 0) { rec.fuel = Math.max(0, rec.fuel - .25); if (p.g.userData.lamp) p.g.userData.lamp.visible = true; } else if (p.g.userData.lamp && B.power) p.g.userData.lamp.visible = false;
+    if (B.radio && p.g.userData.lamp) p.g.userData.lamp.visible = Math.sin(G.t * 3) > 0;
+    if (B.heal && d < 4.5 && !P.dead) { P.hp = Math.min(100, P.hp + 2); if (P.bleed > 0) P.bleed = Math.max(0, P.bleed - 6); }
+  }
+  lit.sort((a, b) => a[0] - b[0]);
+  PLIGHTS.forEach((l, i) => { const q = lit[i]; if (!q) { l.intensity = 0; return; } const p = q[1]; l.position.set(p.x, heightAt(p.x, p.z) + (p.k === 'lantern' ? 1.8 : 1.2), p.z); l.intensity = (p.k === 'lantern' ? 2.2 : 3) * nightK * (1 + Math.sin(G.t * 17 + i) * .08); });
+}
+
+/* ---------- storage ---------- */
+let storeAt = null;
+function openStore(p) { storeAt = p; invTab = 'store'; toggleInv(true); }
+function storeUsed(p) { return Object.values(p.rec.inv || {}).length + (p.rec.gear || []).length; }
+function storePut(id, all) {
+  const p = storeAt, B = BUILD_DEF[p.k];
+  if (typeof id === 'number') { const g = INV.tools.find(t => t.u === id); if (!g) return; if (storeUsed(p) >= B.store) { toast('Full'); return; } unequip(g); INV.tools.splice(INV.tools.indexOf(g), 1); p.rec.gear.push(g); }
+  else { if (B.gearOnly) { toast('Weapons and tools only'); return; } if (!p.rec.inv[id] && storeUsed(p) >= B.store) { toast('Full'); return; } const n = all ? cnt(id) : 1; take(id, n); p.rec.inv[id] = (p.rec.inv[id] || 0) + n; }
+  sfx('pickup'); save();
+}
+function storeTake(id, all) {
+  const p = storeAt;
+  if (typeof id === 'number') { const j = p.rec.gear.findIndex(g => g.u === id); if (j < 0) return; INV.tools.push(p.rec.gear.splice(j, 1)[0]); }
+  else { const n = all ? p.rec.inv[id] : 1; give(id, n); p.rec.inv[id] -= n; if (p.rec.inv[id] <= 0) delete p.rec.inv[id]; }
+  sfx('pickup'); save();
+}
 
 /* ================= state ================= */
 const gate = { open: true, hp: 260, max: 260, ang: 1 };
@@ -2502,73 +3503,46 @@ function updCine(dt) {
 }
 const Y = (x, z, up = 0) => heightAt(x, z) + up;
 
-/* ================= story ================= */
-const STEPS = {
-  1: { text: 'Talk to Kade at the workbench', at: () => named.kade },
-  2: { text: () => `Salvage hull scrap past the gate (${Math.min(G.flags.fieldScrap || 0, 5)}/5)`, at: () => nearestScrap('field') },
-  3: { text: 'Bring the scrap to Kade', at: () => named.kade },
-  4: { text: 'Raise the wall at the workbench', at: () => SPOTS.bench },
-  5: { text: 'Talk to Juno at the med tent', at: () => named.juno },
-  6: { text: () => `Hunt deer in the east meadow (${Math.min(INV.meat, 2)}/2 meat)`, at: () => nearestAnimal('deer') || POI.meadow },
-  7: { text: 'Cook the meat at the fire pit', at: () => SPOTS.fire },
-  8: { text: 'Find the escape pod beacon', at: () => POI.pod },
-  9: { text: 'Bring Wren home to Kestrel', at: () => ({ x: 0, z: CAMP_R + 6 }) },
-  10: { text: () => `Get ready — night falls in ${Math.ceil(night.prep)}s`, at: () => SPOTS.bench },
-  11: { text: () => `Hold Kestrel until dawn · wave ${night.wave}/${night.waves}`, at: () => ({ x: 0, z: CAMP_R }) },
-  12: { text: 'Chapter 2 is coming: look for the sealed door in the mountain', at: () => POI.vaultFront || POI.vault },
-  13: { text: 'Free roam: hunt, salvage, upgrade, hold the nights', at: () => null },
-};
+/* ================= open world: no chapters — goals follow what you've unlocked ================= */
+function openGoal() {
+  const t = tierNow();
+  if (!INV.tools.some(g => GEAR_DEFS[g.id].kind === 'axe')) return { text: 'Make a stone axe: sticks, stones and fiber from outside the wall (I → Craft)', at: null };
+  if (t < 2) return { text: 'Tier 2: take a clan insignia — Thorn Outpost, Ashmere, or a clan hold', at: POI.village };
+  if (t < 3) return { text: 'Tier 3: the lander Tern’s locker at the Burn holds an Arc ID chip', at: POI.burn };
+  if (t < 4) return { text: 'Tier 4: raid Greyhold Station (or the Foundry workshop) for an access card', at: BASES.find(B => B.id === 'greystation') };
+  if (t < 5) return { text: 'Open the Grey Door with the access card', at: POI.vaultFront || POI.vault };
+  if (t < 6) return { text: 'Crack the Foundry strongroom in Cinder City (electronic lock bypass)', at: FOUNDRY };
+  return { text: `Hold Kestrel to night 100 · night ${G.day}`, at: null };
+}
+const STEPS = { 13: { text: () => openGoal().text, at: () => openGoal().at } };
 function nearestScrap(tag) { let b = null, bd = 1e9; for (const s of SCRAPS) if (s.alive && (!tag || s.tag === tag)) { const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } return b; }
 function nearestAnimal(type) { let b = null, bd = 1e9; for (const e of ents) if (e.type === type && !e.dead) { const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < bd) { bd = d; b = e; } } return b; }
-function setStep(n) { G.step = n; save(); const st = STEPS[n]; if (st && n > 1 && G.mode === 'play') setTimeout(() => toast('◆ ' + (typeof st.text === 'function' ? st.text() : st.text), 4), 900); }
-function objText() { const st = STEPS[G.step]; return st ? (typeof st.text === 'function' ? st.text() : st.text) : ''; }
-
-function introCine() {
-  const g = CAMP_R;
-  playCine([
-    { from: [60, 120, 260], to: [30, 70, 150], look: [0, 20, 0], look2: [0, 10, 0], dur: 7, lines: [['Narrator', 'For three generations the Arc was the only home any of us knew.'], ['Narrator', 'When the air started running out, the Council cut the outer ring loose and sent it down.']] },
-    { from: [-60, 40, -30], to: [-30, 30, -70], look: [-12, 40, -36], look2: [-12, 20, -36], dur: 6, lines: [['Narrator', 'Our piece came down in this valley. Four hundred of us walked out of it.']] },
-    { from: [0, Y(0, g + 14, 2), g + 14], to: [0, Y(0, g + 6, 1.7), g + 6], look: [0, Y(0, g, 7.6), g], look2: [0, Y(0, g, 6.5), g], dur: 5, lines: [['Narrator', 'We put a wall around it and named it Kestrel.']] },
-    { from: [SPOTS.vosPost.x + 3, H0 + 1.7, SPOTS.vosPost.z - 4], to: [SPOTS.vosPost.x + 1.6, H0 + 1.65, SPOTS.vosPost.z - 2.4], look: [SPOTS.vosPost.x, H0 + 1.7, SPOTS.vosPost.z], fn: () => face(named.vos, SPOTS.vosPost.x + 2, SPOTS.vosPost.z - 3),
-      lines: [['Vos', "You're up. Good. Something's been watching us from the treeline since first light."], ['Vos', 'Kade needs a hand with the wall. Go.']] },
-  ], () => { P.x = SPOTS.vosPost.x + 1.5; P.z = SPOTS.vosPost.z - 3; P.yaw = Math.atan2(-(SPOTS.bench.x - P.x), -(SPOTS.bench.z - P.z)); P.pitch = 0; setStep(1); toast(isTouch ? 'Left thumb moves · right thumb looks' : 'WASD move · mouse look · E use', 4); });
-}
+function setStep(n) { G.step = n; save(); }
+function objText() { const st = STEPS[G.step] || STEPS[13]; return typeof st.text === 'function' ? st.text() : st.text; }
 function face(e, x, z) { if (e) e.yaw = Math.atan2(x - e.x, z - e.z); }
-
 function talk(who) {
-  const s = G.step;
-  if (who === 'kade') {
-    if (s === 1) { say([['Kade', 'Half this wall is bedsheets and hope.'], ['Kade', "There's hull scrap all over the field past the gate. Bring me five pieces."]]); G.flags.fieldScrap = 0; setStep(2); return true; }
-    if (s === 3) { say([['Kade', "That'll do. Use the bench — wall first."], ['Kade', 'Whatever you bolt on, you will see go up.']]); setStep(4); openShop(); return true; }
-  }
-  if (who === 'juno' && s === 5) {
-    say([['Juno', "Four hundred people and we're splitting ration paste."], ['Juno', "There's deer in the east meadow. Bring back meat — two will do."]]);
-    setStep(6); spawnHerd(POI.meadow, 5);
-    G.flags.hunter = 1; INV.mags.hunter = 5; INV.resH = 15; selectGunView('hunter'); selectGunView(RIFLE[UP.rifle].id);
-    setTimeout(() => { say([['Juno', "Take the long rifle from the med crate. It drops a deer where it stands."]]); toast(isTouch ? 'Hunting rifle: tap SWAP' : 'Hunting rifle: Q to swap, right mouse to aim', 4.5); }, 7000);
-    return true;
-  }
-  if (who === 'vos') { say([['Vos', pick(["Keep your rifle clean. It's the only one we've got that shoots straight.", "If the mast horn sounds, get under a roof. Don't stop to ask why.", 'The painted ones test the wall at night. Make it tall.'])]]); return true; }
-  if (who === 'wren') { say([['Wren', "I'm fine. I'm right behind you."]]); return true; }
-  if (who === 'juno') { if (P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0) { P.hp = 100; clearInjuries(); say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', "You're in one piece. Keep it that way."]]); return true; }
+  if (who === 'kade') { say([['Kade', pick(['Bring me scrap and I’ll make the wall taller. The bench is yours too.', 'The clans mark everything they own. Take one of those marks and we can learn how they work leather and bone.', 'There’s a whole dead city to the south-east. Scavengers live in the middle of it, and they don’t share.', 'Night 100. Everyone on the radio says the same number. Be ready.'])]]); openShop(); return true; }
+  if (who === 'juno') { if (P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0) { P.hp = 100; clearInjuries(); say([['Juno', 'Hold still. There — patched.']]); sfx('pickup'); } else say([['Juno', pick(["You're in one piece. Keep it that way.", 'Farlight trades medicine. West, past the rim.', 'Boil your water. I’m tired of treating fevers.'])]]); return true; }
   return false;
 }
 
 /* ================= interactables ================= */
 const INTERACT = [
-  { id: 'kade', at: () => named.kade, r: 3.2, label: () => G.step === 1 || G.step === 3 ? 'Talk to Kade' : null, act: () => talk('kade') },
-  { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => (G.step >= 4 || G.step === 0) && G.step !== 11 ? 'Workbench' : null, act: () => openShop() },
-  { id: 'juno', at: () => named.juno, r: 3, label: () => G.step === 5 ? 'Talk to Juno' : P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 ? 'Get patched up' : null, act: () => talk('juno') },
-  { id: 'vos', at: () => named.vos, r: 2.8, label: () => G.step > 1 && G.step !== 11 ? 'Talk to Vos' : null, act: () => talk('vos') },
-  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => INV.meat > 0 && G.step <= 7 ? `Cook ${INV.meat} meat into rations` : 'Cook at the fire', act: () => INV.meat > 0 && G.step <= 7 ? cook() : openCraft('food') },
-  { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => G.step > 7 ? 'Smokehouse · dry meat' : null, act: () => openCraft('food') },
-  { id: 'placed', at: () => nearPlacedAny(), r: 3, label: () => nearPlacedAny()?.k === 'campfire' ? 'Cook at the campfire' : 'Use the drying rack', act: () => openCraft('food') },
-  { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock ammo' : null, act: () => { INV.res = RES_MAX; INV.resH = G.flags.hunter ? RESH_MAX : INV.resH; sfx('reload'); toast('Ammo restocked'); } },
+  { id: 'kade', at: () => named.kade, r: 3.2, label: () => 'Kade · workbench upgrades', act: () => talk('kade') },
+  { id: 'bench', at: () => SPOTS.bench, r: 3.4, label: () => 'Workbench · craft', act: () => openCraft('tool') },
+  { id: 'juno', at: () => named.juno, r: 3, label: () => P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0 ? 'Get patched up' : 'Juno', act: () => talk('juno') },
+  { id: 'fire', at: () => SPOTS.fire, r: 3.2, label: () => 'Cook at the fire', act: () => openCraft('food') },
+  { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Smokehouse · dry meat', act: () => openCraft('food') },
+  { id: 'med', at: () => SPOTS.med, r: 2.6, label: () => 'Med tent · craft medicine', act: () => openCraft('med') },
+  { id: 'armory', at: () => SPOTS.armory, r: 3, label: () => INV.res < RES_MAX || INV.resH < RESH_MAX ? 'Restock rifle ammo' : null, act: () => { const d = G.flags.armoryDay === G.day; if (d) { sfx('no'); toast('Already drew today’s ammo — come back tomorrow'); return; } G.flags.armoryDay = G.day; INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX); sfx('reload'); toast('Ammo restocked (once a day)'); } },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
+  { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
+  { id: 'trader', at: () => named.trader, r: 3.5, label: () => 'Trade with Mara', act: () => { invTab = 'trade'; toggleInv(true); } },
+  { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
+  { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
-  { id: 'pod', at: () => POI.pod, r: 7, label: () => G.step === 8 ? 'Check the pod' : null, act: () => podScene() },
-  { id: 'vault', at: () => POI.vaultFront || POI.vault, r: 8, label: () => 'Sealed door', act: () => { say([['', 'Sealed tight. Something hums on the other side.'], ['', 'Chapter 2: Greyhold — coming soon.']]); if (G.step === 12) setStep(13); } },
 ];
+const nearFStation = () => { for (const S of FACTION_ST) if (Math.hypot(S.x - P.x, S.z - P.z) < 3) return S; return null; };
 let curInter = null;
 function findInteract() {
   if (P.dead || cine || shopOpen) return null;
@@ -2580,6 +3554,7 @@ function findInteract() {
     const l = it.label(); if (!l) continue;
     best = { it, l }; bd = d;
   }
+  const pl = nearPlaced(); if (pl) { const d = Math.hypot(pl.x - P.x, pl.z - P.z) - 1; if (d < bd) { const a = placedAction(pl); bd = d; best = { it: { act: a.act }, l: a.l + `  ·  ${isTouch ? 'hold' : 'Q'}: dismantle`, next: () => unplace(pl, true), multi: true }; } }
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
     const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.type}` }; }
   }
@@ -2587,34 +3562,38 @@ function findInteract() {
   return best;
 }
 function useInteract() { if (curInter) curInter.it.act(); }
-const nearPlacedAny = () => { let b = null, bd = 3; for (const p of PLACED) { const d = Math.hypot(p.x - P.x, p.z - P.z); if (d < bd) { bd = d; b = p; } } return b; };
 
 function butcher(e) {
   e.butchered = true; sfx('pickup'); puff(e.x, e.y + .5, e.z, 0x7a2a1a, 5, 1.5, .1, .5);
   const { L, kn } = butcherYield(e); const got = L.filter(([, n]) => n > 0); for (const [id, n] of got) give(id, n);
   toast(got.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · ') + (kn ? '' : ' · a knife would get hide + sinew'), 2.8);
   e.deadT = Math.max(e.deadT, 20);
-  if (G.step === 6 && INV.meat >= 2) { setStep(7); say([['Juno', 'Cook it at the fire pit. First real food most of us have ever had.']]); }
 }
 const RATION = () => [[40, 10], [55, 20], [70, 30]][UP.smoke];
-function cook() {
-  if (INV.meat <= 0) return;
-  const n = INV.meat; INV.meat = 0; INV.rations = (INV.rations || 0) + n;
-  sfx('eat'); puff(SPOTS.fire.x, H0 + 1.2, SPOTS.fire.z, 0x9a9a9a, 6, .8, .3, 1.4, 1);
-  toast(`+${n} ration${n > 1 ? 's' : ''} · slot 3 to eat`, 3);
-  if (P.food < 90) eatRation(true);
-  eat();
+function eat() { save(); }
+
+/* ================= dying: your bag stays where you fell ================= */
+function dropBag() {
+  const items = { ...INV.items }; for (const id of ['scrap', 'meat', 'ration']) if (cnt(id)) items[id] = cnt(id);
+  const gear = INV.tools.filter(t => !busy(t));
+  if (!Object.keys(items).length && !gear.length) return;
+  G.flags.bag = { x: P.x, z: P.z, items, gear };
+  INV.items = {}; INV.scrap = 0; INV.meat = 0; INV.rations = 0; INV.tools = INV.tools.filter(t => busy(t));
+  showBag();
 }
-function eatRation(quiet) {
-  if (!(INV.rations > 0)) { if (!quiet) { sfx('no'); toast('No rations — cook meat at the fire'); } return; }
-  eatItem('ration', quiet);
+let bagMesh = null;
+function showBag() {
+  if (bagMesh) { world.remove(bagMesh); bagMesh = null; }
+  const B = G.flags.bag; if (!B) return;
+  bagMesh = new THREE.Group(); mesh(new THREE.SphereGeometry(.4, 8, 6), M(0x6a5a3a), 0, .3, 0, bagMesh).scale.y = .7;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, 30, 6), new THREE.MeshBasicMaterial({ color: 0xf0a640, transparent: true, opacity: .35, toneMapped: false, depthWrite: false })); beam.position.y = 15; bagMesh.add(beam);
+  bagMesh.position.set(B.x, heightAt(B.x, B.z), B.z); world.add(bagMesh);
 }
-function eat() {
-  if (G.step === 7) {
-    setStep(8);
-    say([['Radio', "Kade here — I've got a pod beacon on the mast."], ['Radio', 'South-east, past the ridge. Somebody else made it down. Go get them.']]);
-  }
-  save();
+const nearBag = () => G.flags.bag && Math.hypot(G.flags.bag.x - P.x, G.flags.bag.z - P.z) < 2.6 ? G.flags.bag : null;
+function pickBag() {
+  const B = G.flags.bag; if (!B) return;
+  for (const [id, n] of Object.entries(B.items)) give(id, n); for (const g of B.gear) INV.tools.push(g);
+  G.flags.bag = null; showBag(); sfx('buy'); toast('Got your things back'); save();
 }
 
 /* ================= upgrades: Earn-to-Die style tiles ================= */
@@ -2667,75 +3646,56 @@ function applyUpgrades(only) {
 
 /* ================= story set pieces ================= */
 function spawnHerd(c, n) { for (let i = 0; i < n; i++) spawnDeer(c.x + rr(-16, 16), c.z + rr(-16, 16)); }
-function podScene() {
-  const p = POI.pod;
-  if (!named.wren) named.wren = spawnNPC('wren', p.x + 3, p.z + 2, WREN_LOOK(false));
-  face(named.wren, P.x, P.z);
-  const w = named.wren;
-  playCine([
-    { from: [P.x, P.y + 1.62, P.z], to: [lerp(P.x, w.x, .55), w.y + 1.6, lerp(P.z, w.z, .55)], look: [w.x, w.y + 1.4, w.z], lines: [['Wren', "Don't shoot — I'm Arc! Wren. Hydroponics deck."]] },
-    { from: [w.x + 3, w.y + 1.7, w.z + 3], to: [w.x + 2.2, w.y + 1.65, w.z + 2.2], look: [w.x, w.y + 1.6, w.z], lines: [['Wren', 'There were three of us in this pod. The painted ones took the other two.'], ['Wren', 'Ash on their faces. Thorns on their shoulders. They called themselves Thornkin.']] },
-    { from: [p.x - 10, Y(p.x - 10, p.z - 10, 6), p.z - 10], to: [p.x - 16, Y(p.x - 16, p.z - 16, 9), p.z - 16], look: [p.x, Y(p.x, p.z, 2), p.z], lines: [['Wren', "They'll be back for the pod. Please — get me out of here."]] },
-  ], () => {
-    w.follow = true; setStep(9); G.flags.ambush = 0;
-    toast('Wren follows you');
-  });
-}
-function ambushCheck() {
-  if (G.step !== 9 || G.flags.ambush) return;
-  const d = Math.hypot(P.x, P.z);
-  if (d < 140 && d > 70) {
-    G.flags.ambush = 1;
-    const a = Math.atan2(P.x, P.z);
-    for (let i = 0; i < 4; i++) { const b = a + rr(-1.2, 1.2), r = rr(26, 34); const e = spawnClan(i === 3 ? 'thrower' : 'warrior', P.x + Math.sin(b) * r, P.z + Math.cos(b) * r, 'ambush'); e.state = 'chase'; }
-    sfx('grunt'); horn(82, 2.2, .18, 3);
-    say([['Wren', 'They followed us!']]);
-  }
-}
-function arriveHome() {
-  const w = named.wren; w.follow = false; w.home = { x: -14, z: 10 }; w.wander = true;
-  playCine([
-    { from: [6, H0 + 2.2, 30], to: [4, H0 + 1.8, 26], look: [SPOTS.vosPost.x, H0 + 1.6, SPOTS.vosPost.z], fn: () => { named.vos.x = 2; named.vos.z = 24; face(named.vos, 5, 28); },
-      lines: [['Vos', 'You brought one home. Good.'], ['Vos', "But the treeline's full of horns. They're coming tonight."]] },
-    { from: [SPOTS.bench.x + 4, H0 + 2, SPOTS.bench.z + 4], look: [SPOTS.bench.x, H0 + 1, SPOTS.bench.z], lines: [['Kade', "Spend what you've got on the bench. We have until dark."]] },
-  ], () => { named.vos.x = SPOTS.vosPost.x; named.vos.z = SPOTS.vosPost.z; night.prep = 75; setStep(10); G.todTarget = .74; });
-}
 function dawnScene(won) {
-  const g = CAMP_R;
-  G.tod = .24; G.todTarget = null;
-  if (!G.chapterDone) {
-    playCine([
-      { from: [0, H0 + 8, 6], to: [0, H0 + 9, 14], look: [0, H0 + 6, 60], look2: [10, H0 + 10, 90], dur: 5, lines: [['Vos', won ? "Dawn. We're still here." : "Dawn. They got inside — but we're still here."]] },
-      { from: [26, H0 + 4, 4], to: [23, H0 + 6, 0], look: [22, H0 + 18, -3], dur: 4.5, lines: [['Radio', '…kssh… Kestrel camp… do you read…']] },
-      { from: [24, H0 + 2, 6], look: [22, H0 + 16, -3], lines: [['Greyhold', "This is Greyhold. We've watched your fires since you fell."], ['Greyhold', 'Come to the mountain. We can help you.']] },
-      { from: [SPOTS.bench.x + 3, H0 + 1.8, SPOTS.bench.z + 3], look: [named.kade.x, H0 + 1.6, named.kade.z], lines: [['Kade', "Nobody lives in that mountain. Nobody's supposed to."]] },
-    ], () => { G.chapterDone = true; card('LANDFALL', 'Chapter 1 complete'); setTimeout(() => card('GREYHOLD', 'Chapter 2 · coming soon', 3.5), 4600); setStep(12); G.day++; save(); });
-  } else { G.day++; toast(won ? `Day ${G.day}. Kestrel held.` : `Day ${G.day}. We lost supplies in the night.`, 4); save(); }
+  G.tod = .24; G.todTarget = null; G.day++;
+  if (night.final && won) { G.flags.held100 = 1; card('THE HUNDREDTH NIGHT', 'Kestrel stands. The world is yours to take.', 6); }
+  else toast(won ? `Day ${G.day}. Kestrel held.` : `Day ${G.day}. They got inside — we lost supplies.`, 4);
+  respawnBases(); save();
+}
+function respawnBases() {
+  // a cleared base fills back up two days later
+  const fill = G.flags.refill = G.flags.refill || {};
+  for (const R of [{ id: 'foundry', ...FOUNDRY, fac: 'iron' }, ...BASES.filter(B => B.hostile)]) {
+    const alive = ents.filter(e => e.type === 'clan' && !e.dead && e.mode === 'guard' && Math.hypot(e.x - R.x, e.z - R.z) < (R.R || 60) + 30).length;
+    if (alive >= 3) { fill[R.id] = 0; continue; }
+    fill[R.id] = (fill[R.id] || 0) + 1; if (fill[R.id] < 2) continue; fill[R.id] = 0;
+    const n = R.id === 'foundry' ? 14 : R.fac === 'grey' ? 10 : 7;
+    for (let i = 0; i < n; i++) { const a = rnd() * 6.28, r = rr(6, (R.R || 60) - 6); spawnClan(R.fac === 'grey' ? 'soldier' : i % 4 === 3 ? 'brute' : 'gunner', R.x + Math.cos(a) * r, R.z + Math.sin(a) * r, 'guard', R.fac); }
+  }
 }
 
 /* ================= night raids ================= */
 function startNight() {
   night.active = true; night.wave = 0; night.core = 100;
-  night.waves = G.chapterDone ? Math.min(2 + Math.ceil(G.day / 2), 6) : 3;
+  night.final = G.day >= 100 && !G.flags.held100;
+  night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
   gate.open = false; sfx('gate'); G.tod = .9; G.todTarget = null;
   horn(78, 3.2, .26, 4);
-  if (G.step === 10) { setStep(11); say([['Vos', "Gate's shut. Nobody gets over that wall."]]); }
-  else say([['Vos', 'Horns in the trees. Everyone to the wall!']]);
+  if (night.final) { card('NIGHT 100', 'Everyone is coming', 5); say([['Kade', 'This is it. Every clan, Ironjaw, Greyhold — all of them. Hold the wall!']]); }
+  else say([['Kade', G.day < 3 ? 'Horns in the trees. Everyone to the wall!' : pick(['Here they come again. To the wall!', 'Raiders! Close it up!', 'Lights out there — get inside!'])]]);
   if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4);
   nextWave();
 }
 function nextWave() {
-  night.wave++; night.left = 4 + night.wave * 2 + Math.floor(G.day * 1.5); night.spawnT = 1;
+  night.wave++; night.left = Math.min(40, 4 + night.wave * 2 + Math.floor(G.day * (night.final ? 2.2 : .8))); night.spawnT = 1;
   if (night.wave > 1) { toast(`Wave ${night.wave}`); horn(82, 1.8, .2, 3); }
 }
-function raiderKind() { const r = rnd(); if (night.wave >= 3 && r < .18) return 'brute'; if (night.wave >= 2 && r < .45) return 'thrower'; return 'warrior'; }
+// who raids: the clans from the start, Ironjaw gunners from night 6, Greyhold soldiers from night 20, everyone on night 100
+function raiderKind() {
+  const r = rnd();
+  if ((G.day >= 20 || night.final) && r < (night.final ? .2 : .1)) return ['soldier', 'grey'];
+  if ((G.day >= 6 || night.final) && r < (night.final ? .45 : .28)) return ['gunner', 'iron'];
+  if (night.wave >= 3 && r < .55 && rnd() < .3) return ['brute', 'clan'];
+  if (night.wave >= 2 && rnd() < .4) return ['thrower', 'clan'];
+  return ['warrior', 'clan'];
+}
 function updNight(dt) {
   if (night.left > 0) {
     night.spawnT -= dt;
     if (night.spawnT <= 0) {
       night.spawnT = rr(.7, 1.6); night.left--;
       const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
-      spawnClan(raiderKind(), Math.sin(a) * r, Math.cos(a) * r, 'raid');
+      const [k, f] = raiderKind(); spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f);
     }
   } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
@@ -2754,7 +3714,7 @@ function endNight(won) {
 
 /* ================= the Rust (red fog) ================= */
 function startRust(scripted) {
-  rust.state = 'warn'; rust.t = 22;
+  rust.state = 'warn'; rust.t = 22 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);
   horn(110, 3, .22, 0); setTimeout(() => horn(110, 3, .22, 0), 3600);
   say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get under a roof, NOW." : 'Mast horn — the Rust is coming. Find cover.']]);
 }
@@ -2762,13 +3722,13 @@ function nearestShelter() { let b = null, bd = 1e9; for (const s of SHELTERS) { 
 function inShelter() { if (Math.hypot(P.x, P.z) < CAMP_R - 2) return true; return SHELTERS.some(s => Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
 function updRust(dt) {
   if (rust.state === 'none') {
-    if (G.chapterDone && !night.active && G.tod > .3 && G.tod < .68) { rust.next -= dt; if (rust.next <= 0) { rust.next = rr(220, 360); startRust(false); } }
+    if ((G.chapterDone || G.day > 1) && !night.active && G.tod > .3 && G.tod < .68) { rust.next -= dt; if (rust.next <= 0) { rust.next = rr(220, 360); startRust(false); } }
     if (G.step === 8 && !G.flags.rustDone && Math.hypot(P.x, P.z) > 85) { G.flags.rustDone = 1; startRust(true); }
   } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 32; } }
   else if (rust.state === 'active') {
     rust.t -= dt; rust.k = lerp(rust.k, 1, dt * .8);
     P.safe = inShelter();
-    if (!P.safe && !P.dead) { P.hp -= 7 * dt; P.coughT -= dt; if (P.coughT <= 0) { P.coughT = rr(1.2, 2.2); sfx('cough'); hud.hurt.style.opacity = .5; } }
+    const fr = fogResist(); if (!P.safe && !P.dead && fr < 1) { P.dose = (P.dose || 0) + dt * 1.2 * (1 - fr); P.hp -= 7 * dt * (1 - fr); P.coughT -= dt; if (P.coughT <= 0) { P.coughT = rr(1.2, 2.2); sfx('cough'); hud.hurt.style.opacity = .5; } }
     if (rust.t <= 0) { rust.state = 'clear'; rust.t = 8; say([['Radio', 'Fog is lifting. Breathe easy.']]); }
   } else if (rust.state === 'clear') { rust.t -= dt; rust.k = lerp(rust.k, 0, dt * .6); if (rust.t <= 0) { rust.state = 'none'; rust.k = 0; } }
 }
@@ -2793,8 +3753,11 @@ function updClan(e, dt) {
     if (e.deadT > 9) removeEnt(e); return;
   }
   e.t += dt; e.cool -= dt;
+  if (e.burn > 0) { e.burn -= dt; e.hp -= 12 * dt; if (Math.random() < dt * 8) puff(e.x, e.y + 1, e.z, 0xff7a2a, 1, 1, .12, .4, 2); if (e.hp <= 0) { damage(e, 1, true, new THREE.Vector3(e.x, e.y + 1, e.z)); return; } }
+  if (e.stun > 0) { e.stun -= dt; p.body.rotation.z = Math.sin(e.t * 20) * .1; e.g.position.set(e.x, e.y, e.z); return; }
+  if (e.blind > 0) e.blind -= dt;
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
-  const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R;
+  const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
   const walled = insideP !== insideE && gate.hp > 0 && !gate.open;
   let tx = e.x, tz = e.z, spd = 0;
   if (e.atk > 0) { // attack swing in progress
@@ -2813,7 +3776,8 @@ function updClan(e, dt) {
   if (e.state === 'idle') {
     if (e.t > 4) { e.t = 0; e.tx = e.home.x + rr(-10, 10); e.tz = e.home.z + rr(-10, 10); }
     tx = e.tx ?? e.x; tz = e.tz ?? e.z; spd = 1.3;
-    if (dp < (e.mode === 'guard' ? 30 : 34) && !P.dead && !(insideP && !gate.open)) { e.state = 'chase'; sfx('grunt'); }
+    const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1);
+    if (dp < sees && !P.dead && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
     const dE = Math.hypot(e.x, e.z);
@@ -2830,12 +3794,15 @@ function updClan(e, dt) {
       tx = -4; tz = -4; spd = e.speed;
       if (Math.hypot(e.x + 4, e.z + 4) < 9) { night.core -= dt * (e.kind === 'brute' ? 7 : 3.5); if (Math.random() < dt * 3) puff(e.x, e.y + 1, e.z, 0xff8a3a, 2, 1, .12, .5, 2); }
     }
-    if (!walled && dp < 16 && !P.dead) e.state = 'chase';
+    if ((!walled && dp < 16 || gun && dp < 45) && !P.dead) e.state = 'chase';
     if (e.kind === 'thrower' && dp < 30 && dp > 8 && e.cool <= 0 && !P.dead && Math.abs(P.y - e.y) < 12) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.cool = rr(2.4, 3.6); e.throwT = .6; }
   }
-  if (e.state === 'chase') {
-    if (P.dead || dp > 70 || walled) e.state = e.mode === 'raid' ? 'raid' : 'idle';
-    tx = P.x; tz = P.z; spd = e.speed * (dp > 6 ? 1.15 : 1);
+  if (e.state === 'chase' && gun) {
+    if (P.dead || dp > 90 || (e.mode === 'guard' && Math.hypot(e.x - e.home.x, e.z - e.home.z) > 140)) e.state = e.mode === 'raid' ? 'raid' : 'idle';
+    else { [tx, tz, spd] = updGunner(e, dt, dp); if (p.weapon) p.weapon.rotation.x = -.1; }
+  } else if (e.state === 'chase') {
+    if (P.dead || dp > 70 || walled || (e.mode === 'guard' && Math.hypot(e.x - e.home.x, e.z - e.home.z) > 120)) e.state = e.mode === 'raid' ? 'raid' : 'idle';
+    tx = P.x; tz = P.z; spd = e.speed * (dp > 6 ? 1.15 : 1) * (e.slow ? .5 : 1); e.slow = 0;
     if (e.kind === 'thrower' && dp > 8 && dp < 28 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.cool = rr(2.2, 3.4); e.throwT = .6; }
     else if (e.kind === 'thrower' && dp < 12) { tx = e.x - dxp; tz = e.z - dzp; }
     if (dp < 2.1 && e.cool <= 0) { e.yaw = Math.atan2(dxp, dzp); e.target = 'p'; e.atk = .7; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.1; }
@@ -2846,6 +3813,8 @@ function updClan(e, dt) {
   e.ph += dt * v * 2.1; poseWalk(p, e.ph, Math.min(1, v / 3));
   e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
+// a guard who spots you shouts: everyone near them joins in
+function alertNear(e) { for (const o of ents) if (o !== e && o.type === 'clan' && !o.dead && o.state === 'idle' && Math.hypot(o.x - e.x, o.z - e.z) < 28) o.state = 'chase'; }
 function updAnimal(e, dt) {
   const p = e.p;
   if (e.dead) { e.deadT += dt; p.body.rotation.z = Math.min(Math.PI / 2, e.deadT * 4); p.body.position.y = -.25 * Math.min(1, e.deadT * 4); if (e.deadT > 25) removeEnt(e); e.g.position.y = e.y - (e.deadT > 22 ? (e.deadT - 22) : 0); return; }
@@ -2876,12 +3845,15 @@ function updNPC(e, dt) {
   if (e.follow) {
     if (dp > 3.2) { tx = P.x; tz = P.z; spd = dp > 8 ? 7.5 : 4.6; }
     if (dp > 45) { e.x = P.x - Math.sin(P.yaw) * -3; e.z = P.z - Math.cos(P.yaw) * -3; }
-    if (G.step === 9 && Math.hypot(e.x, e.z) < CAMP_R - 4 && Math.hypot(P.x, P.z) < CAMP_R - 2) arriveHome();
+  } else if (e.guard && night.active && updGuard(e, dt)) {
+    spd = 0;
   } else if (e.wander) {
-    e.t -= dt; if (e.t <= 0) { e.t = rr(4, 10); e.tx = e.home.x + rr(-8, 8); e.tz = e.home.z + rr(-8, 8); if (Math.hypot(e.tx, e.tz) > CAMP_R - 6) { e.tx = e.home.x; e.tz = e.home.z; } }
+    const inCamp = Math.hypot(e.home.x, e.home.z) < CAMP_R;
+    e.t -= dt; if (e.t <= 0) { e.t = rr(4, 10); e.tx = e.home.x + rr(-8, 8); e.tz = e.home.z + rr(-8, 8); if (inCamp && Math.hypot(e.tx, e.tz) > CAMP_R - 6) { e.tx = e.home.x; e.tz = e.home.z; } }
     if (e.tx !== undefined && Math.hypot(e.tx - e.x, e.tz - e.z) > .6) { tx = e.tx; tz = e.tz; spd = 1.3; }
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
-  if (night.active && !e.follow && e.name === 'extra') { tx = e.home.x * .5; tz = -12; spd = spd || 0; }
+  if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
+  if (night.active && !e.follow && e.name === 'extra' && Math.hypot(e.home.x, e.home.z) < CAMP_R) { tx = e.home.x * .5; tz = -12; spd = spd || 0; }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
   e.ph += dt * v * 2.2; poseWalk(p, e.ph, Math.min(1, v / 2.5));
@@ -2914,11 +3886,13 @@ function hurtPlayer(n, fx, fz) {
 function die() {
   P.dead = true; P.hp = 0; $('dead').style.display = 'grid'; if (document.pointerLockElement) document.exitPointerLock();
   setTimeout(() => {
-    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50);
-    P.x = SPOTS.med.x + 2.5; P.z = SPOTS.med.z + 2.5; P.pd = Math.hypot(P.x, P.z); P.yaw = Math.atan2(-(0 - P.x), -(10 - P.z)); P.pitch = 0;
-    const lost = Math.floor(INV.scrap * .25); INV.scrap -= lost; INV.meat = 0; if (INV.res < 30) INV.res = 30;
-    if (G.step === 9 && named.wren) { named.wren.x = P.x + 1; named.wren.z = P.z + 1; }
-    toast(lost ? `Juno patched you up. Lost ${lost} scrap.` : 'Juno patched you up.', 3.5);
+    dropBag();
+    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
+    const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
+    if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else { P.x = SPOTS.med.x + 2.5; P.z = SPOTS.med.z + 2.5; }
+    P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.pitch = 0; P.slot = slotWeapon(0) ? 0 : P.slot; selectGunView(gunId());
+    if (INV.res < 30) INV.res = 30;
+    toast(G.flags.bag ? `${sp ? 'You wake up at your bed' : 'Juno patched you up'}. Your bag is where you fell — follow the light.` : sp ? 'You wake up at your bed.' : 'Juno patched you up.', 4);
   }, 2600);
 }
 function damage(e, n, byPlayer, at) {
@@ -2930,71 +3904,20 @@ function damage(e, n, byPlayer, at) {
   if (e.type === 'boar') e.state = 'charge';
   if (e.hp <= 0) {
     e.dead = true; e.deadT = 0; G.kills++;
-    if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
+    if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(e); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
     if (e.type === 'deer' || e.type === 'boar') { e.yaw = e.yaw; if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
   }
 }
-const ray = new THREE.Vector3(), rayO = new THREE.Vector3();
-const gunId = () => P.slot === 1 ? 'hunter' : RIFLE[UP.rifle].id;
-const resOf = () => P.slot === 1 ? 'resH' : 'res';
-function shoot() {
-  const R = gunStats(), id = gunId();
-  if (P.reload > 0 || P.fire > 0 || P.dead || P.swapT > 0) return;
-  if (INV.mags[id] <= 0) { sfx('dry'); P.fire = .25; if (INV[resOf()] > 0) reload(); else toast('Out of ammo — restock at the armory'); return; }
-  INV.mags[id]--; P.fire = R.rate; P.kick = Math.min(P.kick + (P.slot ? .09 : .028), .14);
-  if (!WEAPONS[id].auto) input.fire = false;
-  sfx('shot'); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 40);
-  camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
-  const sp = R.spread * (1 - P.ads * .7) * (P.onGround ? 1 : 2.5);
-  ray.x += rr(-sp, sp); ray.y += rr(-sp, sp); ray.normalize();
-  let best = null, bt = 400, mult = 1;
-  for (const e of ents) {
-    if (e.dead || e.type === 'npc') continue;
-    if (Math.hypot(e.x - P.x, e.z - P.z) > 400) continue;
-    for (const [cx, cy, cz, r, m] of hitSpheres(e)) {
-      const ox = rayO.x - cx, oy = rayO.y - cy, oz = rayO.z - cz;
-      const b = ox * ray.x + oy * ray.y + oz * ray.z, c = ox * ox + oy * oy + oz * oz - r * r, h = b * b - c;
-      if (h < 0) continue; const t = -b - Math.sqrt(h);
-      if (t > 0 && t < bt) { bt = t; best = e; mult = m; }
-    }
-  }
-  let tHit = bt, hitTree = false;
-  for (let t = .8; t < bt; t += 1) {
-    const x = rayO.x + ray.x * t, y = rayO.y + ray.y * t, z = rayO.z + ray.z * t;
-    if (y < heightAt(x, z)) { tHit = t; best = null; break; }
-    if (t > 2 && (t | 0) % 2 === 0) for (const c of nearCols(x, z)) if (Math.hypot(x - c.x, z - c.z) < c.r * .8 && y < heightAt(c.x, c.z) + 8) { tHit = t; best = null; hitTree = true; break; }
-    if (hitTree) break;
-  }
-  const end = rayO.clone().addScaledVector(ray, tHit);
-  const mz = new THREE.Vector3(); muzzle.getWorldPosition(mz); tracer(mz, end);
-  if (best) {
-    damage(best, R.dmg * mult, true, end); sfx(mult > 1.5 ? 'head' : 'hit');
-    hud.hitm.classList.add('on'); setTimeout(() => hud.hitm.classList.remove('on'), 90);
-    hud.hitm.style.filter = mult > 1.5 ? 'drop-shadow(0 0 3px #f44)' : '';
-  } else if (tHit < 399) { puff(end.x, end.y + .1, end.z, hitTree ? 0x5a4a38 : 0x6a5a48, 4, 1.5, .1, .4); sfx(hitTree ? 'impact' : 'impact', .7); }
-  if (INV.mags[id] === 0 && INV[resOf()] > 0) setTimeout(reload, 240);
-}
-function reload() {
-  const R = gunStats(), id = gunId();
-  if (P.reload > 0 || INV.mags[id] >= R.mag || INV[resOf()] <= 0) return;
-  P.reload = P.slot ? 2.2 : 1.7; P.reloadMax = P.reload; sfx('reload');
-}
-function finishReload() { const R = gunStats(), id = gunId(), k = resOf(), n = Math.min(R.mag - INV.mags[id], INV[k]); INV.mags[id] += n; INV[k] -= n; }
 let touchUp = false;
 function toggleFly(v = !P.fly) {
   if (G.mode !== 'play' || cine || P.dead) return;
   P.fly = v; P.vy = 0; toast(v ? (isTouch ? 'Flying · look where you want to go · hold JUMP to climb · tap the bag twice fast to land' : 'Flying · WASD + look · Space up · C down · Shift fast · F to land') : 'Landed', 3.5);
 }
 window.fly = toggleFly;
-function swapGun() {
-  if (!G.flags.hunter || P.reload > 0) return;
-  P.slot = 1 - P.slot; P.swapT = .45; selectGunView(gunId()); sfx('reload'); toast(WEAPONS[gunId()].name, 1.2);
-}
-
 function updPlayer(dt) {
   if (P.dead) return;
   // look (slower while aiming)
-  const lk = 1 / (1 + (WEAPONS[gunId()].scope - 1) * P.ads * .8);
+  const lk = 1 / (1 + ((WEAPONS[gunId()]?.scope || 1) - 1) * P.ads * .8) / (P.binoc ? 3 : 1);
   P.yaw -= input.look[0] * lk; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
   // move (or fly: F toggles it — no gravity, no collisions, go where you look)
   let sprint = false;
@@ -3010,8 +3933,8 @@ function updPlayer(dt) {
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
     const wl = waterAt(P.x, P.z), depth = wl - P.y;
     P.swim = depth > 1.25;
-    sprint = !(P.frac > 0) && (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
-    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * (P.frac > 0 ? .62 : 1);
+    sprint = !(P.frac > 0) && !P.over && (input.sprint || ml > .96) && my > .3 && !shopOpen && P.ads < .3 && !P.swim && depth < .5;
+    const spd = (sprint ? 8.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * (P.frac > 0 ? .62 : 1) * (P.over ? .65 : 1) * (1 + wearStat('mob'));
     const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
     const vx = (fx * my + rx * mx) * spd, vz = (fz * my + rz * mx) * spd;
     P.x += vx * dt; P.z += vz * dt;
@@ -3031,13 +3954,13 @@ function updPlayer(dt) {
     input.sprint = sprint;
   }
   // survival
-  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1));
+  P.food = Math.max(0, P.food - dt * (sprint ? .13 : .08) * (P.swim ? 1.6 : 1) * (1 - Math.min(.5, wearStat('warm') * (isNight() ? 1 : .4))));
   if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
   else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (P.hp <= 0 && !P.dead) die();
   P.hurtT -= dt;
   // weapon
-  const W = WEAPONS[gunId()];
+  const W = WEAPONS[gunId()] || WEAPONS.carbine;
   P.ads = lerp(P.ads, input.ads && !P.swim && P.reload <= 0 && !sprint ? 1 : 0, Math.min(1, dt * 12));
   P.fire -= dt; P.swapT = Math.max(0, (P.swapT || 0) - dt);
   if (P.reload > 0) { P.reload -= dt; if (P.reload <= 0) finishReload(); }
@@ -3047,24 +3970,24 @@ function updPlayer(dt) {
   const bk = 1 - P.ads * .85, bobY = Math.sin(P.bob) * .045 * bk, bobX = Math.cos(P.bob * .5) * .03 * bk;
   camera.position.set(P.x, P.y + (P.swim ? 1.45 : 1.62) + bobY, P.z);
   camera.rotation.set(P.pitch + P.kick * .35, P.yaw, 0);
-  const fov = BASE_FOV / (1 + (W.scope - 1) * P.ads);
+  const fov = BASE_FOV / (1 + ((W.scope || 1) - 1) * P.ads) / (P.binoc ? 4 : 1);
   if (Math.abs(camera.fov - fov) > .05) { camera.fov = fov; camera.updateProjectionMatrix(); }
-  const scoped = gunId() === 'hunter' && P.ads > .85;
+  const scoped = (W.scope || 1) >= 4.5 && P.ads > .85;
   $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim;
   // viewmodel: bob, kick, reload dip, swap drop; aiming slides it to the centre
   const rl = P.reload > 0 ? Math.sin((1 - P.reload / P.reloadMax) * Math.PI) : 0, sw = (P.swapT || 0) / .45;
   vm.position.set(bobX - P.ads * W.at[0], bobY * .6 - rl * .16 - sw * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1);
   vm.rotation.set(rl * .5 + P.kick * 1.4, 0, -rl * .3);
-  if (G.step === 9 && named.wren && Math.hypot(P.x, P.z) < 160) ambushCheck();
+  weaponAnim(dt);
 }
 function climbLookout() {
   if (P.y < POI.lookoutTop - 3) { P.x = POI.lookout.x + .5; P.z = POI.lookout.z + .5; P.y = POI.lookoutTop; P.vy = 0; toast('The whole valley, laid out', 2.5); }
   else { P.x = POI.lookout.x - 4; P.z = POI.lookout.z + 4; P.y = heightAt(P.x, P.z); P.vy = 0; }
   sfx('step'); sfx('step');
 }
-const nearCrate = () => { let b = null, bd = 3; for (const c of CRATES) if (!c.opened) { const d = Math.hypot(c.x - P.x, c.z - P.z); if (d < bd) { bd = d; b = c; } } return b; };
+const nearCrate = () => { let b = null, bd = 3; for (const c of CRATES) { if (c.opened && G.t - (c.at || 0) > 1500) { c.opened = false; c.g.scale.y *= 2; } if (c.opened) continue; const d = Math.hypot(c.x - P.x, c.z - P.z); if (d < bd) { bd = d; b = c; } } return b; };
 function openCrate(c) {
-  if (!c || c.opened) return; c.opened = true; c.g.scale.y *= .5;
+  if (!c || c.opened) return; c.opened = true; c.at = G.t; c.g.scale.y *= .5;
   const msg = [];
   if (c.loot === 'ammo' || c.loot === 'mixed') { const n = 18 + Math.floor(rnd() * 20); INV.res = Math.min(RES_MAX + 30, INV.res + n); msg.push(`+${n} rounds`); if (G.flags.hunter) { INV.resH += 4; msg.push('+4 rifle rounds'); } }
   if (c.loot === 'scrap' || c.loot === 'mixed') { const n = 2 + Math.floor(rnd() * 4); INV.scrap += n; msg.push(`+${n} scrap`); }
@@ -3090,6 +4013,7 @@ function villageGuards() {
   clanGroup(POI.burn, 4, 22, ['warrior', 'thrower']);
   for (const s of SCOUTS) clanGroup(s, 3, 7, ['warrior', 'thrower', 'warrior']);
   for (const H of HOLDS) clanGroup(H, 9, H.R * .6, ['warrior', 'thrower', 'warrior', 'brute', 'thrower', 'warrior']);
+  baseGuards();
 }
 
 /* ================= time + atmosphere ================= */
@@ -3100,7 +4024,7 @@ function updTime(dt) {
   else if (G.todTarget != null) { G.tod = lerp(G.tod, G.todTarget, dt * .08); }
   else if (G.chapterDone && G.step >= 12) {
     G.tod += dt * (.56 / DAY_LEN);
-    if (G.tod > .72 && !G.flags.duskWarn) { G.flags.duskWarn = 1; say([['Vos', 'Sun is going down. Get back inside the wall.']]); }
+    if (G.tod > .72 && !G.flags.duskWarn) { G.flags.duskWarn = 1; say([['Kade', 'Sun is going down. Get back inside the wall.']]); }
     if (G.tod >= .79) { G.flags.duskWarn = 0; startNight(); }
   }
   if (G.step === 10) { night.prep -= dt; G.tod = lerp(.74, .8, 1 - night.prep / 75); if (night.prep <= 0) startNight(); }
@@ -3128,10 +4052,11 @@ function updTime(dt) {
   grade.uniforms.hurt.value = clamp(+hud.hurt.style.opacity || 0, 0, 1) * .8 + (P.dead ? 1 : 0);
   grade.uniforms.shadow.value.set(rk * .04, .012 - rk * .01, .03 - rk * .03);
   const nightK = clamp(1 - s.sunI / 1.2, 0, 1);
-  torch.intensity = nightK * 2.6;
+  const nv = wearStat('nv') > 0, lt = bestTool('light');
+  torch.intensity = nightK * (lt ? (GEAR_DEFS[lt.id].pw > 1 ? 4.2 : 3.2) : 2.6); if (lt && nightK > .5 && Math.random() < .016) wearTool(lt);
   campLight.intensity = nightK * (.35 + UP.light * .55);
   fireLight.intensity = 1.2 + nightK * 2 + Math.sin(G.t * 17) * .3;
-  renderer.toneMappingExposure = 1.0 + nightK * .4;
+  renderer.toneMappingExposure = 1.0 + nightK * (nv ? 2.2 : .4);
   for (const M0 of MIST) { M0.m.material.opacity = (.26 + Math.sin(G.t * .2 + M0.ph) * .06) * (1 - rk) * clamp(s.sunI, .25, 1); M0.m.material.color.copy(s.fog).lerp(_cb.set(0xffffff), .3); M0.m.position.x = M0.x + Math.sin(G.t * .03 + M0.ph) * 12; }
   if (relayLamp) relayLamp.visible = Math.sin(G.t * 2.4) > .2;
   if (waterMat) { texWaterN.offset.y -= dt * .02; texWaterN.offset.x += dt * .004; }
@@ -3142,58 +4067,49 @@ function updTime(dt) {
 }
 
 /* ================= HUD: health, toolbar, gun + ammo, minimap — that's it ================= */
-const SLOT_ICON = {
-  rifle: '<svg viewBox="0 0 40 16"><path d="M2 7h22l3-2h9v3h-6l-1 2h-6l-2 5h-4l1-5H2z" fill="#d9d2c2" stroke="#000" stroke-width="1"/></svg>',
-  hunter: '<svg viewBox="0 0 40 16"><path d="M1 8h28v-2h10v2l-10 1-2 2h-6l-3 4h-4l1-4H1z" fill="#c9a77a" stroke="#000" stroke-width="1"/><rect x="12" y="3" width="10" height="3" rx="1" fill="#555" stroke="#000" stroke-width=".8"/></svg>',
-  ration: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#a8552e" stroke="#000"/><path d="M5 9c2-1 4-3 5-5" stroke="#e8b070" stroke-width="1.2" fill="none"/></svg>',
-};
 let toolSig = '';
+// toolbar: 1–2 guns, 3 melee/bow, 4 eat, 5 treat
 function slotDefs() {
-  return [
-    { k: 'gun0', icon: SLOT_ICON.rifle, label: WEAPONS[RIFLE[UP.rifle].id].name, on: P.slot === 0 },
-    { k: 'gun1', icon: G.flags.hunter ? SLOT_ICON.hunter : '', label: G.flags.hunter ? 'Hunting rifle' : '', on: P.slot === 1 },
+  const w = i => { const s = slotWeapon(i); if (!s) return { k: 'w' + i }; const ic = s.g ? icon(s.g.id) : icon(s.key === 'hunter' ? 'sniper' : 'assault'); return { k: 'w' + i + s.key, icon: ic, label: s.name, on: P.slot === i, dur: s.g ? s.g.d / s.g.max : null }; };
+  return [w(0), w(1), w(2),
     { k: 'ration', icon: foodCount() > 0 ? icon('ration') : '', label: foodCount() > 0 ? 'Eat (picks what your diet is missing)' : '', n: foodCount() },
-    { k: 'med', icon: medCount() > 0 ? icon('herb_bandage') : '', label: medCount() > 0 ? 'Treat injuries' : '', n: medCount(), warn: P.bleed > 0 || P.frac > 0 || P.sick > 0 },
-    (() => { const t = lastTool && INV.tools.includes(lastTool) ? lastTool : INV.tools.find(x => GEAR_DEFS[x.id].kind !== 'wear'); return t ? { k: 'tool', icon: icon(t.id), label: `${QUAL[t.q].n} ${GEAR_DEFS[t.id].n} · ${t.d}/${t.max}`, dur: t.d / t.max } : { k: 'tool' }; })(),
-  ];
+    { k: 'med', icon: medCount() > 0 ? icon('bandage') : '', label: medCount() > 0 ? 'Treat injuries' : '', n: medCount(), warn: P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 20 }];
 }
 function renderTool() {
-  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, x.icon, x.on, x.n, x.warn, x.dur && Math.round(x.dur * 20)]));
+  const d = slotDefs(), sig = JSON.stringify(d.map(x => [x.k, x.icon && x.icon.length, x.on, x.n, x.warn, x.dur != null && Math.round(x.dur * 20)]));
   if (sig === toolSig) return; toolSig = sig;
   hud.tool.innerHTML = d.map((x, i) => `<div class="slot${x.on ? ' on' : ''}${x.icon ? '' : ' empty'}${x.warn ? ' warn' : ''}" data-i="${i}" title="${x.label || ''}"><em>${i + 1}</em>${x.icon || ''}${x.n ? `<b>${x.n}</b>` : ''}${x.dur != null ? `<u style="width:${Math.round(x.dur * 100)}%;background:${x.dur < .25 ? '#e0573d' : '#7fc4b8'}"></u>` : ''}</div>`).join('');
 }
 function useSlot(i) {
   if (G.mode !== 'play' || cine || P.dead) return;
-  if (i === 0 && P.slot !== 0) swapGun();
-  else if (i === 1 && P.slot !== 1 && G.flags.hunter) swapGun();
-  else if (i === 2) eatBest();
-  else if (i === 3) healBest();
-  else if (i === 4) { toggleInv(true); }
+  if (i <= 2) selectSlot(i);
+  else if (i === 3) eatBest();
+  else if (i === 4) healBest();
 }
 hud.tool.addEventListener('click', e => { const s0 = e.target.closest('.slot'); if (s0) useSlot(+s0.dataset.i); });
 function updHUD(dt) {
   hud.hp.style.width = Math.max(0, P.hp) + '%';
   hud.hpw.classList.toggle('hungry', P.food < 22);
-  hud.mag.textContent = P.reload > 0 ? '··' : INV.mags[gunId()]; hud.res.textContent = '/ ' + INV[resOf()];
-  hud.gunn.textContent = WEAPONS[gunId()].name;
+  const w = curW();
+  hud.mag.textContent = w.st.cls === 'melee' ? '—' : P.reload > 0 ? '··' : magOf(w); hud.res.textContent = w.st.ammo ? '/ ' + ammoLeft(w) : '';
+  hud.gunn.textContent = w.name + (w.g ? ` · ${Math.round(w.g.d / w.g.max * 100)}%` : '');
   renderTool();
-  // a short alert only when something is actually trying to kill you
   let alert = '';
   if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get under a roof`;
-  else if (rust.state === 'active' && !P.safe) alert = 'Red fog — get under a roof!';
-  else if (night.active) alert = `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = 'Red fog — get under a roof!';
+  else if (night.active) alert = `${night.final ? 'NIGHT 100' : 'Hold Kestrel'} · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
-  else if (P.bleed > 0) alert = 'Bleeding — bandage it (4)';
-  else if (P.sick > 0 && P.sick > 50) alert = 'Sick — a poultice will help (4)';
+  else if (P.bleed > 0) alert = 'Bleeding — bandage it (5)';
+  else if (P.dose > 40) alert = 'Rust poisoning — Rust medicine (5)';
+  else if (P.sick > 50) alert = 'Sick — a poultice will help (5)';
   hud.alert.textContent = alert; hud.alert.classList.toggle('on', !!alert); hud.alert.classList.toggle('rust', rust.state === 'warn' || rust.state === 'active');
   miniT -= dt; if (miniT <= 0) { miniT = .1; drawMini(); }
-  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; updInvBars(); } }
-  updChan(dt); updStatus(dt);
-  // interact prompt
+  if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; updInvBars(); if ((invTab === 'store' && storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) > 5) || (invTab === 'trade' && !nearTrader())) { invTab = 'bag'; renderInv(); } } }
+  updChan(dt); updStatus(dt); updLoad(dt);
   curInter = findInteract();
   if (curInter) {
     const bar = curInter.prog != null ? `<i class="pg"><i style="width:${Math.round(curInter.prog * 100)}%"></i></i>` : '';
-    if (isTouch) { hud.use.style.display = 'grid'; hud.use.innerHTML = curInter.l.replace('  ·  hold: next', '') + (curInter.multi ? ' <small>(hold: next)</small>' : '') + bar; hud.prompt.style.display = 'none'; }
+    if (isTouch) { hud.use.style.display = 'grid'; hud.use.innerHTML = curInter.l.replace(/ {2}· {2}hold: [a-z]+/, '') + (curInter.multi ? ` <small>(hold: ${/dismantle/.test(curInter.l) ? 'dismantle' : 'next'})</small>` : '') + bar; hud.prompt.style.display = 'none'; }
     else { hud.prompt.style.display = 'block'; hud.prompt.innerHTML = (curInter.prog != null ? '' : '<kbd>E</kbd>') + curInter.l + bar; }
   } else { hud.prompt.style.display = 'none'; hud.use.style.display = 'none'; }
   hud.hurt.style.opacity = Math.max(0, (+hud.hurt.style.opacity || 0) - dt * 1.2);
@@ -3201,50 +4117,78 @@ function updHUD(dt) {
   if (subT > 0) { subT -= dt; if (subT <= 0) nextLine(); }
 }
 
-/* ---------- inventory ---------- */
+/* ---------- the bag: Bag · Craft · Storage · Trade ---------- */
 let invOpen = false, invT = 0;
-const ICO = {
-  scrap: '<svg viewBox="0 0 16 16"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#9aa3a8" stroke="#000"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#000" fill="none"/></svg>',
-  meat: '<svg viewBox="0 0 16 16"><path d="M3 9c0-4 4-7 8-6 3 1 3 5 0 7-2 2-5 3-7 2z" fill="#c0634a" stroke="#000"/><circle cx="12.5" cy="12.5" r="2" fill="#eee" stroke="#000"/></svg>',
-  ammo: '<svg viewBox="0 0 16 16"><path d="M4 14V6l1.5-4L7 6v8zM9 14V6l1.5-4L12 6v8z" fill="#d8b25a" stroke="#000" stroke-width=".8"/></svg>',
-};
 function objectiveNow() {
   if (rust.state === 'warn' || rust.state === 'active') return 'Get under a roof until the fog lifts';
-  if (night.active && G.step !== 11) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  if (night.active) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   return objText();
 }
-let invTab = 'bag', craftCat = 'surv';
+let invTab = 'bag', craftCat = 'tool', craftOnly = false;
+const BAG_ORDER = ['ammo', 'food', 'water', 'med', 'seed', 'build', 'wood', 'stone', 'fiber', 'animal', 'textile', 'metal', 'indus', 'elec', 'rare', 'doc', 'story'];
+function itemTile(id, n, extra = '', attrs = '') { const I = ITEMS[id]; return `<div class="it"${attrs} title="${nameOf(id)}${I ? ' · ' + (SRC_N[I.src] || '') : ''}${LORE[id] ? ' — ' + LORE[id] : ''}">${icon(id)}<b>${n}</b><span>${nameOf(id)}</span>${extra}</div>`; }
+function bagGroups() { const groups = {}; const all = { scrap: INV.scrap, meat: INV.meat, ration: INV.rations || 0, ammo_556: INV.res, ammo_762: INV.resH, ...INV.items }; for (const [id, n] of Object.entries(all)) { if (!(n > 0)) continue; (groups[ITEMS[id]?.c || 'indus'] ||= []).push([id, n]); } return groups; }
+function gearTile(t, btns) {
+  const D = GEAR_DEFS[t.id], f = t.d / t.max, eqi = INV.eq.indexOf(t.u), W = WDEF[t.id];
+  const stat = D.kind === 'wear' ? [D.prot && `${Math.round(D.prot * 100)}% armor`, D.fog && `${Math.round(D.fog * 100)}% Rust`, D.cap && `+${D.cap} carry`, D.stealth && 'stealth', D.warm && 'warm', D.nv && 'night vision', D.gather && 'faster gathering'].filter(Boolean).join(' · ') : W ? (W.cls === 'melee' ? `${W.dmg} dmg melee` : `${W.dmg}${W.pellets ? '×' + W.pellets : ''} dmg · ${nameOf(W.ammo).toLowerCase()}`) : '';
+  return `<div class="it gear${t.on || eqi >= 0 ? ' on' : ''}" title="${D.n}">${icon(t.id)}<span>${QUAL[t.q].n}${eqi >= 0 ? ` · slot ${eqi + 1}` : ''}${t.on ? ' · worn' : ''}</span><span class="nm">${D.n}</span><div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f < .25 ? '#e0573d' : '#7fc4b8'}"></i></div><small>${t.d}/${t.max}${stat ? ' · ' + stat : ''}</small>${btns}</div>`;
+}
 function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  const tabs = `<div class="tabs"><button data-tab="bag" class="${invTab === 'bag' ? 'on' : ''}">Bag</button><button data-tab="craft" class="${invTab === 'craft' ? 'on' : ''}">Craft</button><button class="xb" data-x="1">✕</button></div>`;
+  const T = [['bag', 'Bag'], ['craft', 'Craft']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
+  if (!T.some(t => t[0] === invTab)) invTab = 'bag';
+  const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
-  const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
+  const load = carryLoad(), cap = carryCap();
+  const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div><span>Load</span><div class="bar"><i style="width:${Math.min(100, load / cap * 100)}%;background:${load > cap ? '#e0573d' : '#7fc4b8'}"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
   let body = '';
   if (invTab === 'bag') {
-    const groups = {};
-    const it = (id, n, extra = '') => `<div class="it" title="${nameOf(id)} · ${SRC_N[ITEMS[id]?.src] || ''}">${icon(id)}<b>${n}</b><span>${nameOf(id)}</span>${extra}</div>`;
-    const all = { scrap: INV.scrap, meat: INV.meat, ration: INV.rations || 0, ...INV.items };
-    for (const [id, n] of Object.entries(all)) { if (!(n > 0)) continue; const c = ITEMS[id]?.c || (PLACEABLE[id] ? 'build' : 'indus'); (groups[c] ||= []).push([id, n]); }
-    const act = id => FOOD[id] ? `<button data-eat="${id}">${FOOD[id].k === 'water' ? 'Drink' : 'Eat'}</button>` : MEDS[id] ? `<button data-med="${id}">Use</button>` : PLACEABLE[id] ? `<button data-place="${id}">Place</button>` : '';
-    const order = ['food', 'water', 'med', 'build', 'wood', 'stone', 'fiber', 'animal', 'textile', 'metal', 'indus', 'elec', 'rare', 'story'];
-    body += `<div class="row"><div class="it">${icon("ammo_rifle")}<b>${INV.res}</b><span>Rifle ammo</span></div>${G.flags.hunter ? `<div class="it">${icon("ammo_hunt")}<b>${INV.resH}</b><span>Hunting ammo</span></div>` : ''}</div>`;
-    for (const c of order) if (groups[c]) body += `<h4>${c === 'build' ? 'To place' : CAT_N[c]}</h4><div class="row">${groups[c].map(([id, n]) => it(id, n, act(id))).join('')}</div>`;
-    if (INV.tools.length) body += `<h4>Tools & gear</h4><div class="row">${INV.tools.map((t, i) => { const D = GEAR_DEFS[t.id], f = t.d / t.max;
-      return `<div class="it gear${t.on ? ' on' : ''}" title="${D.salv ? 'Salvaged' : 'Hand-made'}">${icon(t.id)}<span>${QUAL[t.q].n}</span><span class="nm">${D.n}</span><div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f < .25 ? '#e0573d' : '#7fc4b8'}"></i></div><small>${t.d}/${t.max}${D.prot ? ` · ${Math.round(D.prot * 100)}% armor` : ''}</small>${D.kind === 'wear' ? `<button data-wear="${i}">${t.on ? 'Take off' : 'Wear'}</button>` : ''}</div>`; }).join('')}</div>`;
+    const groups = bagGroups();
+    const act = id => FOOD[id] ? `<button data-eat="${id}">${FOOD[id].k === 'water' ? 'Drink' : 'Eat'}</button>` : MEDS[id] ? `<button data-med="${id}">Use</button>` : BUILD_DEF[id] ? `<button data-place="${id}">Place</button>` : THROWS.includes(id) ? `<button data-thr="${id}">${P.thr === id ? 'Ready ✓' : 'Ready (G)'}</button>` : '';
+    for (const c of BAG_ORDER) if (groups[c]) body += `<h4>${CAT_N[c]}</h4><div class="row">${groups[c].map(([id, n]) => itemTile(id, n, act(id))).join('')}</div>`;
+    const sorted = [...INV.tools].sort((a, b) => (WDEF[b.id] ? 2 : GEAR_DEFS[b.id].kind === 'wear' ? 1 : 0) - (WDEF[a.id] ? 2 : GEAR_DEFS[a.id].kind === 'wear' ? 1 : 0));
+    if (sorted.length) body += `<h4>Weapons, tools & gear · ${INV.tools.length}</h4><div class="row">${sorted.map(t => { const D = GEAR_DEFS[t.id], W = WDEF[t.id], b = [];
+      if (D.kind === 'wear') b.push(`<button data-wear="${t.u}">${t.on ? 'Take off' : 'Wear'}</button>`);
+      if (W && W.cls === 'gun') b.push(`<button data-eq="${t.u}" data-slot="0">Slot 1</button><button data-eq="${t.u}" data-slot="1">Slot 2</button>`);
+      else if (W) b.push(`<button data-eq="${t.u}" data-slot="2">Slot 3</button>`);
+      if (cnt('repair_kit') && t.d < t.max) b.push(`<button data-fix="${t.u}">Repair</button>`);
+      return gearTile(t, b.join('')); }).join('')}</div>`;
+    body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
-    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% of the land explored</p>`;
-  } else {
-    body += `<div class="ctabs">${RCATS.map(([k, n]) => `<button data-cat="${k}" class="${craftCat === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
-    const near = ['fire', 'bench', 'rack'].filter(nearStation).map(k => STATION_N[k]);
-    body += `<p class="dim">${near.length ? `At: ${near.join(', ')}` : 'Not at a station — fire, workbench and drying-rack recipes need you standing at one.'}</p><div class="recs">`;
-    const list = RECIPES.filter(r => r.cat === craftCat).sort((a, b) => (a.soon || 0) - (b.soon || 0) || a.t - b.t);
+    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
+  } else if (invTab === 'craft') {
+    body += `<div class="ctabs">${RCATS.map(([k, n]) => `<button data-cat="${k}" class="${craftCat === k ? 'on' : ''}">${n}</button>`).join('')}<button data-only="1" class="${craftOnly ? 'on' : ''}">Can make</button></div>`;
+    const near = Object.keys(STATION_N).filter(nearStation).map(k => STATION_N[k]);
+    body += `<p class="dim">${near.length ? `At: ${near.join(', ')}` : 'Not at a station — fire, bench, forge, rack and lab recipes need you standing at one.'} · Tier ${tierNow()}${tierNow() < 6 ? ` · next: ${TIER_HOW[tierNow() + 1]}` : ''}</p><div class="recs">`;
+    let list = RECIPES.filter(r => r.cat === craftCat);
+    if (craftOnly) list = list.filter(r => recipeState(r).ok);
+    list.sort((a, b) => (tierOpen(b.t) - tierOpen(a.t)) || a.t - b.t);
     for (const r of list) {
       const st = recipeState(r), locked = !st.open;
       const ing = st.ins.map(([k, n]) => `<span class="${cnt(k) >= n ? 'ok' : 'no'}">${k === 'veg' ? 'vegetables' : nameOf(k).toLowerCase()} ${Math.min(cnt(k), n)}/${n}</span>`).join('');
-      const req = [r.at && `<span class="${st.stOK ? 'ok' : 'no'}">@ ${STATION_N[r.at].toLowerCase()}</span>`, r.tool && `<span class="${st.toolOK ? 'ok' : 'no'}">needs ${r.tool}</span>`].filter(Boolean).join('');
-      const D = GEAR_DEFS[r.o], what = D ? (D.prot ? `${Math.round(D.prot * 100)}% armor` : `${D.dur} uses`) : PLACEABLE[r.o] ? 'placeable' : '';
-      body += `<div class="rec${st.ok ? ' can' : ''}${locked ? ' lock' : ''}">${icon(r.o)}<div class="rt"><b>${nameOf(r.o)}${r.n > 1 ? ` ×${r.n}` : ''}</b>${what ? `<em>${what}</em>` : ''}<div class="ing">${ing}${req}</div></div>${locked ? `<small>${r.soon ? 'coming soon' : `Tier ${r.t} · ${TIERS[r.t]}`}</small>` : `<button data-craft="${RECIPES.indexOf(r)}"${st.ok ? '' : ' class="dis"'}>Craft</button>`}</div>`;
+      const tn = { weld: 'welding kit', driver: 'screwdriver', saw: 'saw', pry: 'crowbar' }[r.tool] || r.tool;
+      const req = [r.at && `<span class="${st.stOK ? 'ok' : 'no'}">@ ${STATION_N[r.at].toLowerCase()}</span>`, r.tool && `<span class="${st.toolOK ? 'ok' : 'no'}">needs ${tn}</span>`].filter(Boolean).join('');
+      const D = GEAR_DEFS[r.o], W = WDEF[r.o], what = D ? (D.kind === 'wear' ? [D.prot && `${Math.round(D.prot * 100)}% armor`, D.fog && `${Math.round(D.fog * 100)}% Rust`, D.cap && `+${D.cap} carry`].filter(Boolean).join(' · ') || 'wear' : W ? `${W.dmg} dmg · ${D.dur} uses` : `${D.dur} uses`) : BUILD_DEF[r.o] ? 'placeable' : '';
+      body += `<div class="rec${st.ok ? ' can' : ''}${locked ? ' lock' : ''}">${icon(r.o)}<div class="rt"><b>${nameOf(r.o)}${r.n > 1 ? ` ×${r.n}` : ''}</b>${what ? `<em>${what}</em>` : ''}<div class="ing">${ing}${req}</div></div>${locked ? `<small>Tier ${r.t} · ${TIERS[r.t]}</small>` : `<div class="cb"><button data-craft="${RECIPES.indexOf(r)}"${st.ok ? '' : ' class="dis"'}>Craft</button>${st.ok && !GEAR_DEFS[r.o] ? `<button data-craft5="${RECIPES.indexOf(r)}">×5</button>` : ''}</div>`}</div>`;
     }
+    if (!list.length) body += '<p class="dim">Nothing you can make here right now.</p>';
+    body += '</div>';
+  } else if (invTab === 'store') {
+    const p = storeAt, B = BUILD_DEF[p.k], groups = bagGroups();
+    body += `<p class="dim">${nameOf(p.k)} · ${storeUsed(p)}/${B.store} slots · tap to move one, shift-tap (or ×all) to move the stack</p><div class="two"><div><h4>Your bag</h4><div class="row">`;
+    for (const c of BAG_ORDER) for (const [id, n] of groups[c] || []) body += itemTile(id, n, `<button data-put="${id}">→</button><button data-putall="${id}">×all</button>`);
+    for (const t of INV.tools) if (!busy(t)) body += gearTile(t, `<button data-putg="${t.u}">→</button>`);
+    body += `</div></div><div><h4>Stored</h4><div class="row">`;
+    for (const [id, n] of Object.entries(p.rec.inv)) body += itemTile(id, n, `<button data-take="${id}">←</button><button data-takeall="${id}">×all</button>`);
+    for (const t of p.rec.gear) body += gearTile(t, `<button data-takeg="${t.u}">←</button>`);
+    body += '</div></div></div>';
+  } else if (invTab === 'trade') {
+    const L = tradeStock(), groups = bagGroups();
+    body += `<p class="dim">Mara trades in scrap. You have <b>${INV.scrap}</b> scrap. Stock changes every day.</p><h4>Buy</h4><div class="row">`;
+    L.forEach(([id, n, left], i) => { body += itemTile(id, n, `<button data-buy="${i}"${left > 0 && INV.scrap >= Math.ceil(valueOf(id) * n * 1.25) ? '' : ' class="dis"'}>${left > 0 ? Math.ceil(valueOf(id) * n * 1.25) + ' scrap' : 'sold out'}</button>`); });
+    body += `</div><h4>Sell</h4><div class="row">`;
+    for (const c of BAG_ORDER) for (const [id, n] of groups[c] || []) if (id !== 'scrap' && ITEMS[id]?.c !== 'story') { const lot = Math.min(n, TRADE_LOT[id] || 1); body += itemTile(id, n, `<button data-sell="${id}">+${Math.max(1, Math.floor(valueOf(id) * lot * .5))}${lot > 1 ? ' /' + lot : ''}</button>`); }
+    for (const t of INV.tools) if (!busy(t)) body += gearTile(t, `<button data-sellg="${t.u}">+${Math.max(2, Math.round(valueOf(t.id) * .5 * t.d / t.max))}</button>`);
     body += '</div>';
   }
   $('invb').innerHTML = tabs + head + body;
@@ -3258,15 +4202,26 @@ function toggleInv(v = !invOpen) {
 $('inv').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) { if (!e.target.closest('#invp')) toggleInv(false); return; }
-  e.stopPropagation(); const d = b.dataset;
+  e.stopPropagation(); const d = b.dataset, g = u => INV.tools.find(t => t.u === +u);
   if (d.x) return toggleInv(false);
   if (d.tab) invTab = d.tab;
   else if (d.cat) craftCat = d.cat;
-  else if (d.craft) return craft(RECIPES[+d.craft]);
+  else if (d.only) craftOnly = !craftOnly;
+  else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
+  else if (d.craft5) return craft(RECIPES[+d.craft5], 5);
   else if (d.eat) eatItem(d.eat);
   else if (d.med) useMed(d.med);
   else if (d.place) { toggleInv(false); placeKit(d.place); return; }
-  else if (d.wear) { const t = INV.tools[+d.wear]; const was = t.on; for (const x of INV.tools) x.on = false; t.on = !was; save(); }
+  else if (d.thr) { P.thr = P.thr === d.thr ? null : d.thr; }
+  else if (d.wear) { toggleWear(g(d.wear)); save(); }
+  else if (d.eq) equipTo(g(d.eq), +d.slot);
+  else if (d.arc) { INV.eq[0] = 'arc'; if (P.slot === 0) selectGunView(gunId()); }
+  else if (d.hunt) { INV.eq[1] = 'hunter'; G.flags.hunter = 1; if (P.slot === 1) selectGunView(gunId()); }
+  else if (d.fix) { const t = g(d.fix); take('repair_kit', 1); t.d = Math.min(t.max, t.d + Math.round(t.max * .6)); sfx('buy'); toast(`${GEAR_DEFS[t.id].n} repaired`); save(); }
+  else if (d.put || d.putall) storePut(d.put || d.putall, !!d.putall || e.shiftKey);
+  else if (d.take || d.takeall) storeTake(d.take || d.takeall, !!d.takeall || e.shiftKey);
+  else if (d.putg) storePut(+d.putg); else if (d.takeg) storeTake(+d.takeg);
+  else if (d.buy) buyTrade(+d.buy); else if (d.sell) sellTrade(d.sell); else if (d.sellg) sellTrade(null, g(d.sellg));
   renderInv();
 });
 $('bInv').addEventListener('click', e => { e.stopPropagation(); toggleInv(); });
@@ -3287,6 +4242,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
   if (e.code === 'KeyF') toggleFly();
+  if (e.code === 'KeyG') throwNext();
+  if (e.code === 'KeyB') { if (has('binoc')) { P.binoc = !P.binoc; toast(P.binoc ? 'Binoculars' : 'Binoculars away', 1); } }
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
   if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
@@ -3306,7 +4263,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) input.fire = true;
   if (e.button === 2) input.ads = true;
 });
-addEventListener('wheel', e => { if (G.mode === 'play' && document.pointerLockElement && G.flags.hunter && Math.abs(e.deltaY) > 4) swapGun(); }, { passive: true });
+addEventListener('wheel', e => { if (G.mode === 'play' && document.pointerLockElement && Math.abs(e.deltaY) > 4) swapGun(); }, { passive: true });
 addEventListener('contextmenu', e => { if (G.mode === 'play') e.preventDefault(); });
 addEventListener('mouseup', e => { if (e.button === 0 && !isTouch) input.fire = false; if (e.button === 2) input.ads = false; });
 addEventListener('mousemove', e => { if (document.pointerLockElement === canvas && !cine) { input.look[0] += e.movementX * .0022; input.look[1] += e.movementY * .0022; } });
@@ -3327,7 +4284,7 @@ function tStart(e) {
     if (btn) {
       btn.classList.add('on');
       if (btn.id === 'bFire') { input.fire = true; touches.set(t.identifier, { kind: 'fire', x: t.clientX, y: t.clientY, btn }); }
-      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bUse') { if (curInter && curInter.multi) touches.get(t.identifier).useT = performance.now(); else useInteract(); }
+      else { touches.set(t.identifier, { kind: 'btn', btn }); if (btn.id === 'bJump') { input.jump = true; touchUp = true; } if (btn.id === 'bRel') reload(); if (btn.id === 'bThrow') throwNext(); if (btn.id === 'bUse') { if (curInter && curInter.multi) touches.get(t.identifier).useT = performance.now(); else useInteract(); }
         if (btn.id === 'bAim') { input.ads = !input.ads; btn.classList.toggle('lit', input.ads); } }
       continue;
     }
@@ -3368,7 +4325,7 @@ for (const id of ['inv', 'map']) $(id).addEventListener('touchstart', e => { e.s
 const SAVE = 'the-arc-save-v2';
 function save() {
   if (G.mode !== 'play') return;
-  try { localStorage.setItem(SAVE, JSON.stringify({ step: G.step, day: G.day, tod: G.tod, chapterDone: G.chapterDone, flags: G.flags, inv: INV, up: UP, hp: P.hp, food: P.food })); } catch (e) {}
+  try { localStorage.setItem(SAVE, JSON.stringify({ v: 3, step: G.step, day: G.day, tod: G.tod, chapterDone: true, flags: G.flags, inv: INV, up: UP, hp: P.hp, food: P.food, p: { diet: P.diet, bleed: P.bleed, frac: P.frac, sick: P.sick, dose: P.dose } })); } catch (e) {}
 }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
@@ -3380,7 +4337,7 @@ function frame(now) {
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
   for (const s of SCRAPS) if (s.alive) { s.glint.rotation.y += dt * 2; s.glint.position.y = .55 + Math.sin(G.t * 3 + s.ph) * .1; s.glint.visible = Math.sin(G.t * 4 + s.ph) > -.2; }
-  for (const p of beaconSmoke) { p.userData.k = (p.userData.k + dt * .08) % 1; const k = p.userData.k; p.position.set(POI.pod.x + Math.sin(k * 9) * k * 2, heightAt(POI.pod.x, POI.pod.z) + 2 + k * 26, POI.pod.z + k * 4); p.scale.setScalar(1 + k * 3); p.material.opacity = .4 * (1 - k); p.visible = G.step <= 8; }
+  for (const p of beaconSmoke) { p.userData.k = (p.userData.k + dt * .08) % 1; const k = p.userData.k; p.position.set(POI.pod.x + Math.sin(k * 9) * k * 2, heightAt(POI.pod.x, POI.pod.z) + 2 + k * 26, POI.pod.z + k * 4); p.scale.setScalar(1 + k * 3); p.material.opacity = .4 * (1 - k); p.visible = false; }
   // gate swing
   const gTarget = gate.hp <= 0 ? .3 : gate.open ? 1 : 0;
   gate.ang = lerp(gate.ang, gTarget, dt * 2.5);
@@ -3407,7 +4364,7 @@ function frame(now) {
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
     }
-    updTowers(dt); updSpears(dt);
+    updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
     updRust(dt); updTime(dt); updHUD(dt);
     // scrap pickup
@@ -3482,7 +4439,7 @@ async function buildMapCanvas() {
   mapBase = c;
 }
 const toMap = (x, z, S) => [(x / MAPR + 1) / 2 * S, (z / MAPR + 1) / 2 * S];
-function regionColor(R) { return R.id === 'kestrel' ? '#f0a640' : R.hostile ? '#e0573d' : '#efe9dc'; }
+function regionColor(R) { return R.id === 'kestrel' ? '#f0a640' : R.friend ? '#7fc4b8' : R.hostile ? '#e0573d' : '#efe9dc'; }
 function drawMap() {
   const cv = $('mapc'), S = Math.round(Math.min(innerHeight - 70, innerWidth - 40, 760) * (devicePixelRatio > 1 ? 2 : 1));
   if (cv.width !== S) cv.width = cv.height = S;
@@ -3540,46 +4497,43 @@ function toggleMap() { mapOpen = !mapOpen; $('map').classList.toggle('on', mapOp
 function startGame(fresh) {
   initAudio();
   const s = !fresh && load();
-  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 }); Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: { cloth: 3 }, tools: [] });
-  clearInjuries(); P.diet = []; P.fed = 0; chan = null; lastTool = null; RDEPL.clear();
-  G.step = 0; G.day = 1; G.tod = .34; G.chapterDone = false; G.flags = {};
+  Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 });
+  Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: { cloth: 3, bandage: 1, canned: 2, water_boiled: 2 }, tools: [], eq: null, uid: 1 });
+  clearInjuries(); P.diet = []; P.fed = 0; P.immune = 0; P.paint = 0; chan = null; lastTool = null; RDEPL.clear();
+  G.step = 13; G.day = 1; G.tod = .3; G.chapterDone = true; G.flags = { tier: 1, hunter: 1 };
   if (s) {
-    Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.chapterDone = s.chapterDone; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
-    G.step = s.step;
-    if (G.step === 9) G.step = 8;            // the pod escort restarts from the pod
-    if (G.step === 10 || G.step === 11) { G.step = 10; }
-    if (G.step >= 12) G.tod = clamp(s.tod, .26, .7); else G.tod = G.step >= 8 ? .58 : G.step >= 5 ? .45 : .36;
-    if (G.step === 6) spawnHerd(POI.meadow, 4);
+    Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
+    G.tod = clamp(s.tod ?? .3, .26, .7); G.flags.hunter = 1; G.flags.tier = G.flags.tier || 1;
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
+    if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
+  G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); restorePlaced(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); gHinted = !!G.flags.craftHint;
+  for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
-  P.slot = 0; selectGunView(RIFLE[UP.rifle].id);
-  applyUpgrades();
+  P.slot = 0; applyUpgrades(); selectGunView(gunId());
   gate.hp = gate.max;
   document.body.classList.remove('title'); G.mode = 'play';
-  if (!s || G.step === 0) introCine();
-  else {
-    P.x = SPOTS.vosPost.x + 1.5; P.z = SPOTS.vosPost.z - 3; P.pd = Math.hypot(P.x, P.z); P.yaw = 0; P.pitch = 0;
-    if (G.step === 10) { night.prep = 60; G.todTarget = .74; if (named.wren) { named.wren.wander = true; } else { named.wren = spawnNPC('wren', -14, 10, WREN_LOOK(true)); } }
-    if (G.step >= 12 && !named.wren) named.wren = spawnNPC('wren', -14, 10, WREN_LOOK(true));
-    toast(`Day ${G.day} · Kestrel`, 3);
-  }
+  const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
+  P.x = sp ? sp.x + 1.5 : 3; P.z = sp ? sp.z + 1.5 : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.yaw = 0; P.pitch = 0;
+  if (!s) {
+    say([['Kade', 'You’re up. We’ve got a wall, a fire and not much else.'], ['Kade', 'Sticks, stones and fiber out past the gate — make yourself an axe. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
+    setTimeout(() => toast(isTouch ? 'Bag → Craft to make things · the minimap shows where to go' : 'WASD move · E use · I bag + craft · G throw · M map', 5), 2500);
+  } else toast(`Day ${G.day} · Tier ${tierNow()}`, 3);
   if (!isTouch) setTimeout(() => canvas.requestPointerLock?.(), 50);
 }
 function menu() {
   const s = load();
-  $('menu').innerHTML = (s && s.step > 0 ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
+  $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
   $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · F fly · N sound';
-  $('bNew').onclick = () => { if (s && s.step > 0 && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
+  $('bNew').onclick = () => { if (s && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
 }
 let newArmed = false;
 function confirmNew() { if (newArmed) return true; newArmed = true; $('bNew').textContent = 'Tap again to wipe save'; setTimeout(() => { newArmed = false; if ($('bNew')) $('bNew').textContent = 'New game'; }, 2500); return false; }
 
-const WREN_LOOK = wander => ({ model: 'civilian', tint: 0xb8aac8, pack: false, wander });
 async function boot() {
   try { await Promise.race([document.fonts.load('900 70px "Big Shoulders Stencil Display"'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
   setLoad('READING THE RIVER'); await nextFrame();
@@ -3593,12 +4547,12 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildSmoke();
+  buildHalvard(); buildBurn(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
+  setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   named.kade = spawnNPC('kade', SPOTS.bench.x + 1.4, SPOTS.bench.z + 1.6, { model: 'civilian', yaw: -2.2, h: 1.8 });
   named.juno = spawnNPC('juno', SPOTS.med.x + 2.6, SPOTS.med.z + 1.4, { model: 'civilian', tint: 0xe0d8cc, yaw: 1, h: 1.7 });
-  named.vos = spawnNPC('vos', SPOTS.vosPost.x, SPOTS.vosPost.z, { model: 'elias', yaw: Math.PI, h: 1.86 });
   for (const [x, z] of [[-3, 10], [6, 9], [-12, 4], [2, -2], [18, 18], [-20, 18], [8, 2], [-8, -4], [12, 22]]) spawnNPC('extra', x, z, { wander: true });
   ensureWildlife(); villageGuards();
   await buildMapCanvas(); resetExplore('');
@@ -3607,5 +4561,5 @@ async function boot() {
   requestAnimationFrame(frame);
 }
 boot();
-window.__arc = { G, P, INV, UP, night, rust, ents, gate, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
-window.__T = { ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
+window.__T = { get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
