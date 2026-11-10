@@ -121,7 +121,7 @@ function findInteract() {
   }
   const pl = nearPlaced(); if (pl) { const d = Math.hypot(pl.x - P.x, pl.z - P.z) - 1; if (d < bd) { const a = placedAction(pl); bd = d; best = { it: { act: a.act }, l: a.l + `  ·  ${isTouch ? 'hold' : 'Q'}: dismantle`, next: () => unplace(pl, true), multi: true }; } }
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
-    const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.type}` }; }
+    const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.sp ? e.sp.n.toLowerCase() : e.type}` }; }
   }
   if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
@@ -388,6 +388,7 @@ function updClan(e, dt) {
 // a guard who spots you shouts: everyone near them joins in
 function alertNear(e) { for (const o of ents) if (o !== e && o.type === 'clan' && !o.dead && o.state === 'idle' && Math.hypot(o.x - e.x, o.z - e.z) < 28) o.state = 'chase'; }
 function updAnimal(e, dt) {
+  if (e.sp) return updWild(e, dt);
   const p = e.p;
   if (e.dead) { e.deadT += dt; p.body.rotation.z = Math.min(Math.PI / 2, e.deadT * 4); p.body.position.y = -.25 * Math.min(1, e.deadT * 4); if (e.deadT > 25) removeEnt(e); e.g.position.y = e.y - (e.deadT > 22 ? (e.deadT - 22) : 0); return; }
   e.t -= dt; e.cool -= dt;
@@ -492,12 +493,14 @@ function damage(e, n, byPlayer, at) {
   e.hp -= n;
   puff(at.x, at.y, at.z, e.type === 'clan' ? 0x6a1a12 : 0x6a1a12, 5, 2, .08, .4);
   if (e.type === 'clan' && e.state !== 'chase' && e.state !== 'raid' && byPlayer) e.state = 'chase';
-  if (e.type === 'deer' && e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); }
-  if (e.type === 'boar') e.state = 'charge';
+  if (e.sp) wildHit(e);
+  else if (e.type === 'deer' && e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); }
+  else if (e.type === 'boar') e.state = 'charge';
   if (e.hp <= 0) {
     e.dead = true; e.deadT = 0; G.kills++;
     if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(e); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
-    if (e.type === 'deer' || e.type === 'boar') { e.yaw = e.yaw; if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
+    if (e.sp) { if (byPlayer) toast(`${e.sp.n} down — go butcher it`); }
+    else if (e.type === 'deer' || e.type === 'boar') { if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
   }
 }
 let touchUp = false;
@@ -646,6 +649,7 @@ function openCrate(c) {
 
 /* ================= wildlife + the clans in the wider valley ================= */
 function ensureWildlife() {
+  if (ensureWild()) return;
   const inV = e => Math.hypot(e.home ? e.home.x : e.x, e.home ? e.home.z : e.z) < VALLEY;
   const deer = ents.filter(e => e.type === 'deer' && !e.dead && inV(e)).length, boar = ents.filter(e => e.type === 'boar' && !e.dead && inV(e)).length;
   const odeer = ents.filter(e => e.type === 'deer' && !e.dead && !inV(e)).length, oboar = ents.filter(e => e.type === 'boar' && !e.dead && !inV(e)).length;
@@ -1048,7 +1052,7 @@ function frame(now) {
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
     }
-    updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
+    updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
     updRust(dt); updTime(dt); updHUD(dt);
     // scrap pickup
@@ -1147,7 +1151,7 @@ function bakeGroup(root, dyn, cellSize = 30) {
 }
 function bakeDyn() {
   const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
-    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g)]);
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   d.delete(undefined); d.delete(null); return d;
 }
 function bakeWorld() {
@@ -1162,7 +1166,7 @@ function bakeWorld() {
 
 const CULL = []; let cullT = 0;
 function buildCull() {
-  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
+  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
     if (skip.has(o) || o.isSprite) continue;
@@ -1350,21 +1354,21 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS]);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
-  await buildForest(); buildGrass(); buildMist();
+  await buildForest(); await buildEnvForest(); buildEnvRocks(); buildGrass(); buildMist();
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
-  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
+  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
-  WALK.settle();
+  WALK.settle(); buildPaddock();
   for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
   SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: pick(['civilian', 'settler', 'settler']), tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
@@ -1375,7 +1379,10 @@ async function boot() {
   updTime(0); refreshEnv(G.tod, 0);
   menu();
   requestAnimationFrame(frame);
+  // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here
+  loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__E = { envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };

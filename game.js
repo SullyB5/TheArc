@@ -11,6 +11,7 @@ import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
 import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
+import { clone as skClone } from './vendor/jsm/utils/SkeletonUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -604,10 +605,11 @@ const REGIONS = [
 /* ---------- models (from the ELYRA kit) ---------- */
 const gltf = new GLTFLoader(); gltf.setMeshoptDecoder(MeshoptDecoder);
 const MODELS = {};
-async function loadModels(names) {
+const CLIPS = {};                                      // animations that came with a model (the rigged animals)
+async function loadModels(names, quiet) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    MODELS[n] = g.scene; if (g.animations && g.animations.length) MODELS[n + ':anims'] = g.animations; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
+    MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }
@@ -764,6 +766,7 @@ function snagGeo() {
 }
 function treeOK(x, z) {
   if (Math.hypot(x, z) < CAMP_R + 12) return false;
+  if (envKeepClear(x, z)) return false;
   if (Math.hypot(x - 80, z + 36) < 18 || Math.hypot(x + 80, z + 24) < 14) return false;   // the fallen side modules
   if (pathDist(x, z) < 5.5) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
@@ -2940,6 +2943,7 @@ function buildCity() {
     const cx = CITY.x + gx * BLK, cz = CITY.z + gz * BLK, dc = Math.hypot(cx - CITY.x, cz - CITY.z);
     if (dc > CITY.R - 26) continue;
     if (Math.hypot(cx - FOUNDRY.x, cz - FOUNDRY.z) < FOUNDRY.R + 20) continue;
+    if (envSites().some(s => s.city && Math.hypot(cx - s.x, cz - s.z) < s.r + 18)) continue;   // the factory + street blocks
     if (pathDist(cx, cz) < 12) continue;
     const k = dc / CITY.R, roll = rnd();
     if (roll < .1) { for (let i = 0; i < 6; i++) bush.push([cx + rr(-14, 14), heightAt(cx, cz), cz + rr(-14, 14), rr(1, 2.4), rr(1, 2.4), rr(1, 2.4), 0, rnd() * 6, 0, 0x3a5a2a]); continue; }   // overgrown lot
@@ -2968,7 +2972,7 @@ function buildCity() {
   const carGeo = merge([{ geo: new THREE.BoxGeometry(1.9, .7, 4.4), m: tm(0, .65, 0), color: 0xffffff }, { geo: new THREE.BoxGeometry(1.7, .6, 2.2), m: tm(0, 1.3, -.2), color: 0xdddddd }, { geo: new THREE.BoxGeometry(1.75, .45, 1.9), m: tm(0, 1.32, -.2), color: 0x223038 }]);
   const fm = facadeMat();
   for (const im of [instanced(boxGeo, fm, B), instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), tops), instanced(new THREE.DodecahedronGeometry(.6, 0), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), rub),
-    instanced(carGeo, new THREE.MeshLambertMaterial({ map: texCorr, vertexColors: true }), cars), instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texConcrete }), awn), instanced(new THREE.DodecahedronGeometry(.6, 0), M(0x3a5a2a), bush, false)]) if (im) root.add(im);
+    buildEnvCity(cars) ? null : instanced(carGeo, new THREE.MeshLambertMaterial({ map: texCorr, vertexColors: true }), cars), instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texConcrete }), awn), instanced(new THREE.DodecahedronGeometry(.6, 0), M(0x3a5a2a), bush, false)]) if (im) root.add(im);
   buildFoundry(root);
   for (let i = 0; i < 26; i++) { const a = rnd() * 6.28, r = rr(60, CITY.R - 30), x = CITY.x + Math.cos(a) * r, z = CITY.z + Math.sin(a) * r; if (Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) < FOUNDRY.R + 10) continue; cache(root, x, z, rnd() * 6, pick(['pry', 'pry', 'cutter', 'none']), pick(['city', 'city', 'mil']), { refill: 4 }); }
 }
@@ -3121,7 +3125,7 @@ const SHOP_STOCK = {
   craft: { k: 14, mark: 1.25, tiered: 1, blurb: 'Kade sells tools and metal stock.', pool: ['stone_axe', 'stone_pick', 'flint_knife', 'wood_shovel', 'hand_saw', 'fire_starter', 'needle', 'torch_t', 'metal_axe', 'pickaxe', 'hammer', 'crowbar', 'wrench', 'screwdriver', 'bolt_cutters', 'pliers', 'wire_cutters', 'multitool', 'welder', 'flashlight', 'climb_gear', 'lock_bypass', 'rust_detector', 'solar_charger', 'iron', 'steel', 'aluminum', 'copper', 'charcoal', 'pipe', 'gears', 'springs', 'spare_parts', 'tool_kit', 'fasteners', 'bolts', 'screws', 'nails', 'repair_kit'] },
   trade: { k: 16, mark: 1.3, tiered: 1, blurb: 'Odile buys and sells anything that isn’t nailed down.', pool: ['plank', 'log', 'rope', 'cloth', 'canvas', 'synth', 'leather', 'hide', 'glass', 'rubber', 'wire', 'cu_wiring', 'battery', 'circuit', 'sensor', 'fuse', 'antenna', 'fuel', 'gunpowder', 'clay', 'limestone', 'metal_ore', 'fertilizer', 'map', 'compass', 'binoculars', 'radio', 'fish_rod', 'backpack', 'duffel', 'arc_alloy', 'solar_cell', 'med_parts', 'engine_part', 'cable_spool', 'data_drive', 'purify_tab', 'canned'] },
   med: { k: 12, mark: 1.2, tiered: 1, blurb: 'Juno’s clinic. She’ll still patch you up for free.', pool: ['bandage', 'herb_bandage', 'splint', 'poultice', 'disinfect', 'painkiller', 'antibiotic', 'sutures', 'alcohol', 'purify_tab', 'medkit', 'surgical_kit', 'iv', 'rust_med', 'inject', 'herb_med', 'med_parts', 'gas_mask', 'med_scanner'] },
-  guns: { k: 14, mark: 1.3, tiered: 1, blurb: 'Rook keeps the guns. Bring scrap, leave armed.', pool: ['ammo_9', 'ammo_45', 'ammo_556', 'ammo_762', 'ammo_12', 'arrows', 'bolts_xb', 'ammo_flare', 'frag', 'smoke_gren', 'molotov', 'throw_spear', 'pistol', 'revolver', 'shotgun', 'smg', 'assault', 'sniper', 'lmg', 'flare_gun', 'shortbow', 'recurve', 'crossbow', 'machete', 'sword', 'war_axe', 'hunting_knife', 'mil_knife', 'stun_baton', 'metal_spear', 'repair_kit', 'gunpowder'] },
+  guns: { k: 14, mark: 1.3, tiered: 1, blurb: 'Rook keeps the guns. Bring scrap, leave armed.', pool: ['ammo_9', 'ammo_45', 'ammo_556', 'ammo_762', 'ammo_12', 'arrows', 'bolts_xb', 'ammo_flare', 'frag', 'smoke_gren', 'molotov', 'throw_spear', 'pistol', 'revolver', 'shotgun', 'smg', 'assault', 'sniper', 'lmg', 'flare_gun', 'shortbow', 'recurve', 'crossbow', 'longbow', 'yumi', 'hornbow', 'hunt_recurve', 'hand_xbow', 'heavy_xbow', 'repeat_xbow', 'm1911', 'pump_rifle', 'machete', 'kukri', 'tomahawk', 'sword', 'war_axe', 'hunting_knife', 'mil_knife', 'stun_baton', 'metal_spear', 'repair_kit', 'gunpowder'] },
   salvage: { k: 12, mark: 1.35, sell: .75, tiered: 1, blurb: 'Gus pays the best rate in Kestrel for salvage, and sells the rare stuff.', pool: ['arc_alloy', 'solar_cell', 'shielding', 'med_parts', 'engine_part', 'cable_spool', 'gas_tank', 'spare_tire', 'winch', 'battery', 'circuit', 'sensor', 'fuse', 'antenna', 'power_cell', 'data_drive', 'camera', 'tablet', 'cu_wiring', 'wire', 'copper', 'aluminum', 'pipe', 'gears', 'springs', 'rubber', 'glass', 'fuel'] },
   wear: { k: 12, mark: 1.25, tiered: 1, blurb: 'Wren makes and mends what you wear.', pool: ['hide_coat', 'jacket', 'hunt_outfit', 'rain_cloak', 'leather_armor', 'metal_chest', 'arc_jumpsuit', 'util_vest', 'sec_uniform', 'tac_armor', 'hazmat', 'rust_suit', 'clan_mask', 'gas_mask', 'helmet', 'riot_helmet', 'nvg', 'gloves', 'arm_guards', 'shield', 'riot_shield', 'boots', 'hide_boots', 'backpack', 'duffel', 'canteen', 'thread', 'cloth', 'leather'] },
 };
@@ -3155,6 +3159,216 @@ function sellTrade(id, g) {
   sfx('pickup'); save();
 }
 const nearTrader = () => curShopE && !curShopE.dead && Math.hypot(curShopE.x - P.x, curShopE.z - P.z) < 4.6;
+
+/* ================= Bryce's environment models (Nov 10) =================
+   assets/models/e: conifers (medium + high poly), rock sets (Davia's boulders, blocky rocks, modular stones), pallets, boxes,
+   trash cans, the Arc cargo containers kit, the old factory, an abandoned city street, a burnt-out bus, a bus stop, the
+   apocalypse car and a bunker entrance. Packs are split into pieces (one per mesh) and the repeated things are instanced.
+   Where they go:
+   · conifers: a ring of real pines round Kestrel and along the valley paths (the drawn firs still fill the far forest)
+   · rocks: Davia's boulders over the valley slopes, the blocky rocks on the grey mountain and the lookout ridge, the modular
+     stones along the Coldwater's banks
+   · Kestrel: pallets, boxes and bins at Salvage, the Trading Post and the Workshop
+   · the dropsite: the Arc's cargo containers spilled round the wreck; Farlight keeps more
+   · Halvard + the old road: wrecked cars, a bus stop and the burnt bus
+   · Cinder City: the old factory and the street block take two city blocks; wrecked cars + buses replace the drawn ones
+   · Greyhold Station: the bunker entrance into the mountain */
+const ENV_MODELS = ['e/conifer', 'e/conifer_hi', 'e/pallets', 'e/containers', 'e/factory', 'e/trashcans', 'e/rocks_davia', 'e/rocks_blocky', 'e/boxes', 'e/street', 'e/bus', 'e/bunker', 'e/busstop', 'e/car', 'e/rocks_mod'];
+
+/* quantized (int16) attributes: copy to float before moving geometry around */
+function floatGeo(geo) {
+  const g = new THREE.BufferGeometry();
+  for (const nm of Object.keys(geo.attributes)) { const A = geo.attributes[nm], n = A.count, k = A.itemSize, arr = new Float32Array(n * k); for (let i = 0; i < n; i++) for (let c = 0; c < k; c++) arr[i * k + c] = A.getComponent(i, c); g.setAttribute(nm, new THREE.BufferAttribute(arr, k)); }
+  if (geo.index) g.setIndex(Array.from(geo.index.array)); for (const gr of geo.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  return g;
+}
+const _ev = new THREE.Vector3();
+/* every mesh of a pack as its own piece, standing on y=0, centred in x/z */
+const PIECES = {};
+function pieces(name) {
+  if (PIECES[name]) return PIECES[name]; const src = MODELS[name]; if (!src) return [];
+  src.updateMatrixWorld(true); const out = [];
+  src.traverse(m => { if (!m.isMesh) return; const geo = floatGeo(m.geometry); geo.applyMatrix4(m.matrixWorld); geo.computeBoundingBox(); const b = geo.boundingBox, c = b.getCenter(_ev);
+    geo.translate(-c.x, -b.min.y, -c.z); geo.computeBoundingBox(); geo.computeBoundingSphere(); out.push({ geo, mat: m.material, size: geo.boundingBox.getSize(new THREE.Vector3()), name: m.name }); });
+  return PIECES[name] = out;
+}
+/* the whole model, one entry per mesh, the model standing on y=0 and centred */
+const WHOLE = {};
+function whole(name) {
+  if (WHOLE[name]) return WHOLE[name]; const src = MODELS[name]; if (!src) return null;
+  src.updateMatrixWorld(true); const parts = [], b = new THREE.Box3();
+  src.traverse(m => { if (!m.isMesh) return; const geo = floatGeo(m.geometry); geo.applyMatrix4(m.matrixWorld); geo.computeBoundingBox(); b.union(geo.boundingBox); parts.push({ geo, mat: m.material }); });
+  const c = b.getCenter(new THREE.Vector3()); for (const p of parts) { p.geo.translate(-c.x, -b.min.y, -c.z); p.geo.computeBoundingSphere(); }
+  return WHOLE[name] = { parts, size: b.getSize(new THREE.Vector3()) };
+}
+/* instance parts at a list of matrices */
+function instParts(parent, parts, mats, shadow = true) {
+  const out = []; if (!mats.length) return out;
+  for (const p of parts) { const im = new THREE.InstancedMesh(p.geo, p.mat, mats.length); mats.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); parent.add(im); out.push(im); }
+  return out;
+}
+const envM = (x, y, z, ry = 0, s = 1, rx = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(s, s, s));
+/* one placed copy (shares geometry) — for the one-off landmarks */
+function envPut(parent, name, x, y, z, ry = 0, s = 1) {
+  const W = whole(name); if (!W) return null; const g = new THREE.Group();
+  for (const p of W.parts) { const m = new THREE.Mesh(p.geo, p.mat); m.castShadow = true; m.receiveShadow = true; g.add(m); }
+  g.position.set(x, y, z); g.rotation.y = ry; g.scale.setScalar(s); parent.add(g); return g;
+}
+const envFloor = (x, z, w, d, ry) => { let lo = 1e9; for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]]) { const lx = a * w / 2, lz = b * d / 2; lo = Math.min(lo, heightAt(x + lx * Math.cos(ry) + lz * Math.sin(ry), z - lx * Math.sin(ry) + lz * Math.cos(ry))); } return lo; };
+/* collision along a box's perimeter, with `gaps` (local x positions on the long sides) left open as doorways */
+function colRect(x, z, w, d, ry, r = .6, gaps = []) {
+  const c = Math.cos(ry), s = Math.sin(ry), W = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
+  const edge = (ax, az, bx, bz, gap) => { const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / (r * 1.3))); for (let i = 0; i <= n; i++) { const lx = lerp(ax, bx, i / n), lz = lerp(az, bz, i / n); if (gap && gaps.some(g => Math.abs(lx - g) < 1.8)) continue; const [wx, wz] = W(lx, lz); addCol(wx, wz, r, 8); } };
+  edge(-w / 2, -d / 2, w / 2, -d / 2, 1); edge(-w / 2, d / 2, w / 2, d / 2, 1); edge(-w / 2, -d / 2, -w / 2, d / 2); edge(w / 2, -d / 2, w / 2, d / 2);
+}
+
+/* ---------- sites picked once, before the forest and the city are laid out, so neither builds over them ---------- */
+let ENV_SITES = null;
+function envSites() {
+  if (ENV_SITES) return ENV_SITES;
+  const S = ENV_SITES = [];
+  const firstOK = (list, test) => list.find(([x, z]) => test(x, z));
+  // the paddock: a flat bit of ground just outside the wall, off the paths
+  let best = null;
+  for (let a = 0; a < 6.28; a += .13) for (const r of [84, 92, 100]) { const x = Math.cos(a) * r, z = Math.sin(a) * r; if (z > 40) continue;
+    const sl = slopeAt(x, z), pd = pathDist(x, z), sc = sl * 40 - Math.min(pd, 30) + (SHELTERS.some(s => Math.hypot(s.x - x, s.z - z) < 25) ? 50 : 0) + (Math.hypot(x - 80, z + 36) < 44 || Math.hypot(x + 80, z + 24) < 36 ? 50 : 0);
+    if (pd > 15 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
+  if (best) S.push({ id: 'paddock', x: best.x, z: best.z, r: 16 });
+  // two city blocks: the factory and the street
+  const C = CITY, cityOK = (x, z) => pathDist(x, z) > 20 && Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) > FOUNDRY.R + 45 && Math.hypot(x - C.x, z - C.z) < C.R - 60;
+  const f = firstOK([[C.x + 170, C.z + 60], [C.x + 130, C.z - 150], [C.x - 170, C.z - 120], [C.x + 60, C.z + 200]], cityOK); if (f) S.push({ id: 'factory', x: f[0], z: f[1], r: 30, city: 1 });
+  const s = firstOK([[C.x - 120, C.z + 190], [C.x - 200, C.z + 40], [C.x + 20, C.z - 230], [C.x + 230, C.z - 60]], (x, z) => cityOK(x, z) && (!f || Math.hypot(x - f[0], z - f[1]) > 80)); if (s) S.push({ id: 'street', x: s[0], z: s[1], r: 26, city: 1 });
+  return S;
+}
+const envSite = id => envSites().find(s => s.id === id);
+const envKeepClear = (x, z, pad = 4) => envSites().some(s => Math.hypot(x - s.x, z - s.z) < s.r + pad);
+
+/* ---------- the pines ---------- */
+async function buildEnvForest() {
+  const W = whole('e/conifer'), WH = whole('e/conifer_hi'); if (!W) return;
+  const BT = 200, NB = Math.ceil(HALF * 2 / BT), bins = {}, hero = [];
+  const n = LOW ? 260 : 620; let k = 0, guard = 0;
+  while (k < n && guard++ < n * 30) {
+    // denser near the wall and along the paths, thinning out to ~420 m
+    const a = rnd() * 6.28, r = 78 + Math.pow(rnd(), 1.6) * 360, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (!treeOK(x, z) || waterAt(x, z) > -1e8 || slopeAt(x, z) > .9) continue;
+    const pd = pathDist(x, z); if (pd > 60 && r > 160 && rnd() < .6) continue;
+    const big = r < 130 && hero.length < (LOW ? 6 : 14) && rnd() < .12 && WH;
+    const s = big ? rr(1.2, 1.6) : rr(.75, 1.25), y = heightAt(x, z) - .3, m = envM(x, y, z, rnd() * 6.28, s, rr(-.03, .03), rr(-.03, .03));
+    if (big) hero.push(m); else { const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB; (bins[b] ||= []).push(m); }
+    addCol(x, z, .4 * s); addRes('fir', x, z, s); k++;
+  }
+  for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
+  if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
+  for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.needsUpdate = true; }
+  await nextFrame();
+}
+
+/* ---------- rocks ---------- */
+function buildEnvRocks() {
+  const bl = pieces('e/rocks_blocky'), md = pieces('e/rocks_mod');
+  const place = (P, list) => { const by = P.map(() => []); for (const [i, m] of list) by[i].push(m); P.forEach((p, i) => instParts(world, [p], by[i])); };
+  const DV = whole('e/rocks_davia');
+  if (DV) {                 // Davia's rock: one big weathered formation, scattered as outcrops over the valley's slopes and rim
+    const L = []; let guard = 0;
+    while (L.length < (LOW ? 14 : 26) && guard++ < 4000) {
+      const a = rnd() * 6.28, r = 110 + Math.sqrt(rnd()) * (VALLEY - 60), x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (pathDist(x, z) < 20 || waterAt(x, z) > -1e8 || !treeOK(x, z) || envKeepClear(x, z, 20) || slopeAt(x, z) < .25) continue;
+      if (L.some(q => Math.hypot(q.x - x, q.z - z) < 60)) continue;
+      const want = rr(7, 16), s = want / Math.max(DV.size.x, DV.size.z), ry = rnd() * 6.28;
+      L.push({ x, z, m: envM(x, envFloor(x, z, DV.size.x * s * .6, DV.size.z * s * .6, ry) - DV.size.y * s * .2, z, ry, s) });
+      for (let k = -1; k <= 1; k++) addCol(x + Math.sin(ry) * k * want * .3, z + Math.cos(ry) * k * want * .3, want * .3, 99);
+      addRes('boulder', x, z, want * .4);
+    }
+    instParts(world, DV.parts, L.map(q => q.m));
+  }
+  if (bl.length) {          // blocky rocks on the grey mountain (round the Grey Door) and the lookout ridge
+    const L = [];
+    for (const [cx, cz, n, R] of [[POI.vault.x, POI.vault.z, 22, 70], [POI.lookout.x, POI.lookout.z, 12, 50], [POI.relay.x, POI.relay.z, 10, 45]]) for (let j = 0, g = 0; j < n && g < 200; g++) {
+      const a = rnd() * 6.28, r = rr(16, R), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (pathDist(x, z) < 8 || waterAt(x, z) > -1e8 || Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 26 || Math.hypot(x - POI.lookout.x, z - POI.lookout.z) < 14) continue;
+      const i = Math.floor(rnd() * bl.length), p = bl[i], s = rr(.8, 1.6);
+      L.push([i, envM(x, heightAt(x, z) - .3, z, rnd() * 6.28, s)]); addCol(x, z, Math.max(p.size.x, p.size.z) * s * .4); addRes('boulder', x, z, Math.max(p.size.x, p.size.z) * s * .4); j++;
+    }
+    place(bl, L);
+  }
+  if (md.length) {          // stones along the Coldwater banks
+    const L = [];
+    for (let z = -VALLEY + 40; z < VALLEY - 40; z += rr(5, 12)) for (const sd of [-1, 1]) { if (rnd() < .35) continue;
+      const x = riverX(z) + sd * (RIV_HW + rr(-.5, 3)); if (Math.abs(z - 236) < 20) continue;
+      const i = Math.floor(rnd() * md.length), p = md[i], s = rr(.9, 1.8);
+      L.push([i, envM(x, heightAt(x, z) - .25, z, rnd() * 6.28, s)]); }
+    place(md, L);
+  }
+}
+
+/* ---------- Kestrel, the dropsite, Farlight, Halvard and the old roads ---------- */
+function propPile(parent, name, x, z, ry, n, spread, sMin = .9, sMax = 1.1, col = true) {
+  const P = pieces(name); if (!P.length) return; const by = P.map(() => []);
+  for (let k = 0; k < n; k++) { const i = Math.floor(rnd() * P.length), lx = rr(-spread, spread), lz = rr(-spread * .5, spread * .5), c = Math.cos(ry), s = Math.sin(ry), px = x + lx * c + lz * s, pz = z - lx * s + lz * c;
+    by[i].push(envM(px, heightAt(px, pz), pz, ry + rr(-.4, .4), rr(sMin, sMax))); }
+  P.forEach((p, i) => { if (by[i].length) instParts(parent, [p], by[i], p.size.y > .4); });
+  if (col) addCol(x, z, spread * .6, 1.2);
+}
+function buildEnvSites() {
+  // Kestrel: against a side or back wall of Salvage, the Trading Post, the Workshop and the Gunsmith — never in a street or another house
+  const inHouse = (x, z, me) => SHOP_DEFS.some(D => D !== me && Math.abs((x - D.cx) * Math.cos(D.ry) - (z - D.cz) * Math.sin(D.ry)) < D.bw / 2 + .6 && Math.abs((x - D.cx) * Math.sin(D.ry) + (z - D.cz) * Math.cos(D.ry)) < D.bd / 2 + .6);
+  const clear = (p, me, r) => streetDist(p.x, p.z) > r && !inHouse(p.x, p.z, me) && Math.hypot(p.x, p.z) < CAMP_R - 3 && !(typeof inHull === 'function' && inHull(p.x, p.z));
+  for (const [id, n] of [['salvage', 3], ['trade', 2], ['craft', 2], ['guns', 1], ['bunk', 1]]) {
+    const D = SHOP[id]; if (!D) continue;
+    const spots = [[D.bw / 2 + 1.1, -1.4], [-(D.bw / 2 + 1.1), -1.4], [D.bw / 2 + 1.1, 1], [-(D.bw / 2 + 1.1), 1], [-2.5, -(D.bd / 2 + 1.1)], [2.5, -(D.bd / 2 + 1.1)]].map(([lx, lz]) => ({ lx, lz, ...shopL2W(D, lx, lz) }));
+    const a = spots.find(p => clear(p, D, 1.4)); if (a) propPile(world, 'e/pallets', a.x, a.z, D.ry + (Math.abs(a.lx) > 2.6 ? Math.PI / 2 : 0), n, 1, .9, 1, true);
+    const b = spots.find(p => p !== a && clear(p, D, 1) && (!a || Math.hypot(p.x - a.x, p.z - a.z) > 2.5)); if (b) propPile(world, 'e/boxes', b.x, b.z, D.ry, 4, .6, 1.4, 1.9, false);
+  }
+  for (const id of ['cook', 'salvage', 'trade']) { const D = SHOP[id], P = pieces('e/trashcans'); if (!D || !P.length) continue;
+    const p = [[D.bw / 2 + .8, 1.8], [-(D.bw / 2 + .8), 1.8]].map(([lx, lz]) => shopL2W(D, lx, lz)).find(q => clear(q, D, .6)); if (!p) continue;
+    instParts(world, [P[id === 'cook' ? 0 : P.length - 1]], [envM(p.x, heightAt(p.x, p.z), p.z, D.ry, 1)]); addCol(p.x, p.z, .45, 1.2); }
+  // the dropsite: Arc cargo spilled from the torn end of the wreck
+  const cargo = () => pieces('e/containers').filter(p => Math.max(p.size.x, p.size.z) > .7 && p.size.y > .4);
+  { const D = POI.dropsite, toCamp = Math.atan2(-D.z, -D.x), ax = Math.cos(toCamp), az = Math.sin(toCamp), C = cargo(), wake = { x: D.x + DROP_WAKE[0], z: D.z + DROP_WAKE[1] };
+    if (C.length) { const by = C.map(() => []);
+      for (let k = 0, g = 0; k < (LOW ? 8 : 13) && g < 200; g++) { const along = -rr(13, 30), sd = rr(-11, 11), x = D.x + ax * along - az * sd, z = D.z + az * along + ax * sd, i = Math.floor(rnd() * C.length);
+        if (Math.hypot(x - wake.x, z - wake.z) < 7 || Math.abs(sd) < 5.5 && along > -15) continue; k++;
+        by[i].push(envM(x, heightAt(x, z) - .05, z, rnd() * 6.28, rr(.5, .7), rnd() < .3 ? rr(-.3, .3) : 0, rnd() < .3 ? rr(-.4, .4) : 0)); addCol(x, z, Math.max(C[i].size.x, C[i].size.z) * .26, 1.5); }
+      C.forEach((p, i) => instParts(world, [p], by[i])); } }
+  // Farlight: the Arc survivors kept their cargo
+  { const B = BASES.find(b => b.id === 'farlight'), C = cargo(); if (B && C.length) { const g = farGroup(B.x, B.z, B.R), by = C.map(() => []);
+    for (let k = 0; k < 10; k++) { const a = rnd() * 6.28, r = rr(28, B.R - 6), x = B.x + Math.cos(a) * r, z = B.z + Math.sin(a) * r, i = Math.floor(rnd() * C.length); by[i].push(envM(x, heightAt(x, z), z, rnd() * 6.28, .7)); addCol(x, z, Math.max(C[i].size.x, C[i].size.z) * .3, 1.5); }
+    C.forEach((p, i) => instParts(g, [p], by[i])); propPile(g, 'e/pallets', B.x + 12, B.z + 14, .4, 4, 1.4); } }
+  // Halvard: wrecks on its streets, a bus stop on the old road in, the burnt bus beside it
+  { const H = POI.halvard, car = whole('e/car'), cars = [];
+    if (car) { for (const lx of [-39, -13, 13, 39]) for (let k = 0; k < 2; k++) { if (rnd() < .4) continue; const z = H.z + rr(-50, 50), x = H.x + lx + rr(-2.5, 2.5); cars.push(envM(x, heightAt(x, z) - .05, z, (rnd() < .5 ? 0 : Math.PI) + rr(-.35, .35), 1)); addCol(x, z - 1.2, 1.2, 1.6); addCol(x, z + 1.2, 1.2, 1.6); }
+      instParts(world, car.parts, cars); }
+    const p0 = [400, 262], p1 = [H.x, H.z], dx = p1[0] - p0[0], dz = p1[1] - p0[1], L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L, ry = Math.atan2(ux, uz);
+    const bx = p0[0] + ux * 30 - uz * 7, bz = p0[1] + uz * 30 + ux * 7;
+    const bs = envPut(world, 'e/busstop', bx, heightAt(bx, bz) - .05, bz, ry + Math.PI / 2); if (bs) addCol(bx, bz, 1.1, 2.8);
+    const tx = p0[0] + ux * 52 + uz * 9, tz = p0[1] + uz * 52 - ux * 9, b = envPut(world, 'e/bus', tx, envFloor(tx, tz, 3, 11, ry + .25) - .1, tz, ry + .25);
+    if (b) { b.rotation.z = .04; addColLine(tx - Math.sin(ry + .25) * 5, tz - Math.cos(ry + .25) * 5, tx + Math.sin(ry + .25) * 5, tz + Math.cos(ry + .25) * 5, 1.6); }
+    const P = pieces('e/trashcans'); if (P.length) { const c = Math.cos(ry), s = Math.sin(ry); instParts(world, [P[0]], [envM(bx + c * 2.6, heightAt(bx, bz), bz - s * 2.6, ry, 1)]); }
+  }
+  // the old roads in the valley: a car left here and there
+  { const car = whole('e/car'); if (car) { const L = [];
+    for (const path of PATHS) for (let i = 0; i < path.length - 1; i++) { if (rnd() < .55) continue; const [ax, az] = path[i], [bx, bz] = path[i + 1], t = rr(.2, .8), x0 = lerp(ax, bx, t), z0 = lerp(az, bz, t), ry = Math.atan2(bx - ax, bz - az), off = (rnd() < .5 ? -1 : 1) * rr(3.5, 6);
+      const x = x0 + Math.cos(ry) * off, z = z0 - Math.sin(ry) * off; if (Math.hypot(x, z) < CAMP_R + 20 || waterAt(x, z) > -1e8 || envKeepClear(x, z)) continue;
+      L.push(envM(x, heightAt(x, z) - .1, z, ry + rr(-.6, .6), 1, rr(-.05, .05), rr(-.08, .08))); addCol(x, z, 1.6, 1.6); }
+    instParts(world, car.parts, L); } }
+  // Greyhold Station: the bunker entrance, dug into the slope behind the station
+  { const B = BASES.find(b => b.id === 'greystation'), W = whole('e/bunker'); if (B && W) {
+    const away = Math.atan2(B.z, B.x), x = B.x + Math.cos(away) * (B.R + 18), z = B.z + Math.sin(away) * (B.R + 18), ry = Math.atan2(B.x - x, B.z - z);
+    const g = farGroup(x, z, 40); envPut(g, 'e/bunker', x, envFloor(x, z, 20, 16, ry) - .15, z, ry); addCol(x, z, 4.5, 6); } }
+}
+/* Cinder City: the two landmark blocks and the wrecks */
+function buildEnvCity(cars) {
+  const f = envSite('factory'), s = envSite('street');
+  if (f) { const g = farGroup(f.x, f.z, 40), ry = .2, W = whole('e/factory'); if (W) { envPut(g, 'e/factory', f.x, envFloor(f.x, f.z, W.size.x, W.size.z, ry) - .3, f.z, ry); colRect(f.x, f.z, W.size.x - .6, W.size.z - .6, ry, .7, []); cache(g, f.x, f.z, 0, 'pry', 'city', { id: 'c_factory', name: 'Old factory floor', big: 1, rolls: 1, refill: 2 }); } }
+  if (s) { const g = farGroup(s.x, s.z, 40), ry = -.15; envPut(g, 'e/street', s.x, heightAt(s.x, s.z) - .25, s.z, ry); const P = pieces('e/trashcans'); if (P.length) instParts(g, [P[0], P[1] || P[0]], [envM(s.x + 6, heightAt(s.x + 6, s.z), s.z + 3, ry)]); }
+  // the drawn wrecks in the streets become real ones: one in six a bus
+  const car = whole('e/car'), bus = whole('e/bus'); if (!car || !cars?.length) return false;
+  const root = farGroup(CITY.x, CITY.z, CITY.R), cm = [], bm = [];
+  for (const q of cars) { if (envKeepClear(q[0], q[2])) continue; const isBus = bus && rnd() < .16; (isBus ? bm : cm).push(envM(q[0], q[1] - .1, q[2], q[7], 1, q[6], q[8])); if (isBus) addColLine(q[0] - Math.sin(q[7]) * 4.5, q[2] - Math.cos(q[7]) * 4.5, q[0] + Math.sin(q[7]) * 4.5, q[2] + Math.cos(q[7]) * 4.5, 1.6); }
+  instParts(root, car.parts, cm); if (bus) instParts(root, bus.parts, bm);
+  return true;
+}
 
 /* ================= people ================= */
 const PAL = {
@@ -3397,6 +3611,7 @@ function spawnNPC(name, x, z, o) {
 function hitSpheres(e) {
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
   if (e.type === 'clan') { const H = e.p.H, cl = e.climbY || 0; return [[e.x, e.y + H * .66 + cl, e.z, .4 * H / 1.76, 1], [e.x, e.y + H * .93 + cl, e.z, .16 * H / 1.76, 2.2], [e.x, e.y + H * .3 + cl, e.z, .28, .8]]; }
+  if (e.sp) return hitSpheresAnimal(e);
   if (e.type === 'deer') return [[e.x, e.y + 1.05, e.z, .62, 1], [e.x + fx * .85, e.y + 1.75, e.z + fz * .85, .26, 2]];
   if (e.type === 'boar') return [[e.x, e.y + .66, e.z, .58, 1], [e.x + fx * .65, e.y + .66, e.z + fz * .65, .26, 1.8]];
   return [];
@@ -3467,7 +3682,7 @@ let muzzle = new THREE.Object3D(), flash, flashLight, armsObj = [];
 function gunView(id) {
   const W = WEAPONS[id], g = new THREE.Group();
   let m = null;
-  if (W.proc) { m = new THREE.Group(); W.proc(m); } else { m = modelCopy(W.model, W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); }
+  if (W.model && MODELS[W.model]) { m = modelCopy(W.model, W.msize || W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); } else if (W.proc) { m = new THREE.Group(); W.proc(m); }
   if (m) {
     if (W.yaw) m.rotation.y = W.yaw;
     const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()); m.position.sub(c);
@@ -3693,12 +3908,326 @@ function sfx(k, vol = 1) {
     case 'cough': noiseBurst(.18, 600, 2, .2, 'bandpass'); noiseBurst(.14, 500, 2, .16, 'bandpass', .22); break;
     case 'eat': for (let i = 0; i < 3; i++) noiseBurst(.06, 1500, 2, .12, 'bandpass', i * .14); break;
     case 'deer': tone(700, .25, .1, 'triangle', 0, -300); break;
-    case 'grunt': tone(110, .25, .2, 'sawtooth', 0, -40); break;
+    case 'grunt': tone(110, .25, .2 * vol, 'sawtooth', 0, -40); break;
+    case 'growl': tone(85, .55, .18 * vol, 'sawtooth', 0, 25); noiseBurst(.45, 260, 1.5, .1 * vol, 'bandpass'); break;
+    case 'roar': tone(70, .9, .3 * vol, 'sawtooth', 0, -25); noiseBurst(.8, 380, 1, .2 * vol, 'bandpass'); break;
+    case 'cluck': tone(820, .06, .05 * vol, 'square', 0, -200); tone(760, .06, .04 * vol, 'square', .1, -200); break;
     case 'radio': noiseBurst(.25, 2500, .5, .12, 'highpass'); break;
     case 'gate': tone(60, .5, .35, 'sawtooth', 0, 20); noiseBurst(.6, 300, .5, .2); break;
   }
 }
-const ICON_IDS = new Set('alcohol aluminum ammo_12 ammo_45 ammo_556 ammo_762 ammo_9 ammo_box ammo_flare antenna antibiotic arc_alloy arc_jumpsuit arc_pack arden_notes arm_guards arrows ash assault backpack bandage bark barracks battery beans bed berries binoculars blackvein blood_bag blood_kit blueberries bolt_cutters bolts bolts_xb bone bone_dagger bone_knife bookshelf boots branch bread breather cable2 cable_spool camera campfire canned canteen canvas carrot cell chair charcoal circuit clan_mask clay climb_gear climb_pick cloth club compass cook_station cooked_fish cooking_rack copper corn crossbow crowbar cu_wiring data_drive diag_pc disinfect documents dome door dried_meat drone drying_rack duffel ember engine_part farm_plot fasteners fat feather fertilizer fiber fire_starter fish fish_rod fish_soup fish_spear flare_gun flashlight flint flint_knife flour forge frag fuel fuel_can2 fuse gas2 gas3 gas_mask gas_tank gate_codes gears generator glass gloves greenhouse greens grey_armor grey_rifle greyhold_card greyhold_files gunpowder halcyon_chip hammer hand_saw hardwood harness hatchet hazmat helmet herb herb_bandage herb_med hide hide_boots hide_coat honey hook hook2 hunt_outfit hunt_spear hunting_knife id_chip inject insignia iv jacket knife lab lab_sample lake_fish lantern lantern_key leather leather_armor limestone lmg lock_bypass locker lockers log machete map map_table meat med_parts med_scanner med_station medkit meridian_gear metal_axe metal_chest metal_crate metal_ore metal_spear metal_wall mil_armor mil_knife molotov multitool mushroom nails nav_console needle notebook nuts nvg oil painkiller palisade pan pants photo pickaxe pills pipe pistol plank pliers pot potato poultice power2 power_cell purify_tab radio radio_tower rain_cloak rain_coll ration recurve reed repair_drone revolver riot_helmet riot_shield roast rope rope2 rubber rust_detector rust_med rust_suit salt sat scrap screwdriver screws sealed_suit sec_uniform seed_bean seed_carrot seed_corn seed_potato seed_squash seed_wheat sensor serum sharp_rock shellfish shelves shield shielding shortbow shotgun sinew sleeping_mat smoke_gren smoked_fish sniper soil solar_cell solar_charger solar_panel spare_parts spare_tire spear spikes spindle splint springs squash staff steel stew stick stone stone_axe stone_knife stone_pick storage_chest storage_crate stun_baton sunfall_data surgical_kit sutures sword synth table tablet tabs2 tabs3 tac_armor teeth tent terminal thread throw_spear tool_kit torch_t transmitter turret usb util_vest vane veg_soup vine war_axe war_paint watchtower water_boiled water_collector water_dirty water_filter water_filtered water_rain weapon_rack welder wheat winch window wire wire_cutters wood_hammer wood_shelter wood_shovel wood_spear wood_wall workshop wraps wrench wristband'.split(' '));
+
+/* ================= wildlife (Nov 10): Bryce's animal models =================
+   Every species is a row in FAUNA. The static models (Bryce's animal pack, baked one animal per file in assets/models/a, facing +z,
+   feet on y=0) walk with their legs swung in the vertex shader (quadify: each triangle below the shoulder is given to one of four
+   legs, front/back x left/right, and swings about that leg's hip in a diagonal gait). The rigged ones (wolf, chicken, tiger) play
+   their own clips through an AnimationMixer; the tiger only has an idle, so its legs are swung bone by bone on top of it.
+   kind: flee (grazers) · charge (boar-like) · pred (hunts you) · small (bolts) · lurk (waits by water) · tame (Kestrel's paddock)
+   L = length the model is scaled to (null keeps the baked size) · sh = shoulder height after scaling (hit spheres + leg split)
+   meat/hide/... = butcher yield */
+const FAUNA = {
+  deer: { n: 'Deer', m: 'a/deer', alt: 'a/doe', altP: .6, L: 1.95, sh: 1.05, hp: 45, kind: 'flee', run: 9.5, walk: 1.6, scare: 16, meat: 2, sinew: 2, snd: 'deer' },
+  elk: { n: 'Elk', m: 'a/elk', L: 2.5, sh: 1.45, hp: 90, kind: 'flee', run: 9, walk: 1.5, scare: 20, meat: 3, sinew: 2, snd: 'deer' },
+  moose: { n: 'Moose', m: 'a/moose', L: 3, sh: 1.8, hp: 160, kind: 'charge', run: 7, walk: 1.3, aggro: 9, dmg: 22, meat: 4, sinew: 2, snd: 'grunt' },
+  boar: { n: 'Boar', m: 'a/boar', L: 1.5, sh: .8, hp: 80, kind: 'charge', run: 7.8, walk: 1.2, aggro: 11, dmg: 12, meat: 2, fat: 2, teeth: .5, snd: 'grunt' },
+  rabbit: { n: 'Rabbit', m: 'a/rabbit', L: .42, sh: .3, hp: 10, kind: 'small', run: 8, walk: .9, scare: 9, meat: 1, hide: .5, hop: 1, snd: null },
+  fox: { n: 'Fox', m: 'a/fox', L: 1, sh: .42, hp: 22, kind: 'small', run: 9, walk: 1.4, scare: 14, meat: 1, snd: null },
+  pheasant: { n: 'Pheasant', m: 'a/pheasant', L: .8, sh: .3, hp: 8, kind: 'small', run: 7, walk: .7, scare: 8, meat: 1, feather: 3, hide: 0, bird: 1, snd: null },
+  goose: { n: 'Goose', m: 'a/goose', L: .8, sh: .4, hp: 12, kind: 'small', run: 5, walk: .6, scare: 7, meat: 1, feather: 4, hide: 0, bird: 1, snd: null },
+  wolf: { n: 'Wolf', m: 'a/wolf', L: null, sh: .8, hp: 70, kind: 'pred', run: 8.6, walk: 1.6, aggro: 30, dmg: 9, reach: 1.7, cool: 1.1, meat: 1, teeth: 1, rig: { walk: 'WalkFast', idle: 'Howl', walkSpd: 3.2 }, snd: 'growl' },
+  bear: { n: 'Black bear', m: 'a/bear', L: 2, sh: 1, hp: 220, kind: 'pred', run: 7.4, walk: 1.2, aggro: 15, dmg: 24, reach: 2.2, cool: 1.6, meat: 4, fat: 3, teeth: 1, snd: 'roar' },
+  grizzly: { n: 'Grizzly', m: 'a/grizzly', L: 2.5, sh: 1.25, hp: 320, kind: 'pred', run: 7.6, walk: 1.2, aggro: 18, dmg: 32, reach: 2.4, cool: 1.7, meat: 5, fat: 4, teeth: 1, snd: 'roar' },
+  tiger: { n: 'White tiger', m: 'a/tiger', L: null, sh: .95, hp: 260, kind: 'pred', run: 10, walk: 1.5, aggro: 34, dmg: 28, reach: 2.3, cool: 1.3, meat: 3, teeth: 1, rig: { idle: 'Idle', swing: 1 }, snd: 'roar' },
+  bighorn: { n: 'Bighorn sheep', m: 'a/bighorn', L: 1.6, sh: .9, hp: 60, kind: 'flee', run: 8, walk: 1.2, scare: 18, meat: 2, sinew: 1, snd: 'deer' },
+  mountain_goat: { n: 'Mountain goat', m: 'a/mountain_goat', L: 1.5, sh: .9, hp: 60, kind: 'flee', run: 7.5, walk: 1.1, scare: 16, meat: 2, sinew: 1, snd: 'deer' },
+  // escaped from the Cinder City zoo
+  lioness: { n: 'Lioness', m: 'a/lioness', L: null, sh: .95, hp: 180, kind: 'pred', run: 10.5, walk: 1.5, aggro: 30, dmg: 22, reach: 2.1, cool: 1.2, meat: 3, teeth: 1, snd: 'roar' },
+  hyena: { n: 'Hyena', m: 'a/hyena', L: 1.6, sh: .8, hp: 70, kind: 'pred', run: 9, walk: 1.5, aggro: 26, dmg: 10, reach: 1.7, cool: 1, meat: 1, teeth: 1, snd: 'growl' },
+  buffalo: { n: 'Cape buffalo', m: 'a/buffalo', L: 3, sh: 1.5, hp: 240, kind: 'charge', run: 7.5, walk: 1.2, aggro: 12, dmg: 30, meat: 5, fat: 2, snd: 'grunt' },
+  wildebeest: { n: 'Wildebeest', m: 'a/wildebeest', L: 2.3, sh: 1.3, hp: 90, kind: 'flee', run: 9.5, walk: 1.4, scare: 20, meat: 3, sinew: 2, snd: 'grunt' },
+  warthog: { n: 'Warthog', m: 'a/warthog', L: 1.6, sh: .75, hp: 70, kind: 'charge', run: 8, walk: 1.2, aggro: 9, dmg: 10, meat: 2, fat: 1, teeth: .6, snd: 'grunt' },
+  guineafowl: { n: 'Guineafowl', m: 'a/guineafowl', L: .55, sh: .3, hp: 8, kind: 'small', run: 6, walk: .7, scare: 8, meat: 1, feather: 3, hide: 0, bird: 1, snd: null },
+  badger: { n: 'Honey badger', m: 'a/badger', L: .85, sh: .3, hp: 40, kind: 'charge', run: 6, walk: 1, aggro: 6, dmg: 7, meat: 1, snd: 'growl' },
+  alligator: { n: 'Alligator', m: 'a/alligator', L: 3.4, sh: .45, hp: 200, kind: 'lurk', run: 7, walk: .8, aggro: 8, dmg: 30, reach: 2.6, cool: 2, meat: 3, hide: 2, teeth: 1, low: 1, snd: 'growl' },
+  // Kestrel's paddock: they don't flee and you can't shoot them
+  horse: { n: 'Horse', m: 'a/horse', L: 2.4, sh: 1.55, hp: 999, kind: 'tame', walk: 1, snd: null },
+  donkey: { n: 'Donkey', m: 'a/donkey', L: 2, sh: 1.2, hp: 999, kind: 'tame', walk: .9, snd: null },
+  chicken: { n: 'Chicken', m: 'a/chicken', L: null, sh: .3, hp: 999, kind: 'tame', walk: .5, bird: 1, rig: { walk: 'walking', idle: 'pecking', idle2: 'idle', walkSpd: .5 }, snd: 'cluck' },
+};
+const FAUNA_MODELS = [...new Set(Object.values(FAUNA).flatMap(F => [F.m, F.alt].filter(Boolean))), 'a/goose2'];
+
+/* ---------- the gait shader for the static models ---------- */
+const QUAD_GEO = new Map();
+function quadGeo(geo, toP, sh) {
+  const key = geo.uuid + ':' + sh.toFixed(3); if (QUAD_GEO.has(key)) return QUAD_GEO.get(key);
+  const idx = geo.index, nTri = (idx ? idx.count : geo.attributes.position.count) / 3, P = geo.attributes.position, v = new THREE.Vector3();
+  const pp = new Float32Array(P.count * 3); let zMin = 1e9, zMax = -1e9;
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(toP); pp[i * 3] = v.x; pp[i * 3 + 1] = v.y; pp[i * 3 + 2] = v.z; if (v.y < sh * .5) { zMin = Math.min(zMin, v.z); zMax = Math.max(zMax, v.z); } }
+  const zMid = (zMin + zMax) / 2, top = sh * .62;
+  // which leg each triangle belongs to: 0..3 = (front, back) x (left, right); 4 = body
+  const grp = new Uint8Array(nTri), sumZ = [0, 0, 0, 0], nZ = [0, 0, 0, 0];
+  for (let t = 0; t < nTri; t++) {
+    const vi = [0, 1, 2].map(k => idx ? idx.getX(t * 3 + k) : t * 3 + k);
+    const cx = (pp[vi[0] * 3] + pp[vi[1] * 3] + pp[vi[2] * 3]) / 3, cy = (pp[vi[0] * 3 + 1] + pp[vi[1] * 3 + 1] + pp[vi[2] * 3 + 1]) / 3, cz = (pp[vi[0] * 3 + 2] + pp[vi[1] * 3 + 2] + pp[vi[2] * 3 + 2]) / 3;
+    const g = cy > top ? 4 : (cz > zMid ? 0 : 2) + (cx < 0 ? 0 : 1); grp[t] = g; if (g < 4) { sumZ[g] += cz; nZ[g]++; }
+  }
+  const hipZ = sumZ.map((s, i) => nZ[i] ? s / nZ[i] : zMid);
+  const PH = [0, Math.PI, Math.PI, 0];          // diagonal pairs move together
+  const names = Object.keys(geo.attributes), out = Object.fromEntries(names.map(n => [n, []])), qa = [], remap = new Map(), newIdx = [];
+  for (let t = 0; t < nTri; t++) {
+    const g = grp[t];
+    for (let k = 0; k < 3; k++) {
+      const a = idx ? idx.getX(t * 3 + k) : t * 3 + k, key = a * 8 + g; let n = remap.get(key);
+      if (n === undefined) { n = qa.length / 3; remap.set(key, n); qa.push(g < 4 ? PH[g] : 0, g < 4 ? hipZ[g] : 0, g < 4 ? 1 : 0); for (const nm of names) { const A = geo.attributes[nm]; for (let c = 0; c < A.itemSize; c++) out[nm].push(A.getComponent(a, c)); } }
+      newIdx.push(n);
+    }
+  }
+  const g2 = new THREE.BufferGeometry();
+  for (const nm of names) g2.setAttribute(nm, new THREE.BufferAttribute(new Float32Array(out[nm]), geo.attributes[nm].itemSize));   // getComponent hands back de-normalized values
+  g2.setAttribute('qA', new THREE.BufferAttribute(new Float32Array(qa), 3)); g2.setIndex(newIdx);
+  g2.boundingBox = geo.boundingBox; g2.boundingSphere = geo.boundingSphere; if (!g2.boundingSphere) g2.computeBoundingSphere();
+  QUAD_GEO.set(key, g2); return g2;
+}
+function quadify(wrap, sh, U) {
+  wrap.updateMatrixWorld(true); const inv = wrap.matrixWorld.clone().invert();
+  wrap.traverse(m => {
+    if (!m.isMesh || m.isSkinnedMesh) return;
+    const toP = inv.clone().multiply(m.matrixWorld), fromP = toP.clone().invert();
+    m.geometry = quadGeo(m.geometry, toP, sh);
+    m.material = [].concat(m.material).map(x => {
+      const c = x.clone();
+      c.onBeforeCompile = s => {
+        s.uniforms.qPh = U.ph; s.uniforms.qAmp = U.amp; s.uniforms.qTop = { value: sh * .62 }; s.uniforms.qTo = { value: toP }; s.uniforms.qFrom = { value: fromP };
+        s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 qA; uniform float qPh, qAmp, qTop; uniform mat4 qTo, qFrom;')
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+if (qAmp > .002 && qA.z > .5) {
+  vec3 p = (qTo * vec4(transformed, 1.0)).xyz;
+  float leg = 1.0 - smoothstep(qTop * .55, qTop, p.y), a = sin(qPh + qA.x) * qAmp * leg;
+  vec3 piv = vec3(p.x, qTop, qA.y), q = p - piv; float c = cos(a), s = sin(a);
+  p = piv + vec3(q.x, q.y * c - q.z * s, q.y * s + q.z * c);
+  transformed = (qFrom * vec4(p, 1.0)).xyz;
+}`);
+      };
+      c.customProgramCacheKey = () => 'quad';
+      return c;
+    });
+    if (m.material.length === 1) m.material = m.material[0];
+  });
+}
+
+/* ---------- one animal: the model, scaled and dressed ---------- */
+const _wq = new THREE.Quaternion(), _wq2 = new THREE.Quaternion(), _wx = new THREE.Vector3(1, 0, 0);
+function makeAnimal(key, alt) {
+  const F = FAUNA[key], name = alt && F.alt ? F.alt : F.m, src = MODELS[name]; if (!src) return null;
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const o = F.rig ? skClone(src) : src.clone(true);
+  const b = new THREE.Box3().setFromObject(o), sz = b.getSize(new THREE.Vector3());
+  const k = F.L ? F.L / sz.z : 1; o.scale.multiplyScalar(k); o.position.set(-(b.min.x + b.max.x) / 2 * k, -b.min.y * k, -(b.min.z + b.max.z) / 2 * k);
+  body.add(o);
+  o.traverse(m => { if (m.isMesh) { m.castShadow = F.sh > .45; m.receiveShadow = false; if (m.isSkinnedMesh) m.frustumCulled = false; } });
+  const U = { ph: { value: 0 }, amp: { value: 0 } }, p = { g, body, U, k, L: sz.z * k, H: sz.y * k };
+  if (F.rig) {
+    p.mixer = new THREE.AnimationMixer(o); const clips = CLIPS[name] || [];
+    const clip = n => n && clips.find(c => c.name.includes(n));
+    p.acts = {}; for (const r of ['walk', 'idle', 'idle2']) { const c = clip(F.rig[r]); if (c) { p.acts[r] = p.mixer.clipAction(c); } }
+    const first = p.acts.idle || p.acts.walk; if (first) { first.play(); first.time = rnd() * first.getClip().duration; }
+    p.cur = first;
+    if (F.rig.swing) { p.legs = []; o.traverse(n => { if (n.isBone && /^[lr]_femurRibbon(Front)?_00/.test(n.name)) p.legs.push({ n, front: /Front/.test(n.name), side: n.name[0] === 'l' ? 1 : -1 }); }); }
+  } else quadify(body, F.sh, U);
+  return p;
+}
+function rigPose(e, v, dt) {
+  const p = e.p, F = e.sp; if (!p.mixer) return;
+  const want = v > .4 && p.acts.walk ? p.acts.walk : (p.acts.idle2 && e.state === 'walk' ? p.acts.idle2 : p.acts.idle || p.acts.walk);
+  if (want && want !== p.cur) { want.reset().play(); if (p.cur) p.cur.crossFadeTo(want, .25, false); p.cur = want; }
+  if (p.acts.walk) p.acts.walk.timeScale = clamp(v / (F.rig.walkSpd || 2), .4, 3.2);
+  p.mixer.update(dt);
+  if (p.legs && p.legs.length) {          // the tiger: swing the thighs about the body's side axis, diagonal pairs together
+    const a = Math.min(1, v / 4) * .55;
+    for (const L of p.legs) {
+      const ang = Math.sin(e.ph + (L.front ? 0 : Math.PI) + (L.side > 0 ? Math.PI : 0)) * a; if (!ang) continue;
+      L.n.parent.getWorldQuaternion(_wq); _wq2.setFromAxisAngle(_wx.set(1, 0, 0).applyQuaternion(e.g.quaternion), ang);
+      L.n.quaternion.premultiply(_wq.clone().invert().multiply(_wq2).multiply(_wq));
+    }
+  }
+}
+
+/* ---------- spawning ---------- */
+function spawnAnimal(key, x, z, o = {}) {
+  const F = FAUNA[key]; if (!F) return null;
+  const p = makeAnimal(key, F.alt && rnd() < (F.altP ?? .5));
+  if (!p) return key === 'deer' ? spawnDeer(x, z) : key === 'boar' ? spawnBoar(x, z) : null;   // models missing: the old drawn ones
+  const e = { type: key, sp: F, p, g: p.g, x, z, yaw: rnd() * 6, hp: F.hp, maxhp: F.hp, state: F.kind === 'charge' ? 'root' : 'graze', t: rr(1, 5), ph: rnd() * 6, dead: false, deadT: 0,
+    r: clamp(p.L * .22, .2, .8), cool: 0, home: o.home || { x, z }, range: o.range || (F.kind === 'pred' ? 40 : 16), pack: o.pack, stuck: 0, side: 0, wild: 1 };
+  return addEnt(e);
+}
+function spawnGroup(key, cx, cz, n, spread = 10, range) {
+  const pack = { key, n }, out = [];
+  for (let i = 0; i < n; i++) { const x = cx + rr(-spread, spread), z = cz + rr(-spread, spread); if (waterAt(x, z) > heightAt(x, z) - .4 && FAUNA[key].kind !== 'lurk') continue; const e = spawnAnimal(key, x, z, { home: { x: cx, z: cz }, range, pack }); if (e) out.push(e); }
+  return out;
+}
+function hitSpheresAnimal(e) {
+  const F = e.sp, fx = Math.sin(e.yaw), fz = Math.cos(e.yaw), L = e.p.L, sh = F.sh, by = F.low ? sh * .6 : sh * .78, r = Math.max(sh * .42, Math.min(L * .2, sh * .7));
+  const out = [[e.x, e.y + by, e.z, r, 1], [e.x + fx * L * .4, e.y + (F.low ? sh * .6 : sh * 1.05), e.z + fz * L * .4, Math.max(.1, sh * .24), 2]];
+  if (L > sh * 1.6) out.push([e.x - fx * L * .25, e.y + by, e.z - fz * L * .25, r * .85, 1]);
+  if (e.p.body.position.y) for (const s of out) s[1] += e.p.body.position.y;
+  return out;
+}
+
+/* ---------- behaviour ---------- */
+function updWild(e, dt) {
+  const p = e.p, F = e.sp;
+  if (e.dead) {
+    e.deadT += dt; p.U.amp.value = 0; if (p.mixer) { p.mixer.timeScale = Math.max(0, 1 - e.deadT * 3); p.mixer.update(dt); }
+    p.body.rotation.z = Math.min(Math.PI / 2, e.deadT * 4); p.body.position.y = Math.min(1, e.deadT * 4) * F.sh * .25 - (e.deadT > 22 ? (e.deadT - 22) * .5 : 0);
+    if (e.deadT > 25) removeEnt(e); return;
+  }
+  e.t -= dt; e.cool -= dt;
+  const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp), canSee = !P.dead && !cine && Math.abs(P.y - e.y) < 6;
+  const away = (k = 1) => [e.x - dxp * k, e.z - dzp * k], wander = (r = e.range) => { e.tx = e.home.x + rr(-r, r); e.tz = e.home.z + rr(-r, r); };
+  let spd = 0, tx = e.x, tz = e.z;
+  const stealth = 1 - (wearStat ? wearStat('stealth') : 0);
+  if (F.kind === 'flee' || F.kind === 'small') {
+    const scare = F.scare * (P.sprinting ? 1.6 : 1) * stealth;
+    if (e.state !== 'flee' && dp < scare && canSee) { e.state = 'flee'; e.t = rr(4, 7); if (F.snd && dp < 40) sfx(F.snd); if (e.pack) for (const o of ents) if (o.pack === e.pack && !o.dead) { o.state = 'flee'; o.t = rr(4, 7); } }
+    if (e.state === 'flee') { [tx, tz] = away(); spd = F.run; if (e.t <= 0) { e.state = 'graze'; e.t = rr(2, 5); } }
+    else if (e.state === 'graze') { if (e.t <= 0) { e.state = 'walk'; e.t = rr(2, 5); wander(); } }
+    else { tx = e.tx; tz = e.tz; spd = F.walk; if (e.t <= 0 || Math.hypot(tx - e.x, tz - e.z) < .5) { e.state = 'graze'; e.t = rr(2, 7); } }
+  } else if (F.kind === 'charge') {
+    if (e.state !== 'charge' && e.state !== 'back' && dp < F.aggro * stealth && canSee) { e.state = 'charge'; if (F.snd) sfx(F.snd); }
+    if (e.state === 'charge') { tx = P.x; tz = P.z; spd = F.run; if (dp < 1.2 + p.L * .4 && e.cool <= 0) { hurtPlayer(F.dmg, e.x, e.z); e.cool = 1.4; e.state = 'back'; e.t = 1.4; } if (dp > 34 || P.dead) e.state = 'root'; }
+    else if (e.state === 'back') { [tx, tz] = away(); spd = F.run * .65; if (e.t <= 0) e.state = 'charge'; }
+    else if (e.t <= 0) { e.t = rr(2, 6); wander(); }
+    else if (e.tx !== undefined) { tx = e.tx; tz = e.tz; spd = F.walk; }
+  } else if (F.kind === 'pred' || F.kind === 'lurk') {
+    const hurt = e.hp < e.maxhp * .25, home = Math.hypot(e.x - e.home.x, e.z - e.home.z), inCamp = Math.hypot(P.x, P.z) < CAMP_R + 4 || P.safe;
+    const aggro = F.aggro * stealth * (isNight() ? 1.35 : 1);
+    if (e.state !== 'chase' && e.state !== 'flee' && dp < aggro && canSee && !inCamp && !hurt) { e.state = 'chase'; if (F.snd) sfx(F.snd); if (e.pack) for (const o of ents) if (o.pack === e.pack && !o.dead && o.state !== 'flee') o.state = 'chase'; }
+    if (e.state === 'chase') {
+      tx = P.x; tz = P.z; spd = F.kind === 'lurk' && dp > 5 ? F.walk * 3 : F.run;
+      if (dp < (F.reach || 1.8) && e.cool <= 0 && Math.abs(P.y - e.y) < 2.2) { e.yaw = Math.atan2(dxp, dzp); hurtPlayer(F.dmg, e.x, e.z); e.cool = F.cool || 1.2; e.lunge = .3; if (F.snd) sfx(F.snd, .6); }
+      if (dp < (F.reach || 1.8) * .7) spd = 0;
+      if (hurt || P.dead || inCamp || dp > aggro * 2.4 || home > (F.kind === 'lurk' ? 25 : 160)) { e.state = hurt ? 'flee' : 'walk'; e.t = rr(4, 8); e.tx = e.home.x; e.tz = e.home.z; }
+    } else if (e.state === 'flee') { [tx, tz] = away(); spd = F.run; if (e.t <= 0) { e.state = 'walk'; e.t = 6; e.tx = e.home.x; e.tz = e.home.z; } }
+    else if (F.kind === 'lurk') { if (e.t <= 0) { e.t = rr(6, 14); wander(6); } tx = e.tx ?? e.x; tz = e.tz ?? e.z; spd = F.walk; }
+    else { if (e.t <= 0 || e.tx === undefined) { e.t = rr(5, 12); e.state = rnd() < .35 ? 'graze' : 'walk'; wander(); } if (e.state === 'walk') { tx = e.tx; tz = e.tz; spd = F.walk; } }
+  }
+  if (e.stun > 0) { e.stun -= dt; spd = 0; }
+  if (spd && F.kind !== 'lurk' && waterAt(tx, tz) > heightAt(tx, tz) - .3) { tx = e.x + (e.x - tx) * .3; tz = e.z + (e.z - tz) * .3; }
+  const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
+  e.ph += dt * (F.bird || F.hop ? 9 : 2.6 + 1.6 / Math.max(.4, F.sh)) * Math.min(v, 6) / Math.max(1, Math.sqrt(v)) * (v > .1 ? 1 : 0);
+  p.U.ph.value = e.ph; p.U.amp.value = Math.min(1, v / 2.5) * (F.hop ? .1 : F.bird ? .45 : .5);
+  if (p.mixer) rigPose(e, v, dt);
+  p.body.position.y = (F.hop || F.bird) && v > .2 ? Math.abs(Math.sin(e.ph)) * (F.hop ? .12 : .03) : 0;
+  if (e.lunge > 0) { e.lunge -= dt; p.body.position.z = Math.sin((1 - e.lunge / .3) * Math.PI) * .35; } else p.body.position.z = 0;
+  e.y = heightAt(e.x, e.z); if (F.kind === 'lurk') { const w = waterAt(e.x, e.z); if (w > e.y) e.y = w - F.sh * .55; }
+  e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+}
+function wildHit(e) {
+  const F = e.sp;
+  if (F.kind === 'flee' || F.kind === 'small') { if (e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); } }
+  else if (F.kind === 'charge') e.state = 'charge';
+  else if (e.hp > e.maxhp * .25) { e.state = 'chase'; if (e.pack) for (const o of ents) if (o.pack === e.pack && !o.dead) o.state = 'chase'; }
+  else { e.state = 'flee'; e.t = rr(5, 9); }
+}
+function wildYield(e, kn) {
+  const F = e.sp, r = x => x == null ? 0 : x < 1 ? (rnd() < x ? 1 : 0) : x, L = [['meat', F.meat || 1]];
+  if (kn) L.push(['hide', r(F.hide ?? 1)], ['bone', 1 + Math.floor(rnd() * (F.sh > 1 ? 3 : 2))], ['fat', r(F.fat ?? (F.sh > .7 ? 1 : 0))], ['sinew', r(F.sinew ?? 1)], ['teeth', r(F.teeth ?? 0)], ['feather', r(F.feather ?? 0)]);
+  else L.push(['bone', rnd() < .5 ? 1 : 0], ['feather', F.feather ? 1 : 0]);
+  return L;
+}
+
+/* ---------- Kestrel's paddock + birds over the lakes (not in ents: you can't shoot them) ---------- */
+const PETS = [], DUCKS = [];
+function petAt(key, x, z, home, range) {
+  const p = makeAnimal(key); if (!p) return;
+  const e = { type: key, sp: FAUNA[key], p, g: p.g, x, z, y: heightAt(x, z), yaw: rnd() * 6, home, range, t: rr(0, 4), ph: 0, state: 'graze', stuck: 0, side: 0, r: .2 };
+  world.add(e.g); e.g.position.set(x, e.y, e.z); PETS.push(e); return e;
+}
+function updPets(dt) {
+  for (const e of PETS) {
+    const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < 160; if (d > 170) continue;
+    const F = e.sp, p = e.p; e.t -= dt; let spd = 0;
+    if (e.t <= 0) { e.t = rr(3, 9); e.state = rnd() < .45 ? 'walk' : 'graze'; const a = rnd() * 6.28, r = Math.sqrt(rnd()) * e.range; e.tx = e.home.x + Math.cos(a) * r; e.tz = e.home.z + Math.sin(a) * r; }
+    if (e.state === 'walk') spd = F.walk;
+    let v = 0;
+    if (spd) { const dx = e.tx - e.x, dz = e.tz - e.z, dd = Math.hypot(dx, dz); if (dd < .3) e.state = 'graze'; else { e.yaw += angWrap(Math.atan2(dx, dz) - e.yaw) * Math.min(1, dt * 4); const st = Math.min(spd * dt, dd); e.x += Math.sin(e.yaw) * st; e.z += Math.cos(e.yaw) * st; v = st / dt; } }
+    e.ph += dt * v * (F.bird ? 8 : 3); p.U.ph.value = e.ph; p.U.amp.value = Math.min(1, v / 1.5) * .45;
+    if (p.mixer) rigPose(e, v, dt);
+    if (F.snd && d < 14 && rnd() < dt * .05) sfx(F.snd, .4);
+    e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+  }
+  for (const D of DUCKS) {
+    D.a += dt * D.w; const x = D.cx + Math.cos(D.a) * D.r, z = D.cz + Math.sin(D.a) * D.r * .7;
+    D.g.position.set(x, D.y + Math.sin(D.a * 3) * .6, z); D.g.rotation.set(0, Math.atan2(-Math.sin(D.a) * D.r * D.w, Math.cos(D.a) * D.r * .7 * D.w) , 0);
+    D.g.visible = Math.hypot(x - P.x, z - P.z) < 260;
+  }
+}
+function buildPaddock() {
+  // a fenced paddock outside the east wall: two horses, a donkey and the hens; more hens scratch round the cookhouse
+  const site = envSite('paddock') || { x: 86, z: 6 }, cx = site.x, cz = site.z, R = 11, y0 = heightAt(cx, cz), g = new THREE.Group(); world.add(g);
+  const post = M(0x5a4a3a), rail = M(0x7a6650), gapA = Math.atan2(-cz, -cx) - (9.5 / 18) * Math.PI * 2;   // the gate faces Kestrel
+  for (let i = 0; i < 18; i++) {
+    const a0 = i / 18 * Math.PI * 2, a1 = (i + 1) / 18 * Math.PI * 2; if (i === 9) continue;   // the gap faces the wall
+    const x0 = cx + Math.cos(a0 + gapA) * R, z0 = cz + Math.sin(a0 + gapA) * R, x1 = cx + Math.cos(a1 + gapA) * R, z1 = cz + Math.sin(a1 + gapA) * R;
+    mesh(new THREE.BoxGeometry(.14, 1.4, .14), post, x0, heightAt(x0, z0) + .6, z0, g);
+    const L = Math.hypot(x1 - x0, z1 - z0), ry = Math.atan2(-(z1 - z0), x1 - x0);
+    for (const hy of [.55, 1.05]) { const r = mesh(new THREE.BoxGeometry(L, .08, .05), rail, (x0 + x1) / 2, (heightAt(x0, z0) + heightAt(x1, z1)) / 2 + hy, (z0 + z1) / 2, g); r.rotation.y = ry; }
+    addColLine(x0, z0, x1, z1, .25);
+  }
+  // a trough and a little coop
+  mesh(new THREE.BoxGeometry(2, .45, .6), M(0x6a5a46), cx + 4, y0 + .22, cz - 5, g);
+  mesh(new THREE.BoxGeometry(1.84, .05, .44), new THREE.MeshLambertMaterial({ color: 0x4a6a78 }), cx + 4, y0 + .43, cz - 5, g);
+  mesh(new THREE.BoxGeometry(1.6, 1, 1.2), M(0x8a6a4a), cx - 6, y0 + .7, cz + 4, g); const rf = mesh(new THREE.ConeGeometry(1.3, .7, 4), M(0x5a4a3a), cx - 6, y0 + 1.55, cz + 4, g); rf.rotation.y = Math.PI / 4;
+  addCol(cx + 4, cz - 5, 1); addCol(cx - 6, cz + 4, 1);
+  const home = { x: cx, z: cz };
+  petAt('horse', cx + 3, cz + 2, home, 7); petAt('horse', cx - 2, cz - 3, home, 7); petAt('donkey', cx + 1, cz + 5, home, 6);
+  for (let i = 0; i < 6; i++) petAt('chicken', cx - 6 + rr(-2, 2), cz + 4 + rr(-2, 2), { x: cx - 5, z: cz + 3 }, 4);
+  const ck = SHOP.cook; if (ck && ck.front) for (let i = 0; i < 4; i++) petAt('chicken', ck.front.x + rr(-2, 2), ck.front.z + rr(-2, 2), { x: ck.front.x, z: ck.front.z }, 3);
+  // ducks circling the lakes
+  if (MODELS['a/goose2']) for (const L of LAKES) for (let i = 0; i < (L.near ? 4 : 7); i++) {
+    const o = modelCopy('a/goose2', .55, 'z'); if (!o) break; const d = new THREE.Group(); d.add(o); world.add(d);
+    DUCKS.push({ g: d, cx: L.x + rr(-L.R * .3, L.R * .3), cz: L.z + rr(-L.R * .3, L.R * .3), r: L.R * rr(.4, .8) + 6, y: heightAt(L.x, L.z) + rr(8, 16), a: rnd() * 6, w: rr(.25, .4) * (rnd() < .5 ? -1 : 1) });
+  }
+}
+
+/* ---------- where things live ---------- */
+function wildCount(keys, inValley) { const inV = e => Math.hypot(e.home.x, e.home.z) < VALLEY; return ents.filter(e => e.wild && !e.dead && keys.includes(e.type) && inV(e) === inValley).length; }
+function landSpot(cx, cz, r, tries = 30, test) { for (let i = 0; i < tries; i++) { const a = rnd() * 6.28, d = Math.sqrt(rnd()) * r, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+  if (Math.hypot(x, z) > WORLD - 60 || waterAt(x, z) > heightAt(x, z) - .5 || Math.hypot(x, z) < CAMP_R + 30 || inCity(x, z, -40) || inBase(x, z, 10)) continue; if (test && !test(x, z)) continue; return { x, z }; } return null; }
+const steep = (x, z) => slopeAt(x, z) > .45 && heightAt(x, z) > 40;
+const WILD_PLAN = [
+  // [species, valley?, how many groups, group size [min,max], where: 'meadow'|'forest'|'mount'|'zoo'|'lake'|'out']
+  ['deer', 1, 7, [2, 4], 'meadow'], ['elk', 1, 2, [2, 3], 'forest'], ['boar', 1, 5, [1, 3], 'forest'], ['rabbit', 1, 7, [1, 3], 'meadow'], ['fox', 1, 4, [1, 1], 'forest'],
+  ['pheasant', 1, 5, [1, 3], 'meadow'], ['goose', 1, 2, [3, 5], 'lake'], ['wolf', 1, 2, [3, 3], 'rim'], ['bear', 1, 2, [1, 1], 'rim'],
+  ['deer', 0, 7, [3, 4], 'out'], ['elk', 0, 3, [2, 4], 'out'], ['moose', 0, 5, [1, 2], 'lake'], ['boar', 0, 6, [2, 3], 'out'], ['rabbit', 0, 4, [1, 3], 'out'], ['fox', 0, 3, [1, 1], 'out'],
+  ['wolf', 0, 3, [3, 4], 'out'], ['grizzly', 0, 4, [1, 1], 'out'], ['tiger', 0, 3, [1, 1], 'out'], ['bighorn', 0, 3, [3, 4], 'mount'], ['mountain_goat', 0, 4, [2, 4], 'mount'], ['pheasant', 0, 3, [2, 3], 'out'],
+  ['lioness', 0, 2, [2, 3], 'zoo'], ['hyena', 0, 2, [3, 4], 'zoo'], ['buffalo', 0, 2, [3, 4], 'zoo'], ['wildebeest', 0, 2, [4, 5], 'zoo'], ['warthog', 0, 3, [2, 3], 'zoo'],
+  ['guineafowl', 0, 2, [3, 4], 'zoo'], ['badger', 0, 3, [1, 1], 'zoo'], ['alligator', 0, 4, [1, 1], 'gator'],
+];
+function wildSpot(where) {
+  const V = VALLEY, ring = (r0, r1) => { const a = rnd() * 6.28, r = rr(r0, r1); return [Math.cos(a) * r, Math.sin(a) * r]; };
+  if (where === 'meadow') { const m = pick(MEADOWS); return landSpot(m.x, m.z, 30); }
+  if (where === 'forest') { const [x, z] = ring(110, V - 60); return landSpot(x, z, 30, 30, (x, z) => pathDist(x, z) > 12); }
+  if (where === 'rim') { const [x, z] = ring(V - 160, V - 40); return landSpot(x, z, 40, 30, (x, z) => pathDist(x, z) > 25 && SCOUTS.every(s => Math.hypot(x - s.x, z - s.z) > 50)); }
+  if (where === 'lake') { const L = pick(LAKES); const a = rnd() * 6.28; return landSpot(L.x + Math.cos(a) * (L.R + 14), L.z + Math.sin(a) * (L.R + 14), 12); }
+  if (where === 'gator') { const L = pick(LAKES.filter(L => !L.near)); const a = rnd() * 6.28; return { x: L.x + Math.cos(a) * (L.R - 4), z: L.z + Math.sin(a) * (L.R - 4) }; }
+  if (where === 'mount') { for (let i = 0; i < 40; i++) { const [x, z] = ring(V + 120, WORLD - 120); const s = landSpot(x, z, 60, 20, steep); if (s) return s; } return null; }
+  if (where === 'zoo') { const a = rnd() * 6.28, r = CITY.R + rr(40, 320); return landSpot(CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r, 40); }
+  const m = rnd() < .5 ? pick(OUT_MEADOWS) : null; if (m) return landSpot(m.x, m.z, 60);
+  const [x, z] = ring(V + 140, WORLD - 120); return landSpot(x, z, 60);
+}
+function ensureWild() {
+  if (!MODELS[FAUNA.deer.m]) return false;
+  const want = {};
+  for (const [k, v, n, sz, where] of WILD_PLAN) { const id = k + v; (want[id] ||= { k, v, n: 0, sz, where, groups: 0 }); want[id].n += n * (sz[0] + sz[1]) / 2; want[id].groups += n; }
+  for (const id in want) {
+    const W = want[id]; let have = wildCount([W.k], !!W.v), guard = 0;
+    while (have < W.n * .8 && guard++ < W.groups * 3) { const s = wildSpot(W.where); if (!s) continue; have += spawnGroup(W.k, s.x, s.z, Math.round(rr(W.sz[0], W.sz[1] + .99) - .49), W.k === 'wolf' || W.k === 'hyena' ? 8 : 12, FAUNA[W.k].kind === 'pred' ? 60 : 24).length; }
+  }
+  return true;
+}
+const ICON_IDS = new Set('alcohol aluminum ammo_12 ammo_45 ammo_556 ammo_762 ammo_9 ammo_box ammo_flare antenna antibiotic arc_alloy arc_jumpsuit arc_pack arden_notes arm_guards arrows ash assault backpack bandage bark barracks battery beans bed berries binoculars blackvein blood_bag blood_kit blueberries bolt_cutters bolts bolts_xb bone bone_dagger bone_knife bookshelf boots branch bread breather cable2 cable_spool camera campfire canned canteen canvas carrot cell chair charcoal circuit clan_mask clay climb_gear climb_pick cloth club compass cook_station cooked_fish cooking_rack copper corn crossbow crowbar cu_wiring data_drive diag_pc disinfect documents dome door dried_meat drone drying_rack duffel ember engine_part farm_plot fasteners fat feather fertilizer fiber fire_starter fish fish_rod fish_soup fish_spear flare_gun flashlight flint flint_knife flour forge frag fuel fuel_can2 fuse gas2 gas3 gas_mask gas_tank gate_codes gears generator glass gloves greenhouse greens grey_armor grey_rifle greyhold_card greyhold_files gunpowder halcyon_chip hammer hand_saw hand_xbow hardwood harness hatchet hazmat heavy_xbow helmet herb herb_bandage herb_med hide hide_boots hide_coat honey hook hook2 hornbow hunt_outfit hunt_recurve hunt_spear hunting_knife id_chip inject insignia iv jacket knife kukri lab lab_sample lake_fish lantern lantern_key leather leather_armor limestone lmg lock_bypass locker lockers log longbow m1911 machete map map_table meat med_parts med_scanner med_station medkit meridian_gear metal_axe metal_chest metal_crate metal_ore metal_spear metal_wall mil_armor mil_knife molotov multitool mushroom nails nav_console needle notebook nuts nvg oil painkiller palisade pan pants photo pickaxe pills pipe pistol plank pliers pot potato poultice power2 power_cell pulse_pistol pump_rifle purify_tab radio radio_tower rain_cloak rain_coll ration recurve reed repair_drone repeat_xbow revolver riot_helmet riot_shield roast rope rope2 rubber rust_detector rust_med rust_suit salt sat scrap screwdriver screws sealed_suit sec_uniform seed_bean seed_carrot seed_corn seed_potato seed_squash seed_wheat sensor serum sharp_rock shellfish shelves shield shielding shortbow shotgun sinew sleeping_mat smg smoke_gren smoked_fish sniper soil solar_cell solar_charger solar_panel spare_parts spare_tire spear spikes spindle splint springs squash staff steel stew stick stone stone_axe stone_knife stone_pick storage_chest storage_crate stun_baton sunfall_data surgical_kit sutures sword synth table tablet tabs2 tabs3 tac_armor teeth tent terminal thread throw_spear tomahawk tool_kit torch_t transmitter turret usb util_vest vane veg_soup vine war_axe war_paint watchtower water_boiled water_collector water_dirty water_filter water_filtered water_rain weapon_rack welder wheat winch window wire wire_cutters wood_hammer wood_shelter wood_shovel wood_spear wood_wall workshop wraps wrench wristband yumi'.split(' '));
 
 /* ================= the data: every item, tool, weapon, piece of wear, placeable and recipe =================
    The world's own setting: Arc folk, the Thornkin clans, Ironjaw scavengers, Greyhold, the Rust, the Ember,
@@ -3814,6 +4343,13 @@ const GEAR_DEFS = {
   shortbow: { n: 'Shortbow', kind: 'weapon', dur: 120, t: 2, w: 1 }, recurve: { n: 'Recurve bow', kind: 'weapon', dur: 200, t: 2, w: 1.2 }, crossbow: { n: 'Crossbow', kind: 'weapon', dur: 220, t: 3, w: 3 },
   pistol: { n: 'Pistol', kind: 'weapon', dur: 600, t: 3, w: 1 }, revolver: { n: 'Revolver', kind: 'weapon', dur: 700, t: 3, w: 1.3 }, shotgun: { n: 'Shotgun', kind: 'weapon', dur: 400, t: 3, w: 3.5 },
   smg: { n: 'Submachine gun', kind: 'weapon', dur: 900, t: 4, w: 3 }, assault: { n: 'Assault rifle', kind: 'weapon', dur: 1200, t: 4, w: 3.8 }, sniper: { n: 'Sniper rifle', kind: 'weapon', dur: 300, t: 4, w: 5 },
+  // (Nov 10, Bryce's models) more guns, bows and blades
+  m1911: { n: 'M1911 pistol', kind: 'weapon', dur: 650, t: 3, w: 1.1 }, pump_rifle: { n: 'Lightning pump rifle', kind: 'weapon', dur: 500, t: 3, w: 3.2 },
+  pulse_pistol: { n: 'Meridian pulse pistol', kind: 'weapon', dur: 700, t: 6, w: 1 },
+  longbow: { n: 'Longbow', kind: 'weapon', dur: 220, t: 2, w: 1.1 }, yumi: { n: 'Yumi', kind: 'weapon', dur: 240, t: 3, w: 1.2 }, hornbow: { n: 'Horn bow', kind: 'weapon', dur: 260, t: 3, w: .9 },
+  hunt_recurve: { n: "Hunter's recurve", kind: 'weapon', dur: 280, t: 3, w: 1.3 }, hand_xbow: { n: 'Hand crossbow', kind: 'weapon', dur: 160, t: 3, w: 1.4 },
+  heavy_xbow: { n: 'Heavy crossbow', kind: 'weapon', dur: 300, t: 4, w: 5 }, repeat_xbow: { n: 'Repeating crossbow', kind: 'weapon', dur: 200, t: 4, w: 3 },
+  kukri: { n: 'Kukri', kind: 'weapon', dur: 180, t: 3, w: .9 }, tomahawk: { n: 'Tactical tomahawk', kind: 'axe', pw: 2, dur: 240, t: 3, w: 1.2 },
   lmg: { n: 'Light machine gun', kind: 'weapon', dur: 1600, t: 4, w: 8 }, flare_gun: { n: 'Flare gun', kind: 'weapon', dur: 200, t: 3, w: .8 },
   grey_rifle: { n: 'Greyhold security rifle', kind: 'weapon', dur: 1600, t: 4, w: 3.6 }, pulse_rifle: { n: 'Meridian pulse rifle', kind: 'weapon', dur: 900, t: 6, w: 3 },
   // wear: slot · prot (damage cut) · fog (Rust resistance) · mob (speed) · stealth (how close enemies get before noticing) · warm (slower hunger) · cap (carry)
@@ -3883,6 +4419,13 @@ const RECIPES = [
   R_('shotgun', { pipe: 2, steel: 2, spare_parts: 2, hardwood: 1 }, 'weap', 3, { at: 'bench', tool: 'wrench' }), R_('flare_gun', { pipe: 1, springs: 1, scrap: 2 }, 'weap', 3, { at: 'bench' }),
   R_('smg', { steel: 4, springs: 3, spare_parts: 3, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }), R_('assault', { steel: 5, springs: 3, spare_parts: 4, arc_alloy: 1, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }),
   R_('sniper', { steel: 4, glass: 2, spare_parts: 3, hardwood: 1, tool_kit: 1 }, 'weap', 4, { at: 'bench', tool: 'weld' }), R_('lmg', { steel: 8, springs: 4, spare_parts: 6, arc_alloy: 2, tool_kit: 1 }, 'weap', 5, { at: 'bench', tool: 'weld' }),
+  R_('m1911', { steel: 2, springs: 2, spare_parts: 1, rubber: 1 }, 'weap', 3, { at: 'bench', tool: 'driver' }), R_('pump_rifle', { pipe: 1, steel: 3, springs: 2, spare_parts: 2, hardwood: 2 }, 'weap', 3, { at: 'bench', tool: 'wrench' }),
+  R_('longbow', { hardwood: 3, sinew: 3, leather: 1 }, 'weap', 2, { tool: 'knife' }), R_('yumi', { hardwood: 3, plank: 1, sinew: 3, leather: 1, rope: 1 }, 'weap', 3, { at: 'bench' }),
+  R_('hornbow', { bone: 3, hardwood: 1, sinew: 4, leather: 1 }, 'weap', 3, { at: 'bench' }), R_('hunt_recurve', { hardwood: 2, aluminum: 1, sinew: 3, leather: 1, rubber: 1 }, 'weap', 3, { at: 'bench' }),
+  R_('hand_xbow', { plank: 1, steel: 1, springs: 1, sinew: 2 }, 'weap', 3, { at: 'bench' }), R_('heavy_xbow', { plank: 3, steel: 3, springs: 2, gears: 2, rope: 2 }, 'weap', 4, { at: 'bench', tool: 'wrench' }),
+  R_('repeat_xbow', { plank: 3, hardwood: 2, springs: 2, sinew: 4, fasteners: 1 }, 'weap', 4, { at: 'bench' }),
+  R_('kukri', { steel: 2, leather: 1 }, 'weap', 3, { at: 'forge' }), R_('tomahawk', { steel: 2, rubber: 1, fasteners: 1 }, 'weap', 3, { at: 'forge' }),
+  R_('pulse_pistol', { meridian_gear: 1, power_cell: 1, arc_alloy: 2, circuit: 1 }, 'weap', 6, { at: 'bench' }),
   R_('pulse_rifle', { meridian_gear: 1, power_cell: 2, arc_alloy: 3, circuit: 2 }, 'weap', 6, { at: 'bench' }),
   R_('ammo_9', { scrap: 1, gunpowder: 1 }, 'weap', 3, { n: 15, at: 'bench' }), R_('ammo_45', { scrap: 1, gunpowder: 1 }, 'weap', 3, { n: 10, at: 'bench' }),
   R_('ammo_556', { scrap: 2, gunpowder: 2 }, 'weap', 3, { n: 20, at: 'bench' }), R_('ammo_762', { scrap: 2, gunpowder: 2 }, 'weap', 3, { n: 8, at: 'bench' }),
@@ -4313,6 +4856,7 @@ function wildInteract() {
 
 /* butchering by-products: a knife gets you far more than meat */
 function butcherYield(e) {
+  if (e.sp) { const kn = bestTool('knife'); if (kn) wearTool(kn); return { L: wildYield(e, kn), kn }; }
   const kn = bestTool('knife'), L = [['meat', e.type === 'boar' ? 2 : 1]];
   if (kn) { wearTool(kn); L.push(['hide', 1], ['bone', 1 + Math.floor(rnd() * 2)], ['fat', e.type === 'boar' ? 2 : 1], ['sinew', e.type === 'deer' ? 1 + Math.floor(rnd() * 2) : 1], ['teeth', e.type === 'boar' && rnd() < .5 ? 1 : 0]); }
   else L.push(['bone', rnd() < .5 ? 1 : 0]);
@@ -4320,7 +4864,7 @@ function butcherYield(e) {
 }
 
 /* ---------- loot tables: the further from home and the better guarded, the better ---------- */
-const GUNS_LOW = ['pistol', 'revolver', 'shotgun', 'flare_gun'], GUNS_HIGH = ['smg', 'assault', 'sniper', 'lmg', 'grey_rifle'];
+const GUNS_LOW = ['pistol', 'revolver', 'shotgun', 'flare_gun', 'm1911', 'pump_rifle'], GUNS_HIGH = ['smg', 'assault', 'sniper', 'lmg', 'grey_rifle'];
 const LOOT = {
   wild: { cloth: [.55, 1, 3], rope: [.25], nails: [.3, 2, 5], screws: [.2, 2, 4], wire: [.25, 1, 2], bandage: [.2], painkiller: [.12], canned: [.2], purify_tab: [.08], ammo_556: [.4, 10, 25], seed_corn: [.06, 2, 4], seed_potato: [.06, 1, 3], map: [.03] },
   ruin: { cloth: [.5, 1, 3], nails: [.4, 3, 8], screws: [.3, 2, 6], bolts: [.2, 2, 4], wire: [.35, 1, 3], cu_wiring: [.3, 1, 2], pipe: [.2], glass: [.25, 1, 2], rubber: [.2], circuit: [.15], battery: [.2], fuse: [.18], sensor: [.06],
@@ -4338,12 +4882,12 @@ const LOOT = {
   trade: {},
 };
 const GEAR_LOOT = {
-  wild: [.05, ['crowbar', 'wrench', 'hunting_knife', 'flashlight', 'hand_saw', 'compass', 'machete', 'canteen', 'gloves', 'boots', 'jacket']],
-  ruin: [.14, ['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'screwdriver', 'pliers', 'hammer', 'flashlight', 'radio', 'binoculars', 'pistol', 'revolver', 'machete', 'backpack', 'duffel', 'util_vest', 'helmet', 'boots', 'gloves']],
-  city: [.2, ['bolt_cutters', 'crowbar', 'multitool', 'welder', 'flashlight', 'radio', 'binoculars', 'wire_cutters', 'pistol', 'revolver', 'shotgun', 'smg', 'flare_gun', 'stun_baton', 'mil_knife', 'backpack', 'tac_armor', 'sec_uniform', 'helmet', 'gas_mask', 'arc_jumpsuit', 'climb_gear']],
-  mil: [.45, ['assault', 'smg', 'shotgun', 'sniper', 'grey_rifle', 'tac_armor', 'grey_armor', 'gas_mask', 'riot_helmet', 'riot_shield', 'helmet', 'nvg', 'hazmat', 'rust_detector', 'med_scanner', 'mil_knife', 'stun_baton', 'breather']],
-  op: [.9, ['lmg', 'assault', 'sniper', 'grey_rifle', 'mil_armor', 'grey_armor', 'rust_suit', 'nvg', 'lock_bypass', 'transmitter', 'repair_drone', 'diag_pc', 'solar_charger']],
-  clan: [.2, ['shortbow', 'recurve', 'hunt_spear', 'hatchet', 'war_axe', 'club', 'clan_mask', 'leather_armor', 'arm_guards', 'hide_coat', 'bone_dagger', 'staff']],
+  wild: [.05, ['crowbar', 'wrench', 'hunting_knife', 'flashlight', 'hand_saw', 'compass', 'machete', 'longbow', 'canteen', 'gloves', 'boots', 'jacket']],
+  ruin: [.14, ['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'screwdriver', 'pliers', 'hammer', 'flashlight', 'radio', 'binoculars', 'pistol', 'revolver', 'm1911', 'pump_rifle', 'machete', 'kukri', 'hand_xbow', 'backpack', 'duffel', 'util_vest', 'helmet', 'boots', 'gloves']],
+  city: [.2, ['bolt_cutters', 'crowbar', 'multitool', 'welder', 'flashlight', 'radio', 'binoculars', 'wire_cutters', 'pistol', 'revolver', 'm1911', 'pump_rifle', 'shotgun', 'smg', 'flare_gun', 'stun_baton', 'mil_knife', 'tomahawk', 'kukri', 'backpack', 'tac_armor', 'sec_uniform', 'helmet', 'gas_mask', 'arc_jumpsuit', 'climb_gear']],
+  mil: [.45, ['assault', 'smg', 'shotgun', 'sniper', 'grey_rifle', 'tac_armor', 'grey_armor', 'gas_mask', 'riot_helmet', 'riot_shield', 'helmet', 'nvg', 'hazmat', 'rust_detector', 'med_scanner', 'mil_knife', 'stun_baton', 'breather', 'tomahawk', 'heavy_xbow']],
+  op: [.9, ['lmg', 'assault', 'sniper', 'grey_rifle', 'pulse_pistol', 'heavy_xbow', 'mil_armor', 'grey_armor', 'rust_suit', 'nvg', 'lock_bypass', 'transmitter', 'repair_drone', 'diag_pc', 'solar_charger']],
+  clan: [.2, ['shortbow', 'recurve', 'longbow', 'yumi', 'hornbow', 'hunt_recurve', 'repeat_xbow', 'hunt_spear', 'hatchet', 'war_axe', 'club', 'clan_mask', 'leather_armor', 'arm_guards', 'hide_coat', 'bone_dagger', 'staff']],
   arc: [.15, ['flashlight', 'radio', 'arc_jumpsuit', 'pistol', 'multitool', 'med_scanner']],
 };
 function rollLoot(table, extraRolls = 0) {
@@ -4393,6 +4937,16 @@ const WDEF = {
   shortbow: { cls: 'bow', ammo: 'arrows', dmg: 55, mag: 1, rate: .85, spd: 48, grav: 9, reload: .01 },
   recurve: { cls: 'bow', ammo: 'arrows', dmg: 80, mag: 1, rate: .95, spd: 62, grav: 8, reload: .01 },
   crossbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 120, mag: 1, rate: .3, spd: 80, grav: 5, reload: 1.8, scope: 1.8 },
+  m1911: { cls: 'gun', ammo: 'ammo_45', dmg: 44, mag: 8, rate: .22, spread: .014, scope: 1.25, reload: 1.5 },
+  pump_rifle: { cls: 'gun', ammo: 'ammo_45', dmg: 82, mag: 10, rate: .62, spread: .004, scope: 1.9, reload: 2.6 },
+  pulse_pistol: { cls: 'gun', ammo: 'cell', dmg: 58, mag: 12, rate: .2, spread: .005, scope: 1.4, reload: 1.2, pulse: 1 },
+  longbow: { cls: 'bow', ammo: 'arrows', dmg: 95, mag: 1, rate: 1.1, spd: 70, grav: 7, reload: .01, scope: 1.2 },
+  yumi: { cls: 'bow', ammo: 'arrows', dmg: 102, mag: 1, rate: 1.05, spd: 74, grav: 7, reload: .01, scope: 1.2 },
+  hornbow: { cls: 'bow', ammo: 'arrows', dmg: 72, mag: 1, rate: .6, spd: 60, grav: 8, reload: .01 },
+  hunt_recurve: { cls: 'bow', ammo: 'arrows', dmg: 90, mag: 1, rate: .85, spd: 68, grav: 8, reload: .01, scope: 1.15 },
+  hand_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 62, mag: 1, rate: .3, spd: 60, grav: 7, reload: 1.1, scope: 1.3 },
+  heavy_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 175, mag: 1, rate: .4, spd: 96, grav: 4, reload: 3, scope: 2.2 },
+  repeat_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 46, mag: 8, rate: .32, spd: 62, grav: 7, reload: 2.6, scope: 1.2 },
   // melee (tools double as weapons, weaker)
   stone_knife: { cls: 'melee', dmg: 22, rate: .42, reach: 2 }, bone_dagger: { cls: 'melee', dmg: 24, rate: .4, reach: 2 }, flint_knife: { cls: 'melee', dmg: 18, rate: .42, reach: 2 },
   bone_knife: { cls: 'melee', dmg: 16, rate: .42, reach: 2 }, hunting_knife: { cls: 'melee', dmg: 32, rate: .38, reach: 2.1 }, mil_knife: { cls: 'melee', dmg: 40, rate: .34, reach: 2.1 },
@@ -4401,6 +4955,7 @@ const WDEF = {
   staff: { cls: 'melee', dmg: 26, rate: .55, reach: 2.8, stun: .3 }, hatchet: { cls: 'melee', dmg: 42, rate: .6, reach: 2.2 }, machete: { cls: 'melee', dmg: 55, rate: .55, reach: 2.4 },
   sword: { cls: 'melee', dmg: 75, rate: .55, reach: 2.6 }, war_axe: { cls: 'melee', dmg: 90, rate: .85, reach: 2.5 }, stun_baton: { cls: 'melee', dmg: 25, rate: .6, reach: 2.2, stun: 2.6 },
   stone_axe: { cls: 'melee', dmg: 30, rate: .75, reach: 2.2 }, metal_axe: { cls: 'melee', dmg: 50, rate: .7, reach: 2.3 }, crowbar: { cls: 'melee', dmg: 40, rate: .65, reach: 2.3, stun: .4 },
+  kukri: { cls: 'melee', dmg: 60, rate: .5, reach: 2.3 }, tomahawk: { cls: 'melee', dmg: 70, rate: .55, reach: 2.3 },
   pickaxe: { cls: 'melee', dmg: 45, rate: .85, reach: 2.3 }, stone_pick: { cls: 'melee', dmg: 26, rate: .85, reach: 2.2 }, hammer: { cls: 'melee', dmg: 34, rate: .6, reach: 2, stun: .5 },
   wood_hammer: { cls: 'melee', dmg: 20, rate: .6, reach: 2, stun: .3 }, wrench: { cls: 'melee', dmg: 30, rate: .55, reach: 2, stun: .3 }, wood_shovel: { cls: 'melee', dmg: 22, rate: .75, reach: 2.4 },
 };
@@ -4433,6 +4988,7 @@ const PROC = {
   crowbar: g => { vcyl(g, .012, .012, .7, S(0xb02a1a, { metalness: .4 }), 0, 0, -.1); vcyl(g, .012, .012, .1, S(0xb02a1a), 0, .04, -.46, 0); },
   shovel: g => { vcyl(g, .015, .015, .8, VMAT.wood(), 0, 0, 0); vbox(g, .14, .01, .18, VMAT.wood(), 0, 0, -.45); },
 };
+PROC.m1911 = PROC.pistol; PROC.pump_rifle = PROC.shotgun;
 const VIEWS = {
   pistol: { proc: PROC.pistol, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .05], scope: 1.25, sound: 'machine-gun-clean-single' },
   flare_gun: { proc: PROC.flare_gun, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .06] },
@@ -4448,6 +5004,32 @@ const VIEWS = {
   recurve: { proc: PROC.recurve, len: .3, at: [-.06, -.1, -.55], grip: [0, -.02, -.04], fore: [0, -.02, -.04], bow: 1 },
   crossbow: { proc: PROC.crossbow, len: .6, at: [.18, -.2, -.42], grip: [0, -.07, .15], fore: [0, -.03, -.12] },
 };
+/* (Nov 10) Bryce's weapon models (assets/models/w/*.glb), baked so the muzzle or blade tip points -z, up is +y and the middle of
+   the model is at the origin. `msize` is the model's length along `axis` (bows stand up, so theirs is their height); grip/fore are
+   where the hands close. Until a model has loaded (they stream in after the world), the drawn stand-in above is used. */
+const MV = (model, msize, at, grip, fore, extra = {}) => ({ model, msize, axis: 'z', at, grip, fore, ...extra });
+const BOWV = (model, h, extra = {}) => ({ model, msize: h, axis: 'y', yaw: -.85, at: [-.07, -.1, -.52], grip: [0, 0, 0], fore: [0, 0, 0], bow: 1, ...extra });   // turned so you see the curve of the limbs
+const MODEL_VIEWS = {
+  pistol: MV('w/pistol9', .2, [.17, -.16, -.36], [0, -.035, .05], [-.01, -.05, .045], { len: .2, sound: 'machine-gun-clean-single' }),
+  m1911: MV('w/m1911', .22, [.17, -.16, -.37], [0, -.035, .055], [-.01, -.05, .05], { len: .22, sound: 'gun-shot-heavy' }),
+  revolver: MV('w/revolver38', .27, [.17, -.16, -.38], [0, -.04, .085], [-.01, -.055, .08], { len: .27, sound: 'gun-shot-heavy' }),
+  pulse_pistol: MV('w/pulse_pistol', .26, [.17, -.16, -.37], [0, -.045, .06], [-.01, -.06, .055], { len: .26, sound: 'machine-gun-clean-single' }),
+  smg: MV('w/smg', .66, [.19, -.2, -.42], [0, -.06, .09], [0, -.05, -.16], { len: .66, sound: 'machine-gun-clean-single' }),
+  shotgun: MV('w/rmb93', .92, [.2, -.2, -.44], [0, -.06, .13], [0, -.04, -.17], { len: .92, sound: 'gun-shot-heavy' }),
+  pump_rifle: MV('w/lightning', 1, [.2, -.2, -.46], [0, -.05, .17], [0, -.03, -.14], { len: 1, sound: 'gun-shot-heavy' }),
+  shortbow: BOWV('w/shortbow', .95), recurve: BOWV('w/recurve', .95), longbow: BOWV('w/longbow', 1.35), yumi: BOWV('w/yumi', 1.45),
+  hornbow: BOWV('w/hornbow', .8), hunt_recurve: BOWV('w/recurve2', 1.15),
+  crossbow: MV('w/light_xbow', .66, [.18, -.2, -.44], [0, -.05, .2], [0, -.03, -.08], { len: .66 }),
+  hand_xbow: MV('w/hand_xbow', .4, [.17, -.18, -.4], [0, -.07, .09], [-.01, -.07, .08], { len: .4 }),
+  heavy_xbow: MV('w/heavy_xbow', .78, [.19, -.2, -.47], [0, -.05, .22], [0, -.03, -.1], { len: .78 }),
+  repeat_xbow: MV('w/repeat_xbow', .5, [.18, -.2, -.44], [0, -.05, .14], [0, -.03, -.06], { len: .5 }),
+};
+// blades and axes: the grip sits along the handle (+z end)
+const BLADEV = (model, L, g) => ({ model, msize: L, axis: 'z', len: L, at: [.24, -.24, -.42], grip: [0, -.01, L * g], fore: [0, -.01, L * g], melee: 1 });
+const MELEE_MODELS = { hunting_knife: BLADEV('w/kabar', .3, .3), mil_knife: BLADEV('w/kabar', .32, .3), multitool: BLADEV('w/folding_knife', .2, .28),
+  hatchet: BLADEV('w/hatchet', .4, .38), metal_axe: BLADEV('w/hatchet', .62, .4), war_axe: BLADEV('w/tomahawk', .62, .38), tomahawk: BLADEV('w/tomahawk', .42, .36),
+  machete: BLADEV('w/machete', .6, .36), kukri: BLADEV('w/kukri', .46, .36) };
+const WEAPON_MODELS = [...new Set([...Object.values(MODEL_VIEWS), ...Object.values(MELEE_MODELS)].map(V => V.model).concat(['w/arrow', 'w/bolt', 'w/frag', 'w/molotov']))];
 const MELEE_VIEW = { stone_knife: g => PROC.knife(g, M(0x4a4e56)), flint_knife: g => PROC.knife(g, M(0x4a4e56), M(0x8aa04a)), bone_dagger: g => PROC.knife(g, VMAT.bone()), bone_knife: g => PROC.knife(g, VMAT.bone()),
   hunting_knife: g => PROC.knife(g), mil_knife: g => PROC.knife(g, VMAT.gun(), VMAT.dark(), .22), multitool: g => PROC.knife(g, VMAT.steel(), VMAT.orange(), .1), machete: g => PROC.knife(g, VMAT.steel(), VMAT.dark(), .5),
   wood_spear: g => PROC.spear(g, VMAT.wood()), metal_spear: g => PROC.spear(g), hunt_spear: g => PROC.spear(g, M(0x4a4e56)), fish_spear: g => PROC.spear(g, M(0x4a4e56)), staff: g => vcyl(g, .02, .02, 1.5, VMAT.wood(), 0, 0, 0),
@@ -4455,6 +5037,8 @@ const MELEE_VIEW = { stone_knife: g => PROC.knife(g, M(0x4a4e56)), flint_knife: 
   stun_baton: PROC.baton, crowbar: PROC.crowbar, pickaxe: g => { PROC.axe(g, VMAT.steel(), .6); vbox(g, .02, .3, .03, VMAT.steel(), 0, .02, -.27); }, stone_pick: g => { PROC.axe(g, M(0x7a7870), .55); vbox(g, .02, .26, .04, M(0x7a7870), 0, .02, -.24); },
   hammer: g => PROC.hammer(g), wood_hammer: g => PROC.hammer(g, VMAT.wood()), wrench: g => { vbox(g, .015, .03, .32, VMAT.steel(), 0, 0, -.05); vbox(g, .015, .07, .05, VMAT.steel(), 0, .02, -.22); }, wood_shovel: PROC.shovel };
 for (const id in MELEE_VIEW) VIEWS[id] = { proc: MELEE_VIEW[id], len: .5, at: [.24, -.24, -.42], grip: [0, 0, .05], fore: [0, 0, .05], melee: 1 };
+for (const id in MODEL_VIEWS) VIEWS[id] = { ...VIEWS[id], ...MODEL_VIEWS[id] };
+for (const id in MELEE_MODELS) VIEWS[id] = { ...VIEWS[id], proc: MELEE_VIEW[id] || (g => PROC.knife(g, VMAT.steel(), VMAT.dark(), .4)), ...MELEE_MODELS[id] };
 for (const id in VIEWS) { const V = VIEWS[id], D = GEAR_DEFS[id]; WEAPONS[id] = { name: D ? D.n : id, axis: 'z', auto: !!WDEF[id]?.auto, scope: WDEF[id]?.scope || 1, sound: V.sound || 'rifle-m16-a', ...V }; }
 WEAPONS.hunter.name = 'Hunting rifle';
 
@@ -4568,8 +5152,10 @@ function swing(w) {
 
 /* projectiles: arrows, bolts, flares, thrown spears, grenades, fire bottles */
 const PROJ = [];
+const PROJ_MODEL = { arrow: ['w/arrow', .75], bolt: ['w/bolt', .42], frag: ['w/frag', .12, 'y'], molotov: ['w/molotov', .26, 'y'] };
 function projMesh(kind) {
-  const g = new THREE.Group();
+  const g = new THREE.Group(), pm = PROJ_MODEL[kind], mc = pm && modelCopy(pm[0], pm[1], pm[2] || 'z');
+  if (mc) { mc.traverse(o => { if (o.isMesh) { o.castShadow = false; } }); { const b = new THREE.Box3().setFromObject(mc); mc.position.y -= (b.min.y + b.max.y) / 2; } g.add(mc); if (kind === 'molotov') mesh(new THREE.SphereGeometry(.035, 6, 4), VMAT.glow(0xff8a2a), 0, .27, 0, g); world.add(g); return g; }
   if (kind === 'frag' || kind === 'smoke_gren') mesh(new THREE.SphereGeometry(.07, 8, 6), M(kind === 'frag' ? 0x4a5a3a : 0x6a6a62), 0, 0, 0, g);
   else if (kind === 'molotov') { mesh(new THREE.CylinderGeometry(.04, .05, .2, 8), M(0x7a4a1a), 0, 0, 0, g); mesh(new THREE.SphereGeometry(.04, 6, 4), VMAT.glow(0xff8a2a), 0, .12, 0, g); }
   else if (kind === 'flare') mesh(new THREE.SphereGeometry(.08, 8, 6), VMAT.glow(0xff4a3a), 0, 0, 0, g);
@@ -4577,7 +5163,7 @@ function projMesh(kind) {
   world.add(g); return g;
 }
 function fireProj(R, key) {
-  const kind = R.flare ? 'flare' : key === 'crossbow' ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
+  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
   const p = { g, kind, x: rayO.x + d.x * .6, y: rayO.y + d.y * .6 - .05, z: rayO.z + d.z * .6, vx: d.x * R.spd, vy: d.y * R.spd, vz: d.z * R.spd, grav: R.grav, dmg: R.dmg, burn: R.burn || 0, t: 0, owner: 'p' };
   PROJ.push(p);
 }
@@ -5008,7 +5594,7 @@ function findInteract() {
   }
   const pl = nearPlaced(); if (pl) { const d = Math.hypot(pl.x - P.x, pl.z - P.z) - 1; if (d < bd) { const a = placedAction(pl); bd = d; best = { it: { act: a.act }, l: a.l + `  ·  ${isTouch ? 'hold' : 'Q'}: dismantle`, next: () => unplace(pl, true), multi: true }; } }
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
-    const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.type}` }; }
+    const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.sp ? e.sp.n.toLowerCase() : e.type}` }; }
   }
   if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
@@ -5275,6 +5861,7 @@ function updClan(e, dt) {
 // a guard who spots you shouts: everyone near them joins in
 function alertNear(e) { for (const o of ents) if (o !== e && o.type === 'clan' && !o.dead && o.state === 'idle' && Math.hypot(o.x - e.x, o.z - e.z) < 28) o.state = 'chase'; }
 function updAnimal(e, dt) {
+  if (e.sp) return updWild(e, dt);
   const p = e.p;
   if (e.dead) { e.deadT += dt; p.body.rotation.z = Math.min(Math.PI / 2, e.deadT * 4); p.body.position.y = -.25 * Math.min(1, e.deadT * 4); if (e.deadT > 25) removeEnt(e); e.g.position.y = e.y - (e.deadT > 22 ? (e.deadT - 22) : 0); return; }
   e.t -= dt; e.cool -= dt;
@@ -5379,12 +5966,14 @@ function damage(e, n, byPlayer, at) {
   e.hp -= n;
   puff(at.x, at.y, at.z, e.type === 'clan' ? 0x6a1a12 : 0x6a1a12, 5, 2, .08, .4);
   if (e.type === 'clan' && e.state !== 'chase' && e.state !== 'raid' && byPlayer) e.state = 'chase';
-  if (e.type === 'deer' && e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); }
-  if (e.type === 'boar') e.state = 'charge';
+  if (e.sp) wildHit(e);
+  else if (e.type === 'deer' && e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); }
+  else if (e.type === 'boar') e.state = 'charge';
   if (e.hp <= 0) {
     e.dead = true; e.deadT = 0; G.kills++;
     if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(e); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
-    if (e.type === 'deer' || e.type === 'boar') { e.yaw = e.yaw; if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
+    if (e.sp) { if (byPlayer) toast(`${e.sp.n} down — go butcher it`); }
+    else if (e.type === 'deer' || e.type === 'boar') { if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
   }
 }
 let touchUp = false;
@@ -5533,6 +6122,7 @@ function openCrate(c) {
 
 /* ================= wildlife + the clans in the wider valley ================= */
 function ensureWildlife() {
+  if (ensureWild()) return;
   const inV = e => Math.hypot(e.home ? e.home.x : e.x, e.home ? e.home.z : e.z) < VALLEY;
   const deer = ents.filter(e => e.type === 'deer' && !e.dead && inV(e)).length, boar = ents.filter(e => e.type === 'boar' && !e.dead && inV(e)).length;
   const odeer = ents.filter(e => e.type === 'deer' && !e.dead && !inV(e)).length, oboar = ents.filter(e => e.type === 'boar' && !e.dead && !inV(e)).length;
@@ -5935,7 +6525,7 @@ function frame(now) {
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
     }
-    updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
+    updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
     updRust(dt); updTime(dt); updHUD(dt);
     // scrap pickup
@@ -6034,7 +6624,7 @@ function bakeGroup(root, dyn, cellSize = 30) {
 }
 function bakeDyn() {
   const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
-    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g)]);
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   d.delete(undefined); d.delete(null); return d;
 }
 function bakeWorld() {
@@ -6049,7 +6639,7 @@ function bakeWorld() {
 
 const CULL = []; let cullT = 0;
 function buildCull() {
-  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g)]);
+  const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
     if (skip.has(o) || o.isSprite) continue;
@@ -6237,21 +6827,21 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS]);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
-  await buildForest(); buildGrass(); buildMist();
+  await buildForest(); await buildEnvForest(); buildEnvRocks(); buildGrass(); buildMist();
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
   buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
-  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands();
+  setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
   for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
-  WALK.settle();
+  WALK.settle(); buildPaddock();
   for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
   SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: pick(['civilian', 'settler', 'settler']), tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
@@ -6262,7 +6852,10 @@ async function boot() {
   updTime(0); refreshEnv(G.tod, 0);
   menu();
   requestAnimationFrame(frame);
+  // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here
+  loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });
 }
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
+window.__E = { envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };

@@ -303,6 +303,7 @@ function wildInteract() {
 
 /* butchering by-products: a knife gets you far more than meat */
 function butcherYield(e) {
+  if (e.sp) { const kn = bestTool('knife'); if (kn) wearTool(kn); return { L: wildYield(e, kn), kn }; }
   const kn = bestTool('knife'), L = [['meat', e.type === 'boar' ? 2 : 1]];
   if (kn) { wearTool(kn); L.push(['hide', 1], ['bone', 1 + Math.floor(rnd() * 2)], ['fat', e.type === 'boar' ? 2 : 1], ['sinew', e.type === 'deer' ? 1 + Math.floor(rnd() * 2) : 1], ['teeth', e.type === 'boar' && rnd() < .5 ? 1 : 0]); }
   else L.push(['bone', rnd() < .5 ? 1 : 0]);
@@ -310,7 +311,7 @@ function butcherYield(e) {
 }
 
 /* ---------- loot tables: the further from home and the better guarded, the better ---------- */
-const GUNS_LOW = ['pistol', 'revolver', 'shotgun', 'flare_gun'], GUNS_HIGH = ['smg', 'assault', 'sniper', 'lmg', 'grey_rifle'];
+const GUNS_LOW = ['pistol', 'revolver', 'shotgun', 'flare_gun', 'm1911', 'pump_rifle'], GUNS_HIGH = ['smg', 'assault', 'sniper', 'lmg', 'grey_rifle'];
 const LOOT = {
   wild: { cloth: [.55, 1, 3], rope: [.25], nails: [.3, 2, 5], screws: [.2, 2, 4], wire: [.25, 1, 2], bandage: [.2], painkiller: [.12], canned: [.2], purify_tab: [.08], ammo_556: [.4, 10, 25], seed_corn: [.06, 2, 4], seed_potato: [.06, 1, 3], map: [.03] },
   ruin: { cloth: [.5, 1, 3], nails: [.4, 3, 8], screws: [.3, 2, 6], bolts: [.2, 2, 4], wire: [.35, 1, 3], cu_wiring: [.3, 1, 2], pipe: [.2], glass: [.25, 1, 2], rubber: [.2], circuit: [.15], battery: [.2], fuse: [.18], sensor: [.06],
@@ -328,12 +329,12 @@ const LOOT = {
   trade: {},
 };
 const GEAR_LOOT = {
-  wild: [.05, ['crowbar', 'wrench', 'hunting_knife', 'flashlight', 'hand_saw', 'compass', 'machete', 'canteen', 'gloves', 'boots', 'jacket']],
-  ruin: [.14, ['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'screwdriver', 'pliers', 'hammer', 'flashlight', 'radio', 'binoculars', 'pistol', 'revolver', 'machete', 'backpack', 'duffel', 'util_vest', 'helmet', 'boots', 'gloves']],
-  city: [.2, ['bolt_cutters', 'crowbar', 'multitool', 'welder', 'flashlight', 'radio', 'binoculars', 'wire_cutters', 'pistol', 'revolver', 'shotgun', 'smg', 'flare_gun', 'stun_baton', 'mil_knife', 'backpack', 'tac_armor', 'sec_uniform', 'helmet', 'gas_mask', 'arc_jumpsuit', 'climb_gear']],
-  mil: [.45, ['assault', 'smg', 'shotgun', 'sniper', 'grey_rifle', 'tac_armor', 'grey_armor', 'gas_mask', 'riot_helmet', 'riot_shield', 'helmet', 'nvg', 'hazmat', 'rust_detector', 'med_scanner', 'mil_knife', 'stun_baton', 'breather']],
-  op: [.9, ['lmg', 'assault', 'sniper', 'grey_rifle', 'mil_armor', 'grey_armor', 'rust_suit', 'nvg', 'lock_bypass', 'transmitter', 'repair_drone', 'diag_pc', 'solar_charger']],
-  clan: [.2, ['shortbow', 'recurve', 'hunt_spear', 'hatchet', 'war_axe', 'club', 'clan_mask', 'leather_armor', 'arm_guards', 'hide_coat', 'bone_dagger', 'staff']],
+  wild: [.05, ['crowbar', 'wrench', 'hunting_knife', 'flashlight', 'hand_saw', 'compass', 'machete', 'longbow', 'canteen', 'gloves', 'boots', 'jacket']],
+  ruin: [.14, ['metal_axe', 'pickaxe', 'crowbar', 'wrench', 'screwdriver', 'pliers', 'hammer', 'flashlight', 'radio', 'binoculars', 'pistol', 'revolver', 'm1911', 'pump_rifle', 'machete', 'kukri', 'hand_xbow', 'backpack', 'duffel', 'util_vest', 'helmet', 'boots', 'gloves']],
+  city: [.2, ['bolt_cutters', 'crowbar', 'multitool', 'welder', 'flashlight', 'radio', 'binoculars', 'wire_cutters', 'pistol', 'revolver', 'm1911', 'pump_rifle', 'shotgun', 'smg', 'flare_gun', 'stun_baton', 'mil_knife', 'tomahawk', 'kukri', 'backpack', 'tac_armor', 'sec_uniform', 'helmet', 'gas_mask', 'arc_jumpsuit', 'climb_gear']],
+  mil: [.45, ['assault', 'smg', 'shotgun', 'sniper', 'grey_rifle', 'tac_armor', 'grey_armor', 'gas_mask', 'riot_helmet', 'riot_shield', 'helmet', 'nvg', 'hazmat', 'rust_detector', 'med_scanner', 'mil_knife', 'stun_baton', 'breather', 'tomahawk', 'heavy_xbow']],
+  op: [.9, ['lmg', 'assault', 'sniper', 'grey_rifle', 'pulse_pistol', 'heavy_xbow', 'mil_armor', 'grey_armor', 'rust_suit', 'nvg', 'lock_bypass', 'transmitter', 'repair_drone', 'diag_pc', 'solar_charger']],
+  clan: [.2, ['shortbow', 'recurve', 'longbow', 'yumi', 'hornbow', 'hunt_recurve', 'repeat_xbow', 'hunt_spear', 'hatchet', 'war_axe', 'club', 'clan_mask', 'leather_armor', 'arm_guards', 'hide_coat', 'bone_dagger', 'staff']],
   arc: [.15, ['flashlight', 'radio', 'arc_jumpsuit', 'pistol', 'multitool', 'med_scanner']],
 };
 function rollLoot(table, extraRolls = 0) {

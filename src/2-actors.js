@@ -240,6 +240,7 @@ function spawnNPC(name, x, z, o) {
 function hitSpheres(e) {
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
   if (e.type === 'clan') { const H = e.p.H, cl = e.climbY || 0; return [[e.x, e.y + H * .66 + cl, e.z, .4 * H / 1.76, 1], [e.x, e.y + H * .93 + cl, e.z, .16 * H / 1.76, 2.2], [e.x, e.y + H * .3 + cl, e.z, .28, .8]]; }
+  if (e.sp) return hitSpheresAnimal(e);
   if (e.type === 'deer') return [[e.x, e.y + 1.05, e.z, .62, 1], [e.x + fx * .85, e.y + 1.75, e.z + fz * .85, .26, 2]];
   if (e.type === 'boar') return [[e.x, e.y + .66, e.z, .58, 1], [e.x + fx * .65, e.y + .66, e.z + fz * .65, .26, 1.8]];
   return [];
@@ -310,7 +311,7 @@ let muzzle = new THREE.Object3D(), flash, flashLight, armsObj = [];
 function gunView(id) {
   const W = WEAPONS[id], g = new THREE.Group();
   let m = null;
-  if (W.proc) { m = new THREE.Group(); W.proc(m); } else { m = modelCopy(W.model, W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); }
+  if (W.model && MODELS[W.model]) { m = modelCopy(W.model, W.msize || W.len, W.axis, W.tint); if (m && W.extra) W.extra(m); } else if (W.proc) { m = new THREE.Group(); W.proc(m); }
   if (m) {
     if (W.yaw) m.rotation.y = W.yaw;
     const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3()); m.position.sub(c);
@@ -536,7 +537,10 @@ function sfx(k, vol = 1) {
     case 'cough': noiseBurst(.18, 600, 2, .2, 'bandpass'); noiseBurst(.14, 500, 2, .16, 'bandpass', .22); break;
     case 'eat': for (let i = 0; i < 3; i++) noiseBurst(.06, 1500, 2, .12, 'bandpass', i * .14); break;
     case 'deer': tone(700, .25, .1, 'triangle', 0, -300); break;
-    case 'grunt': tone(110, .25, .2, 'sawtooth', 0, -40); break;
+    case 'grunt': tone(110, .25, .2 * vol, 'sawtooth', 0, -40); break;
+    case 'growl': tone(85, .55, .18 * vol, 'sawtooth', 0, 25); noiseBurst(.45, 260, 1.5, .1 * vol, 'bandpass'); break;
+    case 'roar': tone(70, .9, .3 * vol, 'sawtooth', 0, -25); noiseBurst(.8, 380, 1, .2 * vol, 'bandpass'); break;
+    case 'cluck': tone(820, .06, .05 * vol, 'square', 0, -200); tone(760, .06, .04 * vol, 'square', .1, -200); break;
     case 'radio': noiseBurst(.25, 2500, .5, .12, 'highpass'); break;
     case 'gate': tone(60, .5, .35, 'sawtooth', 0, 20); noiseBurst(.6, 300, .5, .2); break;
   }

@@ -141,6 +141,7 @@ function snagGeo() {
 }
 function treeOK(x, z) {
   if (Math.hypot(x, z) < CAMP_R + 12) return false;
+  if (envKeepClear(x, z)) return false;
   if (Math.hypot(x - 80, z + 36) < 18 || Math.hypot(x + 80, z + 24) < 14) return false;   // the fallen side modules
   if (pathDist(x, z) < 5.5) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;

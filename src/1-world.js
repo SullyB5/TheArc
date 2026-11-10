@@ -11,6 +11,7 @@ import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { mergeGeometries } from './vendor/jsm/utils/BufferGeometryUtils.js';
 import * as SkeletonUtils from './vendor/jsm/utils/SkeletonUtils.js';
+import { clone as skClone } from './vendor/jsm/utils/SkeletonUtils.js';
 
 /* ---------- atmosphere: height fog with aerial perspective (replaces three's flat linear fog everywhere) ----------
    fog.near = where haze starts, fog.far = the distance that's ~95% hazed at valley-floor height. The haze thins with altitude,
@@ -604,10 +605,11 @@ const REGIONS = [
 /* ---------- models (from the ELYRA kit) ---------- */
 const gltf = new GLTFLoader(); gltf.setMeshoptDecoder(MeshoptDecoder);
 const MODELS = {};
-async function loadModels(names) {
+const CLIPS = {};                                      // animations that came with a model (the rigged animals)
+async function loadModels(names, quiet) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    MODELS[n] = g.scene; if (g.animations && g.animations.length) MODELS[n + ':anims'] = g.animations; done++; setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
+    MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }

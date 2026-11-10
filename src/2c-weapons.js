@@ -20,6 +20,16 @@ const WDEF = {
   shortbow: { cls: 'bow', ammo: 'arrows', dmg: 55, mag: 1, rate: .85, spd: 48, grav: 9, reload: .01 },
   recurve: { cls: 'bow', ammo: 'arrows', dmg: 80, mag: 1, rate: .95, spd: 62, grav: 8, reload: .01 },
   crossbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 120, mag: 1, rate: .3, spd: 80, grav: 5, reload: 1.8, scope: 1.8 },
+  m1911: { cls: 'gun', ammo: 'ammo_45', dmg: 44, mag: 8, rate: .22, spread: .014, scope: 1.25, reload: 1.5 },
+  pump_rifle: { cls: 'gun', ammo: 'ammo_45', dmg: 82, mag: 10, rate: .62, spread: .004, scope: 1.9, reload: 2.6 },
+  pulse_pistol: { cls: 'gun', ammo: 'cell', dmg: 58, mag: 12, rate: .2, spread: .005, scope: 1.4, reload: 1.2, pulse: 1 },
+  longbow: { cls: 'bow', ammo: 'arrows', dmg: 95, mag: 1, rate: 1.1, spd: 70, grav: 7, reload: .01, scope: 1.2 },
+  yumi: { cls: 'bow', ammo: 'arrows', dmg: 102, mag: 1, rate: 1.05, spd: 74, grav: 7, reload: .01, scope: 1.2 },
+  hornbow: { cls: 'bow', ammo: 'arrows', dmg: 72, mag: 1, rate: .6, spd: 60, grav: 8, reload: .01 },
+  hunt_recurve: { cls: 'bow', ammo: 'arrows', dmg: 90, mag: 1, rate: .85, spd: 68, grav: 8, reload: .01, scope: 1.15 },
+  hand_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 62, mag: 1, rate: .3, spd: 60, grav: 7, reload: 1.1, scope: 1.3 },
+  heavy_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 175, mag: 1, rate: .4, spd: 96, grav: 4, reload: 3, scope: 2.2 },
+  repeat_xbow: { cls: 'bow', ammo: 'bolts_xb', dmg: 46, mag: 8, rate: .32, spd: 62, grav: 7, reload: 2.6, scope: 1.2 },
   // melee (tools double as weapons, weaker)
   stone_knife: { cls: 'melee', dmg: 22, rate: .42, reach: 2 }, bone_dagger: { cls: 'melee', dmg: 24, rate: .4, reach: 2 }, flint_knife: { cls: 'melee', dmg: 18, rate: .42, reach: 2 },
   bone_knife: { cls: 'melee', dmg: 16, rate: .42, reach: 2 }, hunting_knife: { cls: 'melee', dmg: 32, rate: .38, reach: 2.1 }, mil_knife: { cls: 'melee', dmg: 40, rate: .34, reach: 2.1 },
@@ -28,6 +38,7 @@ const WDEF = {
   staff: { cls: 'melee', dmg: 26, rate: .55, reach: 2.8, stun: .3 }, hatchet: { cls: 'melee', dmg: 42, rate: .6, reach: 2.2 }, machete: { cls: 'melee', dmg: 55, rate: .55, reach: 2.4 },
   sword: { cls: 'melee', dmg: 75, rate: .55, reach: 2.6 }, war_axe: { cls: 'melee', dmg: 90, rate: .85, reach: 2.5 }, stun_baton: { cls: 'melee', dmg: 25, rate: .6, reach: 2.2, stun: 2.6 },
   stone_axe: { cls: 'melee', dmg: 30, rate: .75, reach: 2.2 }, metal_axe: { cls: 'melee', dmg: 50, rate: .7, reach: 2.3 }, crowbar: { cls: 'melee', dmg: 40, rate: .65, reach: 2.3, stun: .4 },
+  kukri: { cls: 'melee', dmg: 60, rate: .5, reach: 2.3 }, tomahawk: { cls: 'melee', dmg: 70, rate: .55, reach: 2.3 },
   pickaxe: { cls: 'melee', dmg: 45, rate: .85, reach: 2.3 }, stone_pick: { cls: 'melee', dmg: 26, rate: .85, reach: 2.2 }, hammer: { cls: 'melee', dmg: 34, rate: .6, reach: 2, stun: .5 },
   wood_hammer: { cls: 'melee', dmg: 20, rate: .6, reach: 2, stun: .3 }, wrench: { cls: 'melee', dmg: 30, rate: .55, reach: 2, stun: .3 }, wood_shovel: { cls: 'melee', dmg: 22, rate: .75, reach: 2.4 },
 };
@@ -60,6 +71,7 @@ const PROC = {
   crowbar: g => { vcyl(g, .012, .012, .7, S(0xb02a1a, { metalness: .4 }), 0, 0, -.1); vcyl(g, .012, .012, .1, S(0xb02a1a), 0, .04, -.46, 0); },
   shovel: g => { vcyl(g, .015, .015, .8, VMAT.wood(), 0, 0, 0); vbox(g, .14, .01, .18, VMAT.wood(), 0, 0, -.45); },
 };
+PROC.m1911 = PROC.pistol; PROC.pump_rifle = PROC.shotgun;
 const VIEWS = {
   pistol: { proc: PROC.pistol, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .05], scope: 1.25, sound: 'machine-gun-clean-single' },
   flare_gun: { proc: PROC.flare_gun, len: .22, at: [.17, -.18, -.36], grip: [0, -.09, .07], fore: [-.01, -.09, .06] },
@@ -75,6 +87,32 @@ const VIEWS = {
   recurve: { proc: PROC.recurve, len: .3, at: [-.06, -.1, -.55], grip: [0, -.02, -.04], fore: [0, -.02, -.04], bow: 1 },
   crossbow: { proc: PROC.crossbow, len: .6, at: [.18, -.2, -.42], grip: [0, -.07, .15], fore: [0, -.03, -.12] },
 };
+/* (Nov 10) Bryce's weapon models (assets/models/w/*.glb), baked so the muzzle or blade tip points -z, up is +y and the middle of
+   the model is at the origin. `msize` is the model's length along `axis` (bows stand up, so theirs is their height); grip/fore are
+   where the hands close. Until a model has loaded (they stream in after the world), the drawn stand-in above is used. */
+const MV = (model, msize, at, grip, fore, extra = {}) => ({ model, msize, axis: 'z', at, grip, fore, ...extra });
+const BOWV = (model, h, extra = {}) => ({ model, msize: h, axis: 'y', yaw: -.85, at: [-.07, -.1, -.52], grip: [0, 0, 0], fore: [0, 0, 0], bow: 1, ...extra });   // turned so you see the curve of the limbs
+const MODEL_VIEWS = {
+  pistol: MV('w/pistol9', .2, [.17, -.16, -.36], [0, -.035, .05], [-.01, -.05, .045], { len: .2, sound: 'machine-gun-clean-single' }),
+  m1911: MV('w/m1911', .22, [.17, -.16, -.37], [0, -.035, .055], [-.01, -.05, .05], { len: .22, sound: 'gun-shot-heavy' }),
+  revolver: MV('w/revolver38', .27, [.17, -.16, -.38], [0, -.04, .085], [-.01, -.055, .08], { len: .27, sound: 'gun-shot-heavy' }),
+  pulse_pistol: MV('w/pulse_pistol', .26, [.17, -.16, -.37], [0, -.045, .06], [-.01, -.06, .055], { len: .26, sound: 'machine-gun-clean-single' }),
+  smg: MV('w/smg', .66, [.19, -.2, -.42], [0, -.06, .09], [0, -.05, -.16], { len: .66, sound: 'machine-gun-clean-single' }),
+  shotgun: MV('w/rmb93', .92, [.2, -.2, -.44], [0, -.06, .13], [0, -.04, -.17], { len: .92, sound: 'gun-shot-heavy' }),
+  pump_rifle: MV('w/lightning', 1, [.2, -.2, -.46], [0, -.05, .17], [0, -.03, -.14], { len: 1, sound: 'gun-shot-heavy' }),
+  shortbow: BOWV('w/shortbow', .95), recurve: BOWV('w/recurve', .95), longbow: BOWV('w/longbow', 1.35), yumi: BOWV('w/yumi', 1.45),
+  hornbow: BOWV('w/hornbow', .8), hunt_recurve: BOWV('w/recurve2', 1.15),
+  crossbow: MV('w/light_xbow', .66, [.18, -.2, -.44], [0, -.05, .2], [0, -.03, -.08], { len: .66 }),
+  hand_xbow: MV('w/hand_xbow', .4, [.17, -.18, -.4], [0, -.07, .09], [-.01, -.07, .08], { len: .4 }),
+  heavy_xbow: MV('w/heavy_xbow', .78, [.19, -.2, -.47], [0, -.05, .22], [0, -.03, -.1], { len: .78 }),
+  repeat_xbow: MV('w/repeat_xbow', .5, [.18, -.2, -.44], [0, -.05, .14], [0, -.03, -.06], { len: .5 }),
+};
+// blades and axes: the grip sits along the handle (+z end)
+const BLADEV = (model, L, g) => ({ model, msize: L, axis: 'z', len: L, at: [.24, -.24, -.42], grip: [0, -.01, L * g], fore: [0, -.01, L * g], melee: 1 });
+const MELEE_MODELS = { hunting_knife: BLADEV('w/kabar', .3, .3), mil_knife: BLADEV('w/kabar', .32, .3), multitool: BLADEV('w/folding_knife', .2, .28),
+  hatchet: BLADEV('w/hatchet', .4, .38), metal_axe: BLADEV('w/hatchet', .62, .4), war_axe: BLADEV('w/tomahawk', .62, .38), tomahawk: BLADEV('w/tomahawk', .42, .36),
+  machete: BLADEV('w/machete', .6, .36), kukri: BLADEV('w/kukri', .46, .36) };
+const WEAPON_MODELS = [...new Set([...Object.values(MODEL_VIEWS), ...Object.values(MELEE_MODELS)].map(V => V.model).concat(['w/arrow', 'w/bolt', 'w/frag', 'w/molotov']))];
 const MELEE_VIEW = { stone_knife: g => PROC.knife(g, M(0x4a4e56)), flint_knife: g => PROC.knife(g, M(0x4a4e56), M(0x8aa04a)), bone_dagger: g => PROC.knife(g, VMAT.bone()), bone_knife: g => PROC.knife(g, VMAT.bone()),
   hunting_knife: g => PROC.knife(g), mil_knife: g => PROC.knife(g, VMAT.gun(), VMAT.dark(), .22), multitool: g => PROC.knife(g, VMAT.steel(), VMAT.orange(), .1), machete: g => PROC.knife(g, VMAT.steel(), VMAT.dark(), .5),
   wood_spear: g => PROC.spear(g, VMAT.wood()), metal_spear: g => PROC.spear(g), hunt_spear: g => PROC.spear(g, M(0x4a4e56)), fish_spear: g => PROC.spear(g, M(0x4a4e56)), staff: g => vcyl(g, .02, .02, 1.5, VMAT.wood(), 0, 0, 0),
@@ -82,6 +120,8 @@ const MELEE_VIEW = { stone_knife: g => PROC.knife(g, M(0x4a4e56)), flint_knife: 
   stun_baton: PROC.baton, crowbar: PROC.crowbar, pickaxe: g => { PROC.axe(g, VMAT.steel(), .6); vbox(g, .02, .3, .03, VMAT.steel(), 0, .02, -.27); }, stone_pick: g => { PROC.axe(g, M(0x7a7870), .55); vbox(g, .02, .26, .04, M(0x7a7870), 0, .02, -.24); },
   hammer: g => PROC.hammer(g), wood_hammer: g => PROC.hammer(g, VMAT.wood()), wrench: g => { vbox(g, .015, .03, .32, VMAT.steel(), 0, 0, -.05); vbox(g, .015, .07, .05, VMAT.steel(), 0, .02, -.22); }, wood_shovel: PROC.shovel };
 for (const id in MELEE_VIEW) VIEWS[id] = { proc: MELEE_VIEW[id], len: .5, at: [.24, -.24, -.42], grip: [0, 0, .05], fore: [0, 0, .05], melee: 1 };
+for (const id in MODEL_VIEWS) VIEWS[id] = { ...VIEWS[id], ...MODEL_VIEWS[id] };
+for (const id in MELEE_MODELS) VIEWS[id] = { ...VIEWS[id], proc: MELEE_VIEW[id] || (g => PROC.knife(g, VMAT.steel(), VMAT.dark(), .4)), ...MELEE_MODELS[id] };
 for (const id in VIEWS) { const V = VIEWS[id], D = GEAR_DEFS[id]; WEAPONS[id] = { name: D ? D.n : id, axis: 'z', auto: !!WDEF[id]?.auto, scope: WDEF[id]?.scope || 1, sound: V.sound || 'rifle-m16-a', ...V }; }
 WEAPONS.hunter.name = 'Hunting rifle';
 
@@ -195,8 +235,10 @@ function swing(w) {
 
 /* projectiles: arrows, bolts, flares, thrown spears, grenades, fire bottles */
 const PROJ = [];
+const PROJ_MODEL = { arrow: ['w/arrow', .75], bolt: ['w/bolt', .42], frag: ['w/frag', .12, 'y'], molotov: ['w/molotov', .26, 'y'] };
 function projMesh(kind) {
-  const g = new THREE.Group();
+  const g = new THREE.Group(), pm = PROJ_MODEL[kind], mc = pm && modelCopy(pm[0], pm[1], pm[2] || 'z');
+  if (mc) { mc.traverse(o => { if (o.isMesh) { o.castShadow = false; } }); { const b = new THREE.Box3().setFromObject(mc); mc.position.y -= (b.min.y + b.max.y) / 2; } g.add(mc); if (kind === 'molotov') mesh(new THREE.SphereGeometry(.035, 6, 4), VMAT.glow(0xff8a2a), 0, .27, 0, g); world.add(g); return g; }
   if (kind === 'frag' || kind === 'smoke_gren') mesh(new THREE.SphereGeometry(.07, 8, 6), M(kind === 'frag' ? 0x4a5a3a : 0x6a6a62), 0, 0, 0, g);
   else if (kind === 'molotov') { mesh(new THREE.CylinderGeometry(.04, .05, .2, 8), M(0x7a4a1a), 0, 0, 0, g); mesh(new THREE.SphereGeometry(.04, 6, 4), VMAT.glow(0xff8a2a), 0, .12, 0, g); }
   else if (kind === 'flare') mesh(new THREE.SphereGeometry(.08, 8, 6), VMAT.glow(0xff4a3a), 0, 0, 0, g);
@@ -204,7 +246,7 @@ function projMesh(kind) {
   world.add(g); return g;
 }
 function fireProj(R, key) {
-  const kind = R.flare ? 'flare' : key === 'crossbow' ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
+  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
   const p = { g, kind, x: rayO.x + d.x * .6, y: rayO.y + d.y * .6 - .05, z: rayO.z + d.z * .6, vx: d.x * R.spd, vy: d.y * R.spd, vz: d.z * R.spd, grav: R.grav, dmg: R.dmg, burn: R.burn || 0, t: 0, owner: 'p' };
   PROJ.push(p);
 }
