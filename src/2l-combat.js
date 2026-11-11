@@ -181,8 +181,8 @@ function aiMove2(e, tx, tz, spd, dt) { const v = spd ? moveEnt(e, tx, tz, spd, d
 function buildCombat() {
   // Juno/Kade's alertNear gets the call-for-help on top (function declarations can be wrapped)
   const an = alertNear; alertNear = function (e) { an(e); aiCallHelp(e); };
-  if (isTouch) { const b = document.createElement('button'); b.id = 'bCrouch'; b.textContent = 'CROUCH'; b.style.cssText = 'position:fixed;right:18px;top:46%;z-index:22;font:700 12px "Barlow Condensed",sans-serif;letter-spacing:.1em;padding:9px 12px;border-radius:24px;border:1px solid #fff4;background:#0007;color:#efe9dc';
-    b.addEventListener('touchstart', e => { e.stopPropagation(); e.preventDefault(); setCrouch(!P.crouch); }, { passive: false }); document.body.appendChild(b); const st = document.createElement('style'); st.textContent = '#bCrouch.on{background:#7fc4b8;color:#111}'; document.head.appendChild(st); }
+  if (isTouch) { const b = document.createElement('button'); b.id = 'bCrouch'; b.textContent = 'CROUCH'; b.style.cssText = 'position:absolute;pointer-events:auto;right:18px;top:46%;font:700 12px "Barlow Condensed",sans-serif;letter-spacing:.1em;padding:9px 12px;border-radius:24px;border:1px solid #fff4;background:#0007;color:#efe9dc';
+    b.addEventListener('touchstart', e => { e.stopPropagation(); e.preventDefault(); setCrouch(!P.crouch); }, { passive: false }); ($('touch') || document.body).appendChild(b); /* inside the touch layer, so the title, menus and the turn-sideways screen cover it */ const st = document.createElement('style'); st.textContent = '#bCrouch.on{background:#7fc4b8;color:#111}'; document.head.appendChild(st); }
   window.__C = { aiNoise, compSet, compCmd, compUpd, bossUpd, BOSS_FIRES, setCrouch };
 }
 function combatRestore() { setCrouch(false); const C = compS(); if (C) { const e = SROS[C.id]; if (e) e.comp = true; else G.flags.comp = null; } compHud(); }

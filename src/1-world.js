@@ -377,15 +377,15 @@ scene.add(camera);
    vignette, a little chromatic fringe toward the corners, moving film grain). `hurt` drains colour when you're hit. */
 const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, t: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, contrast: { value: 1.04 }, sat: { value: 1.06 }, vig: { value: .36 },
-    grain: { value: .03 }, fringe: { value: .0018 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
+    grain: { value: LOW ? 0 : .02 }, fringe: { value: 0 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   // tone mapping (ACES) + sRGB happen here too (three puts those functions + toneMappingExposure in every shader's prefix),
   // so the separate OutputPass — a whole extra full-screen pass — is gone
   fragmentShader: `uniform sampler2D tDiffuse;uniform float t,contrast,sat,vig,grain,fringe,lift,gain,hurt;uniform vec2 res;uniform vec3 shadow,high;varying vec2 vUv;
     vec3 om(vec3 c){return sRGBTransferOETF(vec4(ACESFilmicToneMapping(c),1.0)).rgb;}
     float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
-    void main(){vec2 d=vUv-.5;float r2=dot(d,d);vec2 o=d*fringe*r2*4.0;
-      vec3 c=om(vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b));
+    void main(){vec2 d=vUv-.5;float r2=dot(d,d);
+      vec3 c=om(texture2D(tDiffuse,vUv).rgb);
       float l=dot(c,vec3(.2126,.7152,.0722));
       c+=shadow*(1.0-smoothstep(.0,.45,l))+high*smoothstep(.45,1.0,l);
       c=mix(vec3(l),c,sat*(1.0-hurt*.6));
@@ -398,7 +398,9 @@ const GRADE_SHADER = {
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
-composer.addPass(bloom);
+/* (Nov 11) phones: no bloom. On iPhone its half-float blur smeared the bright haze into purple/green blotches (the "colour fog"),
+   and it's a dozen extra full-screen passes. PC keeps it. */
+if (!LOW) composer.addPass(bloom); else bloom.enabled = false;
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 

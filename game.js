@@ -377,15 +377,15 @@ scene.add(camera);
    vignette, a little chromatic fringe toward the corners, moving film grain). `hurt` drains colour when you're hit. */
 const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, t: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, contrast: { value: 1.04 }, sat: { value: 1.06 }, vig: { value: .36 },
-    grain: { value: .03 }, fringe: { value: .0018 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
+    grain: { value: LOW ? 0 : .02 }, fringe: { value: 0 }, shadow: { value: new THREE.Vector3(0, .012, .03) }, high: { value: new THREE.Vector3(.02, .008, -.012) }, lift: { value: .012 }, gain: { value: 1.02 }, hurt: { value: 0 } },
   vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
   // tone mapping (ACES) + sRGB happen here too (three puts those functions + toneMappingExposure in every shader's prefix),
   // so the separate OutputPass — a whole extra full-screen pass — is gone
   fragmentShader: `uniform sampler2D tDiffuse;uniform float t,contrast,sat,vig,grain,fringe,lift,gain,hurt;uniform vec2 res;uniform vec3 shadow,high;varying vec2 vUv;
     vec3 om(vec3 c){return sRGBTransferOETF(vec4(ACESFilmicToneMapping(c),1.0)).rgb;}
     float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
-    void main(){vec2 d=vUv-.5;float r2=dot(d,d);vec2 o=d*fringe*r2*4.0;
-      vec3 c=om(vec3(texture2D(tDiffuse,vUv+o).r,texture2D(tDiffuse,vUv).g,texture2D(tDiffuse,vUv-o).b));
+    void main(){vec2 d=vUv-.5;float r2=dot(d,d);
+      vec3 c=om(texture2D(tDiffuse,vUv).rgb);
       float l=dot(c,vec3(.2126,.7152,.0722));
       c+=shadow*(1.0-smoothstep(.0,.45,l))+high*smoothstep(.45,1.0,l);
       c=mix(vec3(l),c,sat*(1.0-hurt*.6));
@@ -398,7 +398,9 @@ const GRADE_SHADER = {
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
-composer.addPass(bloom);
+/* (Nov 11) phones: no bloom. On iPhone its half-float blur smeared the bright haze into purple/green blotches (the "colour fog"),
+   and it's a dozen extra full-screen passes. PC keeps it. */
+if (!LOW) composer.addPass(bloom); else bloom.enabled = false;
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 
@@ -5529,8 +5531,10 @@ function buildStartRoad() {
   // 4. the outer marker at the fork: two rib posts and a cross plate — KESTREL, the walk's nearly done — and a water drum
   { const [x, z, p] = off(LEN - 75, 0); const y = heightAt(x, z), yaw = Math.atan2(p.dx, p.dz);
     for (const s of [-1, 1]) { const px = x + p.nx * s * 4.2, pz = z + p.nz * s * 4.2; K.box('metal', .35, 4.6, .45, px, heightAt(px, pz) + 2.1, pz, 0, yaw, 0, 0xd0cec6); addCol(px, pz, .35); }
-    K.box('hull', 9, .9, .12, x, y + 4.3, z, 0, yaw + HP, .02, 0x9a948a, 2);
-    const sg = new THREE.Mesh(new THREE.PlaneGeometry(4.4, .8), hSignMat('KESTREL', 'stencil')); sg.position.set(x + p.dx * -.08, y + 4.3, z + p.dz * -.08); sg.rotation.y = yaw + Math.PI; g.add(sg);
+    // the cross plate runs post to post, across the road (yaw puts its width along the road's normal), sitting on the post tops
+    const py = Math.min(heightAt(x + p.nx * 4.2, z + p.nz * 4.2), heightAt(x - p.nx * 4.2, z - p.nz * 4.2)) + 4.1;
+    K.box('hull', 9.2, .9, .14, x, py, z, 0, yaw, 0, 0x9a948a, 2);
+    for (const f of [-1, 1]) { const sg = new THREE.Mesh(new THREE.PlaneGeometry(4.4, .8), hSignMat('KESTREL', 'stencil')); sg.position.set(x + p.dx * .09 * f, py, z + p.dz * .09 * f); sg.rotation.y = f < 0 ? yaw + Math.PI : yaw; g.add(sg); }   // readable from both ways
     const [bx, bz] = [x + p.nx * 5.6, z + p.nz * 5.6]; barrel(K, bx, heightAt(bx, bz), bz, 0x3a5a7a); addCol(bx, bz, .4); }
   // 5. the last stretch: rib posts with lamps both sides of the road up to the gate (lit after dark)
   for (let t = LEN - 60; t < LEN - 2; t += 9) for (const s of [-1, 1]) { const [x, z] = off(t, s * 4.6); if (Math.abs(z - (CAMP_R + 34)) < 5 || campD(x, z) < CAMP_R + 2) continue; const y = heightAt(x, z);
@@ -10483,8 +10487,8 @@ function aiMove2(e, tx, tz, spd, dt) { const v = spd ? moveEnt(e, tx, tz, spd, d
 function buildCombat() {
   // Juno/Kade's alertNear gets the call-for-help on top (function declarations can be wrapped)
   const an = alertNear; alertNear = function (e) { an(e); aiCallHelp(e); };
-  if (isTouch) { const b = document.createElement('button'); b.id = 'bCrouch'; b.textContent = 'CROUCH'; b.style.cssText = 'position:fixed;right:18px;top:46%;z-index:22;font:700 12px "Barlow Condensed",sans-serif;letter-spacing:.1em;padding:9px 12px;border-radius:24px;border:1px solid #fff4;background:#0007;color:#efe9dc';
-    b.addEventListener('touchstart', e => { e.stopPropagation(); e.preventDefault(); setCrouch(!P.crouch); }, { passive: false }); document.body.appendChild(b); const st = document.createElement('style'); st.textContent = '#bCrouch.on{background:#7fc4b8;color:#111}'; document.head.appendChild(st); }
+  if (isTouch) { const b = document.createElement('button'); b.id = 'bCrouch'; b.textContent = 'CROUCH'; b.style.cssText = 'position:absolute;pointer-events:auto;right:18px;top:46%;font:700 12px "Barlow Condensed",sans-serif;letter-spacing:.1em;padding:9px 12px;border-radius:24px;border:1px solid #fff4;background:#0007;color:#efe9dc';
+    b.addEventListener('touchstart', e => { e.stopPropagation(); e.preventDefault(); setCrouch(!P.crouch); }, { passive: false }); ($('touch') || document.body).appendChild(b); /* inside the touch layer, so the title, menus and the turn-sideways screen cover it */ const st = document.createElement('style'); st.textContent = '#bCrouch.on{background:#7fc4b8;color:#111}'; document.head.appendChild(st); }
   window.__C = { aiNoise, compSet, compCmd, compUpd, bossUpd, BOSS_FIRES, setCrouch };
 }
 function combatRestore() { setCrouch(false); const C = compS(); if (C) { const e = SROS[C.id]; if (e) e.comp = true; else G.flags.comp = null; } compHud(); }
@@ -13281,7 +13285,7 @@ function adaptRes(raw) {
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
   // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
   if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {

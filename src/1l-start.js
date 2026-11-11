@@ -181,8 +181,10 @@ function buildStartRoad() {
   // 4. the outer marker at the fork: two rib posts and a cross plate — KESTREL, the walk's nearly done — and a water drum
   { const [x, z, p] = off(LEN - 75, 0); const y = heightAt(x, z), yaw = Math.atan2(p.dx, p.dz);
     for (const s of [-1, 1]) { const px = x + p.nx * s * 4.2, pz = z + p.nz * s * 4.2; K.box('metal', .35, 4.6, .45, px, heightAt(px, pz) + 2.1, pz, 0, yaw, 0, 0xd0cec6); addCol(px, pz, .35); }
-    K.box('hull', 9, .9, .12, x, y + 4.3, z, 0, yaw + HP, .02, 0x9a948a, 2);
-    const sg = new THREE.Mesh(new THREE.PlaneGeometry(4.4, .8), hSignMat('KESTREL', 'stencil')); sg.position.set(x + p.dx * -.08, y + 4.3, z + p.dz * -.08); sg.rotation.y = yaw + Math.PI; g.add(sg);
+    // the cross plate runs post to post, across the road (yaw puts its width along the road's normal), sitting on the post tops
+    const py = Math.min(heightAt(x + p.nx * 4.2, z + p.nz * 4.2), heightAt(x - p.nx * 4.2, z - p.nz * 4.2)) + 4.1;
+    K.box('hull', 9.2, .9, .14, x, py, z, 0, yaw, 0, 0x9a948a, 2);
+    for (const f of [-1, 1]) { const sg = new THREE.Mesh(new THREE.PlaneGeometry(4.4, .8), hSignMat('KESTREL', 'stencil')); sg.position.set(x + p.dx * .09 * f, py, z + p.dz * .09 * f); sg.rotation.y = f < 0 ? yaw + Math.PI : yaw; g.add(sg); }   // readable from both ways
     const [bx, bz] = [x + p.nx * 5.6, z + p.nz * 5.6]; barrel(K, bx, heightAt(bx, bz), bz, 0x3a5a7a); addCol(bx, bz, .4); }
   // 5. the last stretch: rib posts with lamps both sides of the road up to the gate (lit after dark)
   for (let t = LEN - 60; t < LEN - 2; t += 9) for (const s of [-1, 1]) { const [x, z] = off(t, s * 4.6); if (Math.abs(z - (CAMP_R + 34)) < 5 || campD(x, z) < CAMP_R + 2) continue; const y = heightAt(x, z);

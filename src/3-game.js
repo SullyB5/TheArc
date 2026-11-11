@@ -1236,7 +1236,7 @@ function adaptRes(raw) {
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
   // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
   if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {
