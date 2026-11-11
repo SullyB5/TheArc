@@ -272,6 +272,11 @@ const SETTLERS = [{ n: 'Tam', tint: 0xa08868 }, { n: 'Ilka', tint: 0x8aa0b0 }, {
 for (let i = 0; i < SETTLERS.length; i++) SHOP_STOCK['settler' + i] = { pool: SETTLER_POOL, k: 4, mark: 1, settler: 1, blurb: `${SETTLERS[i].n} swaps what they gathered for scrap.` };
 let curShopE = null;
 const shopDef = () => SHOP_STOCK[curShopE?.shop] || SHOP_STOCK.mara;
+// (Nov 11, everyday play) shortages, deals, wants and trust adjust prices — 2p-everyday.js fills these in
+const TRADE_HOOK = { buy: () => 1, sell: () => 1, tag: () => '', stag: () => '', head: () => '' };
+const shopKey = () => curShopE?.shop || 'mara';
+const tradePrice = (id, n) => Math.ceil(valueOf(id) * n * shopDef().mark * TRADE_HOOK.buy(shopKey(), id));
+const sellPrice = (id, lot) => Math.max(1, Math.floor(valueOf(id) * lot * (shopDef().sell || .5) * TRADE_HOOK.sell(shopKey(), id)));
 const itemTier = id => GEAR_DEFS[id]?.t || ITEMS[id]?.t || 1;
 function nearShopNPC() { let b = null, bd = 4.4; for (const e of ents) if (e.type === 'npc' && e.shop && !e.dead) { const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < bd) { bd = d; b = e; } } return b; }
 function openTrade(e) { if (!e) return; curShopE = e; if (e.settler) e.t = 6; invTab = 'trade'; toggleInv(true); }
@@ -287,13 +292,13 @@ function tradeStock() {
 }
 function buyTrade(i) {
   const L = tradeStock(), [id, n, left] = L[i]; if (left <= 0) return;
-  const price = Math.ceil(valueOf(id) * n * shopDef().mark);
+  const price = tradePrice(id, n);
   if (INV.scrap < price) { sfx('no'); toast(`Needs ${price} scrap`); return; }
   INV.scrap -= price; give(id, n); L[i][2]--; sfx('buy'); toast(`Bought ${n > 1 ? n + ' ' : ''}${nameOf(id).toLowerCase()} for ${price} scrap`); save();
 }
 function sellTrade(id, g) {
   if (g) { const v = Math.max(2, Math.round(valueOf(g.id) * (shopDef().sell || .5) * g.d / g.max)); unequip(g); INV.tools.splice(INV.tools.indexOf(g), 1); INV.scrap += v; toast(`Sold ${GEAR_DEFS[g.id].n.toLowerCase()} · +${v} scrap`); }
-  else { const lot = Math.min(cnt(id), TRADE_LOT[id] || 1), v = Math.max(1, Math.floor(valueOf(id) * lot * (shopDef().sell || .5))); take(id, lot); INV.scrap += v; toast(`Sold ${lot > 1 ? lot + ' ' : ''}${nameOf(id).toLowerCase()} · +${v} scrap`); }
+  else { const lot = Math.min(cnt(id), TRADE_LOT[id] || 1), v = sellPrice(id, lot); take(id, lot); INV.scrap += v; toast(`Sold ${lot > 1 ? lot + ' ' : ''}${nameOf(id).toLowerCase()} · +${v} scrap`); }
   sfx('pickup'); save();
 }
 const nearTrader = () => curShopE && !curShopE.dead && Math.hypot(curShopE.x - P.x, curShopE.z - P.z) < 4.6;

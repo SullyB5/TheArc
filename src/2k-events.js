@@ -82,7 +82,9 @@ function evTick(dt) {
   if (Math.hypot(P.x, P.z) < CAMP_R + 60) return;
   EV.t -= dt; if (EV.t > 0) return; EV.t = rr(200, 340);
   const pool = Object.keys(EVENTS).filter(k => EVENTS[k].ok() && (EV.cd[k] || 0) < G.t && !(k === 'convoy' && EV.convoy));
-  if (!pool.length) return; const k = pool.includes('numbers') ? 'numbers' : pick(pool);
+  if (!pool.length) return;
+  // (Nov 11) weighted by how the world stands: events can carry w() (default 1)
+  let k = 'numbers'; if (!pool.includes('numbers')) { const W = pool.map(q => Math.max(0, EVENTS[q].w ? EVENTS[q].w() : 1)), tot = W.reduce((a, b) => a + b, 0); let r = rnd() * tot; k = pool[pool.length - 1]; for (let i = 0; i < pool.length; i++) { r -= W[i]; if (r <= 0) { k = pool[i]; break; } } }
   if (EVENTS[k].go()) EV.cd[k] = G.t + EVENTS[k].cd;
 }
 const nearStranded = () => { for (const e of EV.live) if (e.stranded && !e.saved && !e.dead && Math.hypot(e.x - P.x, e.z - P.z) < 3) return e; return null; };
