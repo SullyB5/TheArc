@@ -182,7 +182,7 @@ function updWild(e, dt) {
     else if (e.t <= 0) { e.t = rr(2, 6); wander(); }
     else if (e.tx !== undefined) { tx = e.tx; tz = e.tz; spd = F.walk; }
   } else if (F.kind === 'pred' || F.kind === 'lurk') {
-    const hurt = e.hp < e.maxhp * .25, home = Math.hypot(e.x - e.home.x, e.z - e.home.z), inCamp = Math.hypot(P.x, P.z) < CAMP_R + 4 || P.safe;
+    const hurt = e.hp < e.maxhp * .25, home = Math.hypot(e.x - e.home.x, e.z - e.home.z), inCamp = campD(P.x, P.z) < CAMP_R + 4 || P.safe;
     const aggro = F.aggro * stealth * (isNight() ? 1.35 : 1);
     if (e.state !== 'chase' && e.state !== 'flee' && dp < aggro && canSee && !inCamp && !hurt) { e.state = 'chase'; if (F.snd) sfx(F.snd); if (e.pack) for (const o of ents) if (o.pack === e.pack && !o.dead && o.state !== 'flee') o.state = 'chase'; }
     if (e.state === 'chase') {
@@ -276,7 +276,7 @@ function buildPaddock() {
 /* ---------- where things live ---------- */
 function wildCount(keys, inValley) { const inV = e => Math.hypot(e.home.x, e.home.z) < VALLEY; return ents.filter(e => e.wild && !e.dead && keys.includes(e.type) && inV(e) === inValley).length; }
 function landSpot(cx, cz, r, tries = 30, test) { for (let i = 0; i < tries; i++) { const a = rnd() * 6.28, d = Math.sqrt(rnd()) * r, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-  if (Math.hypot(x, z) > WORLD - 60 || waterAt(x, z) > heightAt(x, z) - .5 || Math.hypot(x, z) < CAMP_R + 30 || inCity(x, z, -40) || inBase(x, z, 10)) continue; if (test && !test(x, z)) continue; return { x, z }; } return null; }
+  if (Math.hypot(x, z) > WORLD - 60 || waterAt(x, z) > heightAt(x, z) - .5 || campD(x, z) < CAMP_R + 30 || inCity(x, z, -40) || inBase(x, z, 10)) continue; if (test && !test(x, z)) continue; return { x, z }; } return null; }
 const steep = (x, z) => slopeAt(x, z) > .45 && heightAt(x, z) > 40;
 const WILD_PLAN = [
   // [species, valley?, how many groups, group size [min,max], where: 'meadow'|'forest'|'mount'|'zoo'|'lake'|'out']

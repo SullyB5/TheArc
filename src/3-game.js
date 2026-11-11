@@ -119,7 +119,7 @@ const KEEPER_Q = {
 /* ================= interactables ================= */
 const GATE_SPOT = { x: 0, z: CAMP_R };
 const INTERACT = [
-  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.id === 'bunk' && P.hp >= 100 ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
+  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => (D.id === 'bunk' && P.hp >= 100) || !D.stN ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
   { id: 'forge', at: () => SHOP.craft.forge, r: 2.4, label: () => 'Forge · smelt + metalwork', act: () => openCraft('mat') },
   { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
@@ -154,7 +154,7 @@ function findInteract() {
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
     const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.sp ? e.sp.n.toLowerCase() : e.type}` }; }
   }
-  if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
+  if (!best && campD(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
 }
 // (Nov 10, Bryce) no bag button: E (phone: USE) does what's in front of you, and with nothing there it opens the bag; again closes it
@@ -271,7 +271,7 @@ function startNight() {
   horn(78, 3.2, .26, 4);
   if (night.final) { card('NIGHT 100', 'Everyone is coming', 5); say([['Kade', 'This is it. Every clan, Ironjaw, Greyhold — all of them. Hold the wall!']]); }
   else say([['Kade', G.day < 3 ? 'Horns in the trees. Everyone to the wall!' : pick(['Here they come again. To the wall!', 'Raiders! Close it up!', 'Lights out there — get inside!'])]]);
-  if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
+  if (campD(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
   facNight();
   nextWave();
 }
@@ -327,7 +327,7 @@ function startRust(scripted) {
   rust.state = 'warn'; rust.t = warnLen();
   G.flags.rustDay = rustDue(); P.fogT = 0;
   // who gets caught out: one or two of the settlers and townsfolk, late off the mark and slow
-  const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && Math.hypot(e.home.x, e.home.z) < CAMP_R);
+  const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && campD(e.home.x, e.home.z) < CAMP_R);
   for (const e of pool) { e.straggler = false; e.rescued = false; e.fogDose = 0; }
   for (let i = 0, n = 1 + (rnd() < .5 ? 1 : 0); i < n && pool.length; i++) pool.splice(Math.floor(rnd() * pool.length), 1)[0].straggler = true;
   horn(110, 3, .22, 0); setTimeout(() => horn(110, 3, .22, 0), 3600);
@@ -337,7 +337,7 @@ function nearestShelter() { return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp:
 function inShelter() { return inHull(P.x, P.z); }   // (Nov 10) fog gets under any roof: only the sealed hull keeps it out
 /* townsfolk in the fog: where to go, and what it does to them if they're out in it. Returns a move target or null. */
 function fogNPC(e, dt) {
-  if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
+  if (e.follow || campD(e.home.x, e.home.z) > CAMP_R) return null;
   if (e.downed) {
     e.dieT -= dt; if (rnd() < dt * .6) puff(e.x, e.y + .4, e.z, 0x9a3a22, 1, .6, .1, .5, 1.5);
     if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — ${e.siegeHurt ? 'their wounds were too much' : 'the Rust got them'}.`, 4); sfx('no'); }
@@ -460,7 +460,7 @@ function updClan(e, dt) {
   if (facUpd(e, dt)) return;
   if (aiUpd(e, dt)) return;   // hearing, flanking, fleeing, bosses — 2l-combat.js   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
-  const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
+  const insideP = campD(P.x, P.z) < CAMP_R, insideE = campD(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
   const hullP = inHull(P.x, P.z), hullE = inHull(e.x, e.z);
   const walled = (insideP !== insideE && gate.hp > 0 && !gate.open) || (hullP !== hullE && hullDoor.hp > 0 && !hullDoor.open);
   let tx = e.x, tz = e.z, spd = 0;
@@ -475,7 +475,7 @@ function updClan(e, dt) {
   if (e.climbing) {
     e.climbT -= dt; e.climbY = (1 - Math.abs(e.climbT / e.climbDur * 2 - 1)) * (WALL_H[UP.wall] + .3);
     p.body.rotation.x = -.25 + Math.sin(e.t * 9) * .08;
-    if (e.climbT <= 0) { e.climbing = false; e.climbY = 0; const d = Math.hypot(e.x, e.z); e.x *= (CAMP_R - 1.6) / d; e.z *= (CAMP_R - 1.6) / d; e.pd = CAMP_R - 1.6; e.state = 'chase'; }
+    if (e.climbT <= 0) { e.climbing = false; e.climbY = 0; const w = wallPt(Math.atan2(e.x, e.z), -1.6); e.x = w.x; e.z = w.z; e.pd = Math.hypot(w.x, w.z); e.pdn = CAMP_R - 1.6; e.state = 'chase'; }
     e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y + e.climbY, e.z); e.g.rotation.y = e.yaw; return;
   }
   if (e.state === 'idle') {
@@ -485,16 +485,16 @@ function updClan(e, dt) {
     if (dp < sees && !P.dead && !UG.at && facHostileE(e) && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
-    const dE = Math.hypot(e.x, e.z);
+    const dE = campD(e.x, e.z), toGate = d => { const a = angWrap(Math.atan2(e.x, e.z)); if (Math.abs(a) > .4) { const w = wallPt(a - Math.sign(a) * .4, 6); tx = w.x; tz = w.z; return true; } return false; };   // (Nov 11) round the wall to the gate, not through it
     if (!insideE) {
       if (e.climb && UP.wall < 3) {
-        const a = Math.atan2(e.x, e.z); tx = Math.sin(a) * (CAMP_R + 1); tz = Math.cos(a) * (CAMP_R + 1); spd = e.speed;
+        const a = Math.atan2(e.x, e.z), w = wallPt(a, 1); tx = w.x; tz = w.z; spd = e.speed;
         if (Math.abs(a) < GATE_HALF + .05) e.climb = false;
         if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = e.breach ? .7 : 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
       } else if (gate.hp > 0 && !gate.open) {
-        tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed;
+        tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed; if (toGate()) { /* still coming round */ }
         if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'gate'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
-      } else { tx = 0; tz = dE > CAMP_R + 4 ? CAMP_R + 3 : CAMP_R - 6; spd = e.speed; }
+      } else { tx = 0; tz = dE > CAMP_R + 4 ? CAMP_R + 3 : CAMP_R - 6; spd = e.speed; if (dE > CAMP_R + 2) toGate(); }
     } else {
       if (!hullE && hullDoor.hp > 0 && !hullDoor.open) {   // the Arc is sealed: break the doors
         tx = clamp(e.x, ARC.x - 3, ARC.x + 3); tz = ARC.z + ARC.W + 1.7; spd = e.speed;
@@ -558,7 +558,7 @@ function updNPC(e, dt) {
   } else if (e.guard && night.active && updGuard(e, dt)) {
     spd = 0;
   } else if (e.wander) {
-    const inCamp = Math.hypot(e.home.x, e.home.z) < CAMP_R;
+    const inCamp = campD(e.home.x, e.home.z) < CAMP_R;
     if (inCamp) {                       // Kestrel: walk the streets, stop at shop fronts, loiter, move on
       if (night.active) e.route = null;
       else if (e.route && e.route.length) {
@@ -582,7 +582,7 @@ function updNPC(e, dt) {
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
-  if (night.active && !e.follow && !e.guard && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
+  if (night.active && !e.follow && !e.guard && (e.name === 'extra' || e.settler) && campD(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   { const f = fogNPC(e, dt); if (e.dead) return; if (f) { tx = f.x; tz = f.z; spd = f.spd; } }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine && !e.downed) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
@@ -732,7 +732,7 @@ function updPlayer(dt) {
     const moving = hs > .6 && P.onGround;
     const stepLen = sprint ? 2.25 : 1.6, b0 = Math.floor(P.bob / Math.PI);
     if (P.onGround) P.bob += hs * dt / stepLen * Math.PI;
-    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || (Math.hypot(P.x, P.z) < CAMP_R && streetDist(P.x, P.z) < .3) || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
+    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || (campD(P.x, P.z) < CAMP_R && streetDist(P.x, P.z) < .3) || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
     if (moving && Math.floor(P.bob / Math.PI) !== b0) { sfx('step', sprint ? 1.35 : clamp(hs / 5.4, .5, 1)); if (depth > -.05) sfx('splash'); }
     P.bobAmp = lerp(P.bobAmp, moving ? clamp(hs / 5.4, 0, 1.8) : 0, Math.min(1, dt * 8));
     // the eye follows the ground smoothly instead of snapping over every bump
@@ -849,7 +849,7 @@ function updTime(dt) {
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
   let far = VIEW_M ? Math.min(s.far, VIEW_M) : s.far;
-  if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
+  if (isNight() && campD(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
   scene.fog.far = lerp(far, 24, rk); scene.fog.near = packFogNear(lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60);
   skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
@@ -1403,7 +1403,7 @@ const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x
 function checkRegions() {
   if (UG.at) return;
   const seen = G.flags.seen = G.flags.seen || {};
-  if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
+  if (!G.flags.reached && campD(P.x, P.z) < CAMP_R + 10) {
     G.flags.reached = 1; G.flags.firstRustT = 45; save();
     say([['Kade', 'You made it. We’ve got a wall, a fire and not much else.'], ['Kade', 'The shops are open — trade, craft, eat. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
   }
@@ -1610,14 +1610,15 @@ async function boot() {
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
-  for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  for (const D of SHOP_DEFS.filter(D => D.who && !D.late)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  { const s0 = seed; seed = 7171717; for (const D of SHOP_DEFS.filter(D => D.who && D.late)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'settler', tint: D.tint, yaw: D.ry, h: 1.7 }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; } seed = s0; }   // (Nov 11) keepers added later draw from their own stream
   WALK.settle(); buildPaddock();
   for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
   SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: pick(['civilian', 'settler', 'settler']), tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

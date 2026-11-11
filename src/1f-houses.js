@@ -93,6 +93,18 @@ function paintSign(text, style) {
   });
 }
 
+// (Nov 11) markings that were on the Arc's plating when it came down: deck and bay numbers, hazard chevrons, arrows, the
+// station's ring logo — an atlas of 4 x 2, picked by UV, stuck on salvaged panels so you can tell where each one came from
+const texStencil = ctex(512, 256, (g, w, h) => {
+  g.clearRect(0, 0, w, h); const cw = w / 4, ch = h / 2;
+  const txt = (i, t, sz, col = 'rgba(30,30,30,.85)') => { const x = (i % 4) * cw, y = Math.floor(i / 4) * ch; g.fillStyle = col; g.font = `900 ${sz}px "Big Shoulders Stencil Display", Impact, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, x + cw / 2, y + ch / 2, cw - 10); };
+  txt(0, 'DECK 4', 40); txt(1, 'BAY 12-C', 34); txt(2, 'ARC', 64, 'rgba(160,40,30,.85)'); txt(5, 'NO STEP', 30);
+  { const x = 3 * cw, y = 0; g.save(); g.beginPath(); g.rect(x + 4, y + 30, cw - 8, ch - 60); g.clip(); for (let k = -6; k < 12; k++) { g.fillStyle = k % 2 ? 'rgba(20,20,20,.9)' : 'rgba(220,160,40,.95)'; g.beginPath(); g.moveTo(x + k * 22, y + 30); g.lineTo(x + k * 22 + 22, y + 30); g.lineTo(x + k * 22 - 18, y + ch - 30); g.lineTo(x + k * 22 - 40, y + ch - 30); g.fill(); } g.restore(); }
+  { const x = 0, y = ch; g.strokeStyle = 'rgba(40,40,40,.85)'; g.lineWidth = 7; g.beginPath(); g.arc(x + cw / 2, y + ch / 2, 38, 0, 7); g.stroke(); g.beginPath(); g.arc(x + cw / 2, y + ch / 2, 20, 0, 7); g.stroke(); for (let k = 0; k < 6; k++) { const a = k / 6 * 6.283; g.beginPath(); g.moveTo(x + cw / 2 + Math.cos(a) * 20, y + ch / 2 + Math.sin(a) * 20); g.lineTo(x + cw / 2 + Math.cos(a) * 38, y + ch / 2 + Math.sin(a) * 38); g.stroke(); } }
+  { const x = 2 * cw, y = ch; g.fillStyle = 'rgba(30,30,30,.85)'; g.beginPath(); g.moveTo(x + 20, y + ch / 2 - 14); g.lineTo(x + cw - 50, y + ch / 2 - 14); g.lineTo(x + cw - 50, y + ch / 2 - 34); g.lineTo(x + cw - 14, y + ch / 2); g.lineTo(x + cw - 50, y + ch / 2 + 34); g.lineTo(x + cw - 50, y + ch / 2 + 14); g.lineTo(x + 20, y + ch / 2 + 14); g.fill(); }
+  txt(7, 'O2 · 7', 40, 'rgba(30,70,120,.85)');
+  for (let i = 0; i < 1600; i++) { g.clearRect(rnd() * w, rnd() * h, rr(1, 4), rr(1, 3)); }        // worn off in flecks
+});
 /* ---------- materials: one per surface kind, all tinted per piece by vertex colour ---------- */
 const HMATS = {};
 function hm(k) {
@@ -110,6 +122,8 @@ function hm(k) {
     shiny: () => new THREE.MeshStandardMaterial({ ...vc, roughness: .35, metalness: .55 }),
     paper: () => new THREE.MeshStandardMaterial({ ...vc, map: texPaper, roughness: .95, metalness: 0, side: THREE.DoubleSide }),
     rock: () => new THREE.MeshStandardMaterial({ ...vc, map: TX.rock, roughness: .95, metalness: 0 }),
+    plate: () => new THREE.MeshStandardMaterial({ ...vc, map: TX.metal, normalMap: TX.metalN, normalScale: new THREE.Vector2(.6, .6), roughness: .62, metalness: .32 }),
+    stencil: () => new THREE.MeshStandardMaterial({ ...vc, map: texStencil, roughness: .6, metalness: .3, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     glass: () => new THREE.MeshStandardMaterial({ color: 0x46545c, roughness: .06, metalness: .7, transparent: true, opacity: .55, depthWrite: false }),
     glow: () => new THREE.MeshBasicMaterial({ ...vc, toneMapped: false }),
     win: () => new THREE.MeshBasicMaterial({ color: 0x2a2620, toneMapped: false }),       // lit from inside after dark (HOUSE_NIGHT)
@@ -191,6 +205,30 @@ function hkit(lowDetail) {
   return K;
 }
 
+/* (Nov 11) Kestrel's buildings are made out of the Arc: every part a settler would have cut from wood or tin is cut from
+   the hull instead. shipKit wraps a kit so 'board' parts come out as salvaged plate (painted, primer, rust where the paint's
+   gone) and 'corr' parts as hull panelling; models and cloth are untouched. */
+function shipKit(K) {
+  const map = m => m === 'board' ? 'plate' : m === 'corr' ? 'hull' : m;
+  const W = Object.create(K);
+  W.box = (m, ...a) => K.box(map(m), ...a); W.cyl = (m, ...a) => K.cyl(map(m), ...a); W.geo = (m, ...a) => K.geo(map(m), ...a);
+  W.at = m => { K.at(m); return W; }; W.raw = K;
+  return W;
+}
+// a stencil off the hull (atlas cell 0-7) on a panel, w x h, in the current frame
+function stencil(K, cell, w, h, x, y, z, ry = 0, rz = 0) {
+  const g = new THREE.PlaneGeometry(w, h), uv = g.attributes.uv, cx = (cell % 4) / 4, cy = 1 - (Math.floor(cell / 4) + 1) / 2;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, cx + uv.getX(i) / 4, cy + uv.getY(i) / 2);
+  K.geo('stencil', g, htm(x, y, z, 0, ry, rz), 0xffffff);
+}
+// a porthole off the station: a ring of plate round thick glass (lit from inside after dark)
+function porthole(K, x, y, r = .32) {
+  const ring = new THREE.TorusGeometry(r + .06, .07, 6, 16); K.geo('metal', ring, htm(x, y, .06), 0x5a5e60);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283; K.box('shiny', .04, .04, .03, x + Math.cos(a) * (r + .06), y + Math.sin(a) * (r + .06), .12, 0, 0, 0, 0x8a8e90); }
+  const gl = new THREE.CircleGeometry(r, 16); K.geo('win', gl.clone(), htm(x, y, -.02)); K.geo('glass', gl, htm(x, y, .02));
+}
+// the hull's own paint, as it came down: station white, pale grey, primer, gunmetal, a teal bulkhead
+const SHIPC = [0xd6d4cc, 0xc4c2ba, 0xb4b2aa, 0x9a8a7a, 0x7a8286, 0x6a6e70, 0xa8b4b0, 0x8a6a52];
 /* ---------- palettes ---------- */
 const WOODC = [0x8a7a66, 0x9a8670, 0x7a6a58, 0x6e6152, 0xa08a6e, 0x857766];          // bare, weathered
 const RUST = [0xb07850, 0x9a6a4a, 0xa88a72, 0x8a8a86, 0x9c9a94, 0xb59474, 0x7f6a5a]; // tin, from new-ish grey to orange
@@ -217,7 +255,7 @@ function cladRun(K, L, H, kind, o) {
     for (const [y0, y1] of vspans(a, b)) {
       const hh = y1 - y0;
       if (kind === 'board') {
-        const c = hp(.08) ? hpick(WOODC) : hp(.06) ? tint(o.patch || 0x6a7a8a) : tint(col, .12);
+        const c = hp(.08) ? hpick(WOODC) : hp(.06) ? tint(o.patch || 0x6a7a8a) : tint(col, .12);   // (inside a ship kit these come out as plate strips)
         const top = y1 >= H - .01 ? hr(-.04, .02) : 0;
         K.box('board', w - .012, hh + top, .035, cx, y0 + (hh + top) / 2, hr(-.006, .006), 0, 0, hr(-.008, .008), c);
         if (hp(.25) && hh > 1) K.box('metal', .016, .016, .01, cx + hr(-.03, .03), y0 + hr(.1, .3), .022, 0, 0, 0, 0x3a3634);   // nail heads
@@ -228,7 +266,12 @@ function cladRun(K, L, H, kind, o) {
         for (const [r0, r1] of rows) K.box('corr', w + .05, r1 - r0, .02, cx, (r0 + r1) / 2, (alt++ % 2) * .014 + hr(0, .006), hr(-.01, .01), 0, hr(-.012, .012), c);
       } else if (kind === 'hull') {
         const rowH = hr(1.1, 1.5);
-        for (let y = y0; y < y1 - .02; y += rowH) { const top = Math.min(y1, y + rowH); K.box('hull', w - .02, top - y - .02, .05, cx, (y + top) / 2, hr(-.008, .012), 0, 0, hr(-.006, .006), tint(o.col || 0xc8c4bc, .08), 2); }
+        for (let y = y0; y < y1 - .02; y += rowH) { const top = Math.min(y1, y + rowH), ph = top - y - .02, oddC = hp(.16), c = oddC ? tint(hpick(o.pal || SHIPC), .06) : tint(o.col || 0xc8c4bc, .07), lap = (alt++ % 2) * .02;
+          K.box('hull', w + .03, ph, .05, cx, (y + top) / 2, lap + hr(-.006, .01), hr(-.008, .008), 0, hr(-.008, .008), c, 2);
+          if (ph > .5 && w > .6) { for (const sx of [-1, 1]) for (let ry = y + .12; ry < top - .05; ry += .32) K.box('shiny', .025, .025, .02, cx + sx * (w / 2 - .05), ry, lap + .035, 0, 0, 0, 0x7a7e80); }   // rivets down the lap
+          if (!o.inside && ph > .7 && w > .9 && hp(.07)) stencil(K, hpick([0, 1, 2, 5, 7, 4, 6]), Math.min(w * .8, 1.1), .55, cx, y + ph / 2, lap + .03, 0, hr(-.03, .03));
+          if (!o.inside && hp(.04) && ph > .8) K.box('plate', w * hr(.4, .8), ph * hr(.3, .6), .03, cx + hr(-.1, .1), y + ph * hr(.3, .7), lap + .04, 0, 0, hr(-.1, .1), hpick([0x8a5a3a, 0x7a4a32, 0x5a5e60]));   // a patch welded over a hole
+        }
       } else if (kind === 'block') {
         K.box('block', w, hh, .2, cx, y0 + hh / 2, -.08, 0, 0, 0, tint(col || 0xd8d2c8, .05), 1.6);
       }
@@ -237,7 +280,7 @@ function cladRun(K, L, H, kind, o) {
 }
 // a window: frame, sill, glass (lit from inside after dark), and one of: curtains, shutters, boards, bars
 function windowAt(K, x, y, w, h, o = {}) {
-  const fc = o.frame || 0x5a4a3a, t = .06;
+  const fc = o.frame || 0x4a4c4e, t = .08;
   for (const [px, py, pw, ph] of [[x, y + h / 2 + t / 2, w + t * 2, t], [x, y - h / 2 - t / 2, w + t * 2, t], [x - w / 2 - t / 2, y, t, h], [x + w / 2 + t / 2, y, t, h]]) K.box('board', pw, ph, .09, px, py, .03, 0, 0, 0, fc);
   K.box('board', w + .24, .05, .16, x, y - h / 2 - t - .02, .07, .06, 0, 0, tint(fc));             // sill
   if (o.boarded) { for (let i = 0; i < 3; i++) K.box('board', w + .3, .14, .03, x, y - h / 3 + i * h / 3, .1, 0, 0, hr(-.25, .25), hpick(WOODC)); K.box('win', w, h, .01, x, y, -.02); return; }
@@ -263,6 +306,12 @@ function doorAt(K, x, w, h, o = {}) {
   for (let i = 0; i < n; i++) { const pw = lw / n, g = new THREE.BoxGeometry(pw - .008, h - .04, .04); boxUV(g, pw, h, .04, 1, hrnd() * 9, hrnd() * 9); g.translate((i + .5) * pw, h / 2, 0); K.geo(o.metal ? 'metal' : 'board', g, m.clone(), tint(dc, .1)); }
   if (!o.metal) for (const yy of [.35, h - .35]) { const g = new THREE.BoxGeometry(lw - .06, .1, .03); g.translate(lw / 2, yy, .035); K.geo('board', g, m.clone(), tint(dc, .1)); }
   const hg = new THREE.SphereGeometry(.035, 6, 4); hg.translate(lw - .1, h * .48, .06); K.geo('shiny', hg, m.clone(), 0x8a7a50);
+  if (o.metal) {   // (Nov 11) a bulkhead door off the Arc: a handwheel, a band of hazard paint, its little window
+    const wg = new THREE.TorusGeometry(.17, .025, 5, 14); wg.translate(lw / 2, h * .5, .07); K.geo('shiny', wg, m.clone(), 0x8a8e90);
+    for (let k = 0; k < 3; k++) { const sg = new THREE.BoxGeometry(.34, .025, .02); sg.rotateZ(k * 1.047); sg.translate(lw / 2, h * .5, .07); K.geo('shiny', sg, m.clone(), 0x8a8e90); }
+    for (let k = 0; k < Math.floor(lw / .2); k++) { const sg = new THREE.BoxGeometry(.1, .14, .012); sg.translate(.1 + k * .2, .2, .03); K.geo('plain', sg, m.clone(), k % 2 ? 0x1e1e1e : 0xd9a32a); }
+    const gw = new THREE.CircleGeometry(.13, 12); gw.translate(lw / 2, h * .78, .03); K.geo('win', gw, m.clone());
+  }
 }
 
 /* ---------- models from Bryce's prop packs (Nov 10), placed by size; parts of a pack picked by mesh name ---------- */
@@ -319,15 +368,17 @@ function stovepipe(K, x, y0, z, h, c = 0x3a3634) { K.cyl('metal', .1, .1, h, 10,
 function raiseHouse(D, S) {
   const g = new THREE.Group(); g.position.set(D.cx, H0, D.cz); g.rotation.y = D.ry; world.add(g);
   const inner = new THREE.Group(); inner.position.copy(g.position); inner.rotation.y = D.ry; world.add(inner);   // the inside: its own cull entry
-  const K = hkit(LOW), KI = hkit(LOW);
+  const K = shipKit(hkit(LOW)), KI = shipKit(hkit(LOW));
   const BW = D.bw, BD = D.bd, H1 = 3.3, H2 = S.upper ? 2.75 : 0, HT = H1 + H2, OPEN = BW / 2 - 1.6;
   const kind = S.clad, col = S.col, low = S.base === 'block' ? 1.05 : 0;
   // floor: the old slab, then boards over it in the timber houses
   K.box('conc', BW + .7, .22, BD + .7, 0, .11, 0, 0, 0, 0, 0xb0aaa0, 2);
   if (S.floor === 'board') for (let x = -BW / 2 + .1; x < BW / 2 - .1; x += .2) K.box('board', .19, .03, BD - .2, x + .1, .235, 0, 0, 0, 0, tint(0x8a7a64, .12));
   // the frame: corner posts, the posts either side of the shop front, top plates
-  const postC = kind === 'hull' || kind === 'corr' ? 0x4a4644 : 0x5a4a3a, postM = kind === 'hull' ? 'metal' : 'board';
-  for (const [px, pz] of [[-BW / 2, -BD / 2], [BW / 2, -BD / 2], [-BW / 2, BD / 2], [BW / 2, BD / 2], [-OPEN, BD / 2], [OPEN, BD / 2]]) K.box(postM, .16, HT + .05, .16, px, HT / 2, pz, 0, 0, 0, tint(postC));
+  // the frame: lengths of the Arc's own ribs and I-beams, still in their station white or gunmetal (Nov 11)
+  const postC = S.ribC || 0x55585a, postM = 'metal';
+  for (const [px, pz] of [[-BW / 2, -BD / 2], [BW / 2, -BD / 2], [-BW / 2, BD / 2], [BW / 2, BD / 2], [-OPEN, BD / 2], [OPEN, BD / 2]]) {
+    const c = tint(postC, .05); K.box(postM, .26, HT + .05, .08, px, HT / 2, pz - .09, 0, 0, 0, c); K.box(postM, .08, HT + .05, .22, px, HT / 2, pz, 0, 0, 0, c); K.box(postM, .26, HT + .05, .08, px, HT / 2, pz + .09, 0, 0, 0, c); }
   K.box(postM, BW + .2, .18, .2, 0, H1, BD / 2 + .02, 0, 0, 0, tint(postC));                          // lintel over the shop front
   // walls: back, the two sides, and the front stubs either side of the opening (upper storey: a whole front with windows)
   const wallM = (x, z, ry) => htm(x, 0, z, 0, ry, 0);
@@ -338,6 +389,9 @@ function raiseHouse(D, S) {
     { m: wallM(-BW / 2, BD / 2, 0), L: BW, side: 'front' },
   ];
   const winY = 1.75, upY = H1 + 1.45;
+  // (Nov 11) the gable roofs are a length of the Arc's hull laid over the walls: an arch, chord BD + overhang, sagging 1.5 m
+  const AOV = .55, ACH = BD + AOV * 2, ASAG = 1.55, AR = (ACH * ACH / 4 + ASAG * ASAG) / (2 * ASAG), AY0 = HT + .08 + ASAG - AR;
+  const archY = z => AY0 + Math.sqrt(Math.max(0, AR * AR - z * z));
   for (const R of runs) {
     const holes = [], wins = [], doors = [];
     if (R.side === 'front') holes.push({ x0: 1.6, x1: BW - 1.6, y0: -1, y1: H1 - .1 });
@@ -356,19 +410,22 @@ function raiseHouse(D, S) {
     cladRun(K, R.L, HT - low, kind, { holes: holes.map(h => ({ ...h, y0: h.y0 - low, y1: h.y1 - low })), col, pal: S.pal, patch: S.patch });
     if (R.side !== 'front') {        // the inside face: boards or plaster on the studs, round the same openings
       KI.at(R.m.clone().multiply(htm(.17, .2, -.17)));
-      cladRun(KI, R.L - .34, H1 - .25, 'board', { holes: holes.filter(h => h.y0 < H1).map(h => ({ ...h, x0: h.x0 - .17, x1: h.x1 - .17, y0: h.y0 - .2, y1: h.y1 - .2 })), col: S.liner || 0xb8ae9c });
+      cladRun(KI, R.L - .34, H1 - .25, 'hull', { holes: holes.filter(h => h.y0 < H1).map(h => ({ ...h, x0: h.x0 - .17, x1: h.x1 - .17, y0: h.y0 - .2, y1: h.y1 - .2 })), col: S.liner || 0xc8c6be, pal: [0xb8bcb8, 0xd0cec6, 0xa8b0ae], inside: true });
       KI.at(null);
     }
     K.at(R.m);
     for (const [u, y, w, h] of wins) windowAt(K, u, y, w, h, { frame: S.frame, curtain: hp(.6) ? hpick(CLOTHC) : null, shutters: S.shutters && hp(.6) ? S.shutters : null, boarded: hp(S.boarded || .1), bars: S.bars, crack: hp(.3) });
-    for (const [u, w, h, y0 = 0] of doors) { K.at(R.m.clone().multiply(htm(0, y0, 0))); doorAt(K, u, w, h, { col: S.door || 0x6a5a48, frame: S.frame, metal: S.metalDoor, open: y0 > 0 ? hr(.05, .5) : undefined }); }
+    for (const [u, w, h, y0 = 0] of doors) { K.at(R.m.clone().multiply(htm(0, y0, 0))); doorAt(K, u, w, h, { col: S.door || 0x8a8e90, frame: S.frame, metal: true, open: y0 > 0 ? hr(.05, .5) : undefined }); }
+    // portholes where there's wall to spare, and a run of conduit along the top (it came off the Arc with the plate)
+    if (R.side !== 'front' && R.L > 6) { K.at(R.m); for (const u of [R.L * .14, R.L * .86]) if (!holes.some(h => u > h.x0 - .6 && u < h.x1 + .6 && h.y0 < 2.4)) porthole(K, u, 1.85, .3); }
+    if (R.side !== 'front') { K.at(R.m); K.cyl('metal', .045, .045, R.L - .4, 6, R.L / 2, H1 - .35, .09, 0, 0, Math.PI / 2, 0x4a4c4e); }
     // gable / shed fill above the wall top on the sides
     if ((R.side === 'left' || R.side === 'right') && S.roof) {
       K.at(R.m);
       const pitch = S.roof === 'gable' ? .42 : 0, rise = S.roof === 'shed' ? 1.1 : 0;
       for (let u = 0; u < R.L - .02;) { const w = Math.min(R.L - u, kind === 'board' ? hr(.17, .27) : hr(.82, .92)); const c = u + w / 2;
         const zf = R.side === 'right' ? BD / 2 - c : c - BD / 2;                       // where this strip is front-to-back (front = +)
-        const hh = S.roof === 'gable' ? (BD / 2 - Math.abs(zf)) * Math.tan(pitch) : rise * (zf + BD / 2) / BD;
+        const hh = S.roof === 'gable' ? archY(zf) - HT : rise * (zf + BD / 2) / BD;
         if (hh > .05) K.box(kind === 'board' ? 'board' : kind === 'hull' ? 'hull' : 'corr', w - .01, hh, .03, c, HT + hh / 2 - .02, 0, 0, 0, 0, kind === 'board' ? tint(col, .1) : tint(hpick(S.pal || RUST), .1));
         u += w; }
     }
@@ -377,22 +434,25 @@ function raiseHouse(D, S) {
   }
   K.at(null);
   // the ceiling: boards across the joists (the upstairs floor, or under the roof)
-  for (let x = -BW / 2 + .2; x < BW / 2 - .2; x += .24) KI.box('board', .23, .03, BD - .3, x + .12, H1 - .12, 0, 0, 0, 0, tint(S.liner || 0xb8ae9c, .1));
-  for (let z = -BD / 2 + .6; z < BD / 2; z += 1.2) KI.box('board', BW - .3, .14, .09, 0, H1 - .2, z, 0, 0, 0, 0x5a4a3a);
+  // the ceiling: deck plate laid across I-beam joists (the upstairs floor, or under the roof)
+  for (let x = -BW / 2 + .2; x < BW / 2 - .2; x += 1.2) KI.box('hull', 1.19, .03, BD - .3, x + .6, H1 - .12, 0, 0, 0, 0, tint(0x8e908c, .06), 1.6);
+  for (let z = -BD / 2 + .6; z < BD / 2; z += 1.6) KI.box('metal', BW - .3, .16, .1, 0, H1 - .22, z, 0, 0, 0, 0x4a4c4e);
   // ---- the roof ----
   const ov = .55, pal = S.roofPal || RUST;
   const sheet = (x, y, z, w, len, rx, c) => K.box('corr', w, .02, len, x, y, z, rx, 0, hr(-.012, .012), c);
   if (S.roof === 'gable') {
-    const a = .42, half = BD / 2 + ov, len = half / Math.cos(a) + .1, ridge = HT + BD / 2 * Math.tan(a);
-    for (const s of [1, -1]) {
-      const cz = s * half / 2, cy = HT + (BD / 2 - half / 2) * Math.tan(a) + .02;
-      for (let x = -BW / 2 - ov; x < BW / 2 + ov - .1; x += .84) sheet(x + .43, cy + ((x * 7) % 2 > 1 ? .012 : 0), cz, .9, len, s * a, hp(.1) ? tint(0x6a7f96) : tint(hpick(pal), .1));
-      K.box('board', BW + ov * 2 + .1, .2, .05, 0, HT - ov * Math.tan(a) - .1, s * (half + .02), 0, 0, 0, tint(0x5a4a3a));   // fascia
-      // gutter + downpipe at the front corner, into a barrel
-      K.cyl('metal', .09, .09, BW + ov * 2, 8, 0, HT - ov * Math.tan(a) - .17, s * (half + .1), 0, 0, Math.PI / 2, 0x6a6a66, true, 0, Math.PI);
-    }
-    K.box('corr', BW + ov * 2 + .1, .03, .5, 0, ridge + .03, .16, -.42, 0, 0, tint(0x7a7672)); K.box('corr', BW + ov * 2 + .1, .03, .5, 0, ridge + .03, -.16, .42, 0, 0, tint(0x7a7672));
-    S._eave = HT - ov * Math.tan(a) - .17;
+    // the shell: a curved length of hull, its skin wavy where it hit, the station's ribs still on it, end trims and a gutter
+    const half = Math.asin(ACH / 2 / AR), L = BW + ov * 2 + .1, rc = tint(hpick(S.roofPal || [0xd0cec6, 0xbcbab2, 0xc8c4b8]), .05);
+    const sg = new THREE.CylinderGeometry(AR, AR, L, 18, Math.max(2, Math.round(L / 1.2)), true, HP - half, half * 2);
+    { const pa = sg.attributes.position, uv = sg.attributes.uv; for (let i = 0; i < pa.count; i++) { const y = pa.getY(i), x = pa.getX(i), z = pa.getZ(i), k = 1 + (Math.sin(y * 1.7 + x * 2.3) * .012 + Math.sin(y * .6) * .01); pa.setX(i, x * k); pa.setZ(i, z * k); } for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * AR * half * 2 / 2, uv.getY(i) * L / 2); }
+    sg.rotateZ(HP); sg.computeVertexNormals(); K.geo('hull', sg, htm(0, AY0, 0), rc);
+    const ig = sg.clone(); ig.scale(1, .985, .985); K.geo('hull', ig, htm(0, AY0 - .05, 0), tint(0x8a8c8a, .05));     // the underside, so it reads from inside
+    // patches welded on, a stencil, the ribs over the top
+    for (let i = 0; i < 3; i++) { const pz = hr(-BD / 2, BD / 2), px = hr(-BW / 2 + 1, BW / 2 - 1), sl = Math.atan2(-pz, Math.sqrt(AR * AR - pz * pz)); K.box('plate', hr(.8, 1.8), .03, hr(.6, 1.4), px, archY(pz) + .04, pz, -sl, 0, hr(-.1, .1), hpick([0x8a5a3a, 0x7a7e80, 0x9a948a])); }
+    for (let x = -BW / 2 + .6; x < BW / 2; x += hr(2.1, 2.8)) { const rg = new THREE.TorusGeometry(AR + .08, .09, 4, 22, half * 2); rg.rotateZ(HP - half); rg.rotateY(HP); K.geo('metal', rg, htm(x, AY0, 0), tint(0xc8c6be, .05)); K.box('metal', .14, .14, .22, x, archY(0) + .14, 0, 0, 0, 0, 0x6a6e70); }
+    for (const sx of [-1, 1]) { const tg = new THREE.TorusGeometry(AR + .02, .07, 4, 22, half * 2); tg.rotateZ(HP - half); tg.rotateY(HP); K.geo('metal', tg, htm(sx * L / 2, AY0, 0), 0x4a4c4e); }
+    for (const sz of [1, -1]) K.cyl('metal', .09, .09, BW + ov * 2, 8, 0, HT - .06, sz * (ACH / 2 + .06), 0, 0, Math.PI / 2, 0x6a6a66, true, 0, Math.PI);
+    S._eave = HT - .1;
   } else {
     const rise = 1.1, ovF = S.upper ? .6 : 1.6, dz = BD + ov + ovF, a = Math.atan2(rise, BD), len = dz / Math.cos(a) + .1;
     const cz = (ovF - ov) / 2, cy = HT + rise / 2 + (cz / BD) * rise + .04;
@@ -403,17 +463,17 @@ function raiseHouse(D, S) {
     S._eave = HT - ov * rise / BD - .2;
   }
   // a tarp over the leaks, held down with tyres and sandbags
-  if (S.tarp) { const [tx, tz, tw, td] = S.tarp, ty = S.roof === 'gable' ? HT + (BD / 2 - Math.abs(tz)) * Math.tan(.42) + .06 : HT + 1.1 * (tz + BD / 2) / BD + .58;
+  if (S.tarp) { const [tx, tz, tw, td] = S.tarp, ty = S.roof === 'gable' ? archY(tz) + .06 : HT + 1.1 * (tz + BD / 2) / BD + .58;
     const tg = new THREE.PlaneGeometry(tw, td, 6, 6); const pa = tg.attributes.position; for (let i = 0; i < pa.count; i++) pa.setZ(i, (hash(pa.getX(i) * 3, pa.getY(i) * 3) - .5) * .06); tg.computeVertexNormals();
-    K.geo('cloth', tg, htm(tx, ty, tz, -Math.PI / 2 + (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), S.tarpC || 0x3a5a8a);
-    for (let i = 0; i < 3; i++) { const t = new THREE.TorusGeometry(.26, .1, 6, 12); t.rotateX(Math.PI / 2); K.geo('plain', t, htm(tx + hr(-tw / 2.5, tw / 2.5), ty + .1, tz + hr(-td / 3, td / 3), (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), 0x1e1e1e); } }
+    K.geo('cloth', tg, htm(tx, ty, tz, -Math.PI / 2 + (S.roof === 'gable' ? Math.atan2(tz, Math.sqrt(AR * AR - tz * tz)) : .11), 0, 0), S.tarpC || 0x3a5a8a);
+    for (let i = 0; i < 0; i++) { const t = new THREE.TorusGeometry(.26, .1, 6, 12); t.rotateX(Math.PI / 2); K.geo('plain', t, htm(tx + hr(-tw / 2.5, tw / 2.5), ty + .1, tz + hr(-td / 3, td / 3), (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), 0x1e1e1e); } }
   // rain barrel under the back gutter, with its downpipe
   { const bx = H2 ? -BW / 2 + .5 : BW / 2 - .5, bz = -BD / 2 - .55; barrel(K, bx, 0, bz, tint(0x3a4a5a)); K.cyl('metal', .045, .045, S._eave - .9, 6, bx + .1, .9 + (S._eave - .9) / 2, -BD / 2 - .62, 0, 0, 0, 0x6a6a66); }
-  if (S.chim) stovepipe(K, S.chim[0], HT - .2, S.chim[1], (S.roof === 'gable' ? BD / 2 * Math.tan(.42) : 1.1) + 1.4);
+  if (S.chim) stovepipe(K, S.chim[0], HT - .2, S.chim[1], (S.roof === 'gable' ? archY(S.chim[1]) - HT : 1.1) + 1.4);
   // an aerial and a panel or two on the roof
   if (S.aerial) { K.cyl('metal', .025, .03, 3.4, 5, -BW / 2 + .4, HT + 1.6, -BD / 2 + .3, 0, 0, 0, 0x5a5a58); for (let i = 0; i < 4; i++) K.box('metal', .9 - i * .15, .02, .02, -BW / 2 + .4, HT + 2.4 + i * .3, -BD / 2 + .3, 0, .5, 0, 0x5a5a58); }
-  if (S.solar) { const sy = S.roof === 'gable' ? HT + BD / 4 * Math.tan(.42) + .15 : HT + .9, sz = S.roof === 'gable' ? -BD / 4 : -BD * .15;
-    for (const sx of [-BW / 4, 0]) { K.box('hull', 1.6, .05, 1.1, sx, sy, sz, S.roof === 'gable' ? -.42 : -.11, 0, 0, 0x2a3a5a, 1.2); K.box('metal', 1.66, .04, 1.16, sx, sy - .03, sz, S.roof === 'gable' ? -.42 : -.11, 0, 0, 0x8a8a88); } }
+  if (S.solar) { const sz = S.roof === 'gable' ? -BD / 4 : -BD * .15, sy = S.roof === 'gable' ? archY(sz) + .15 : HT + .9, sa = S.roof === 'gable' ? -Math.atan2(-sz, Math.sqrt(AR * AR - sz * sz)) : -.11;
+    for (const sx of [-BW / 4, 0]) { K.box('hull', 1.6, .05, 1.1, sx, sy, sz, sa, 0, 0, 0x2a3a5a, 1.2); K.box('metal', 1.66, .04, 1.16, sx, sy - .03, sz, sa, 0, 0, 0x8a8a88); } }
   // ---- the upstairs: balcony over the shop front, stairs up the back ----
   if (H2) {
     const bd = 1.5, x0 = -BW / 2 + .4, x1 = BW / 2 - .4;
@@ -455,17 +515,20 @@ function raiseHouse(D, S) {
 }
 
 /* ---------- what's inside: the counter, the back wall, the keeper's own corner, and each trade's tools ---------- */
-const HOUSE_STYLE = {
-  craft:   { clad: 'corr', base: 'block', col: 0x9aa0a4, pal: [0x9c9a94, 0x8a8a86, 0xb07850, 0xa88a72], roof: 'shed', front: 'rollup', lean: true, chim: [3.9, 1.4], aerial: true, sign: ['WORKSHOP', 'stencil'], tarp: [-2, -1, 3, 2.6], tarpC: 0x4a5a3a, sideDoor: 'left', frame: 0x4a4644, bars: false, floor: 'conc' },
-  trade:   { clad: 'board', col: 0x6f8a7c, patch: 0xa86a4a, roof: 'gable', upper: true, shutters: 0x5a6a4a, sign: ['TRADING POST', '#c8a050'], frame: 0x4a3c2e, floor: 'board', door: 0x7a5a3a, tarp: [2.5, 2, 3.4, 2.4], tarpC: 0x9a6a2a },
-  med:     { clad: 'board', base: 'block', col: 0xd8d4c6, patch: 0x9aa8b0, roof: 'gable', solar: true, sign: ['CLINIC', '#b8392e'], frame: 0x8a8a84, lean: true, floor: 'board', sideDoor: 'right', shutters: 0xa8b0a8, door: 0xa8aca4 },
-  wear:    { clad: 'board', col: 0x9a6458, patch: 0x6a7a8a, roof: 'gable', upper: true, shutters: 0x4a5a6a, sign: ['OUTFITTER', '#d8c8a8'], frame: 0x4a3c2e, floor: 'board', door: 0x5a6a7a },
-  guns:    { clad: 'hull', base: 'block', col: 0xc0beb6, roof: 'shed', pal: [0x8a8a86, 0x7a7a76, 0x9c9a94], sign: ['GUNSMITH', 'stencil'], frame: 0x3a3836, bars: true, metalDoor: true, boarded: .05, lean: true, aerial: true, floor: 'conc', sideDoor: 'left' },
-  cook:    { clad: 'board', base: 'block', col: 0xa8885e, patch: 0x7a8a6a, roof: 'gable', chim: [-3.3, .5], sign: ['COOKHOUSE', '#e0b060'], frame: 0x4a3c2e, lean: true, floor: 'board', shutters: 0x7a4a32, door: 0x6a4a32, tarp: [-3, -2, 3, 2.2], tarpC: 0x6a7a4a },
-  bunk:    { clad: 'corr', col: 0x7a8a6a, pal: [0x7a8a6a, 0x8a9a7a, 0x9c9a94, 0xb07850], roof: 'gable', upper: true, sign: ['BUNKHOUSE', '#c8c0a8'], frame: 0x4a4644, floor: 'board', door: 0x5a6a4a, solar: true, aerial: true },
-  salvage: { clad: 'corr', col: 0x9a8a7a, pal: [0xb07850, 0x9a6a4a, 0x8a5a3a, 0xa88a72, 0x9c9a94], patch: 0xc0beb6, roof: 'shed', front: 'rollup', lean: true, sign: ['SALVAGE', 'spray'], frame: 0x4a4644, floor: 'conc', tarp: [1, 0, 3.6, 3], tarpC: 0x8a4a2a, sideDoor: 'right' },
+const HOUSE_STYLE = {   // (Nov 11) all of them cut from the Arc: col = the plate's paint, pal = the odd panel from somewhere else on the ship
+  craft:   { clad: 'hull', col: 0x8a9094, pal: [0x6a6e70, 0x9a8a7a, 0xb4b2aa], roof: 'shed', front: 'rollup', lean: true, chim: [3.9, 1.4], aerial: true, sign: ['WORKSHOP', 'stencil'], tarp: [-2, -1, 3, 2.6], tarpC: 0x4a5a3a, sideDoor: 'left', frame: 0x3a3c3e, floor: 'conc', ribC: 0x4a4c4e },
+  trade:   { clad: 'hull', col: 0xa8b4b0, pal: [0xd6d4cc, 0x8a6a52, 0x7a8286], roof: 'gable', upper: true, shutters: 0x6a7a74, sign: ['TRADING POST', 'stencil'], frame: 0x4a4c4e, floor: 'board', ribC: 0xc8c6be },
+  med:     { clad: 'hull', col: 0xdcdad2, pal: [0xc4c2ba, 0xb8c4c8], roof: 'gable', solar: true, sign: ['CLINIC', '#b8392e'], frame: 0x8a8e90, lean: true, floor: 'board', sideDoor: 'right', shutters: 0xa8b0a8, door: 0xc8ccc8, ribC: 0xd8d6ce },
+  wear:    { clad: 'hull', col: 0x7a8a9a, pal: [0x9a8a7a, 0xc4c2ba, 0x6a6e70], roof: 'gable', upper: true, shutters: 0x4a5a6a, sign: ['OUTFITTER', 'stencil'], frame: 0x3a3c3e, floor: 'board', door: 0x5a6a7a, ribC: 0x55585a },
+  guns:    { clad: 'hull', col: 0x6a7068, pal: [0x5a5e60, 0x7a7a76, 0x8a6a52], roof: 'shed', sign: ['GUNSMITH', 'stencil'], frame: 0x2e3032, bars: true, boarded: .05, lean: true, aerial: true, floor: 'conc', sideDoor: 'left', ribC: 0x3a3c3e },
+  cook:    { clad: 'hull', col: 0xc4bcae, pal: [0x9a8a7a, 0xd6d4cc, 0x8a6a52], roof: 'gable', chim: [-3.3, .5], sign: ['COOKHOUSE', 'stencil'], frame: 0x4a4c4e, lean: true, floor: 'board', shutters: 0x7a6a5a, door: 0x8a7a6a, tarp: [-3, -2, 3, 2.2], tarpC: 0x6a7a4a, ribC: 0xc8c6be },
+  bunk:    { clad: 'hull', col: 0xb4b2aa, pal: [0x7a8a7a, 0xc4c2ba, 0x9a8a7a], roof: 'gable', upper: true, sign: ['BUNKHOUSE', 'stencil'], frame: 0x4a4c4e, floor: 'board', door: 0x6a7a6a, solar: true, aerial: true, ribC: 0xd0cec6 },
+  salvage: { clad: 'hull', col: 0x8a6a52, pal: [0x9a8a7a, 0x6a6e70, 0xb4b2aa, 0x7a4a32], roof: 'shed', front: 'rollup', lean: true, sign: ['SALVAGE', 'spray'], frame: 0x3a3c3e, floor: 'conc', tarp: [1, 0, 3.6, 3], tarpC: 0x8a4a2a, sideDoor: 'right', ribC: 0x4a4c4e },
+  ammo:    { clad: 'hull', col: 0x6e6a52, pal: [0x5a5e60, 0x7a6a3a, 0x8a8e90], roof: 'gable', sign: ['MUNITIONS', 'stencil'], frame: 0x2e3032, bars: true, floor: 'conc', sideDoor: 'right', aerial: true, ribC: 0x3a3c3e, roofPal: [0x8a8a7a, 0x7a7c70] },
+  store:   { clad: 'hull', col: 0x9a948a, pal: [0xc4c2ba, 0x7a8286], roof: 'gable', sign: ['STOREHOUSE', 'stencil'], frame: 0x3a3c3e, floor: 'conc', ribC: 0xc8c6be, lean: true },
+  depot:   { clad: 'hull', col: 0x7a8286, pal: [0x6a6e70, 0x9a8a7a, 0xd6d4cc], roof: 'shed', front: 'rollup', sign: ['DEPOT', 'stencil'], frame: 0x3a3c3e, floor: 'conc', ribC: 0x4a4c4e, sideDoor: 'left', aerial: true },
 };
-const STOCK_COL = { cook: [0x8a3a2a, 0x7a6a4a, 0xc8a050, 0x5a7a3a], craft: [0x6d7276, 0x9a6040, 0x8a8c8c, 0x3a5a7a], trade: [0x7a5a3e, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a, 0xa87a4a],
+const STOCK_COL = { ammo: [0x4f5a3a, 0x6a5a3a, 0x3a3a3a, 0x8a6a2a], store: [0x8a7a5a, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a], depot: [0x6d7276, 0x8a8c8c, 0x3a5a7a, 0x9a6040], cook: [0x8a3a2a, 0x7a6a4a, 0xc8a050, 0x5a7a3a], craft: [0x6d7276, 0x9a6040, 0x8a8c8c, 0x3a5a7a], trade: [0x7a5a3e, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a, 0xa87a4a],
   med: [0xd8d8d0, 0xc04040, 0x8ab0c8, 0xe0e0d8], guns: [0x2e3424, 0x4f5a3a, 0x3a3a3a, 0x6a5a3a], wear: [0x6a4a32, 0x5a6a7a, 0x8a7a5a, 0x7a3a3a, 0x3a4a5a], bunk: [0x6a7a5a, 0x8a8a80, 0x5a6a7a], salvage: [0x8a8c8c, 0x9a6040, 0x6d7276, 0xb0905a] };
 
 function shopHouse(D) {
@@ -615,6 +678,47 @@ function shopHouse(D) {
       K.box('metal', 1.9, .14, .14, ax, 2.98, az, 0, 0, 0, 0x6a5a3a); for (let k = 0; k < 14; k++) { const t = new THREE.TorusGeometry(.03, .01, 4, 6); K.geo('metal', t, htm(ax, 2.85 - k * .07, az, 0, k % 2 ? Math.PI / 2 : 0, 0), 0x3a3836); } K.box('metal', .14, .2, .1, ax, 1.8, az, 0, 0, 0, 0x3a3836); }
     hput(inner, hmodel('props/pipes', 2.2, 'x'), -BW / 2 + .6, 1.6, -1.6, Math.PI / 2);
     for (let i = 0; i < 6; i++) K.box('hull', 1.6, 1.1, .05, 1 + i * .06, .55, -BD / 2 + .5 + i * .1, -.15, 0, 0, tint(0xc0beb6, .06), 2);
+  } else if (id === 'ammo') {
+    // (Nov 11) the munitions shed: the powder bench (the station) with a reloading press, scales and trays of brass; racks of
+    // ammo crates down the back, explosive drums and gas behind a sandbag wall, frags in an open crate, a red lamp over the door
+    K.box('metal', 1.3, .06, 2.6, sx, .95, sz, 0, 0, 0, 0x5a5e60); K.box('metal', 1.2, .9, 2.4, sx, .45, sz, 0, 0, 0, 0x3a3e40);
+    K.cyl('metal', .06, .08, .45, 8, sx - .3, 1.2, sz - .8, 0, 0, 0, 0x2a2c2e); K.box('metal', .3, .08, .25, sx - .3, 1.45, sz - .8, 0, 0, 0, 0x2a2c2e); K.cyl('metal', .015, .015, .4, 4, sx - .1, 1.45, sz - .8, 0, 0, HP, 0x8a8e90);
+    for (let i = 0; i < 24; i++) K.cyl('shiny', .012, .012, .06, 6, sx + .1 + (i % 6) * .05, 1.01, sz - .2 + Math.floor(i / 6) * .05, 0, 0, 0, 0xc8a050);
+    for (let i = 0; i < 4; i++) K.cyl('metal', .08, .08, .22, 10, sx + .4, 1.09, sz + .3 + i * .22, 0, 0, 0, hpick([0x2a2a28, 0x6a2a22, 0x3a4a2a]));
+    K.cyl('shiny', .14, .14, .02, 12, sx - .3, 1.0, sz + .7, 0, 0, 0, 0x9a8a5a);
+    // racks of ammo crates along the back wall
+    for (const rx of [-3.6, -1.2, 1.2]) { for (const y of [.05, .75, 1.45]) K.box('metal', 2.1, .05, .7, rx, y, -BD / 2 + .6, 0, 0, 0, 0x4a4c4e); for (const ex of [-1.02, 1.02]) K.box('metal', .06, 2.1, .7, rx + ex, 1.05, -BD / 2 + .6, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .8, 1.5]) for (let k = 0; k < 3; k++) { if (hp(.2)) continue; if (MODELS['ammo-crate']) { const c = modelCopy('ammo-crate', .32); c.position.set(rx - .65 + k * .65, y, -BD / 2 + .62); c.rotation.y = hr(-.15, .15); inner.add(c); c.traverse(o => { if (o.isMesh) o.castShadow = false; }); } else crate(K, rx - .65 + k * .65, y, -BD / 2 + .62, 0, .9, 0x4f5a3a); } }
+    // explosive drums behind sandbags in the far corner, and the gas
+    for (const [x, z] of [[4.2, -2.6], [4.9, -2.1], [4.4, -1.6], [5.1, -2.9]]) { barrel(K, x, 0, z, 0x8a2a22); K.box('plain', .45, .12, .01, x, .55, z + .3, 0, 0, 0, 0xd9a32a); }
+    for (let i = 0; i < 5; i++) { const sg = new THREE.BoxGeometry(.7, .26, .4); K.geo('cloth', sg, htm(3.2 + i * .62, .14 + (i % 2) * .26 * 0, -1.0, 0, hr(-.08, .08), 0), tint(0x8a7e5a)); K.geo('cloth', new THREE.BoxGeometry(.7, .26, .4), htm(3.5 + i * .5, .4, -1.0, 0, hr(-.08, .08), 0), tint(0x8a7e5a)); }
+    // frags in an open crate, a box of molotovs (bottles and rag) by the counter
+    crate(K, 2.6, .22, 1.9, .2, 1.1, 0x4f5a3a); for (let i = 0; i < 8; i++) { const g2 = new THREE.SphereGeometry(.05, 7, 5); g2.scale(1, 1.3, 1); K.geo('plain', g2, htm(2.45 + (i % 4) * .1, .72, 1.82 + Math.floor(i / 4) * .12), 0x3a4a2a); }
+    bottleRow(K, 3.4, 3.9, .22, 2.2);
+    // a red lamp over the door, a hazard band on the floor inside the front, NO FLAME on the wall
+    K.box('glow', .22, .16, .12, 0, Hs.H1 + .3, BD / 2 + .1, 0, 0, 0, 0xff2a1a);
+    for (let k = 0; k < 14; k++) K.box('plain', .3, .006, .22, -2.6 + k * .4, .25, BD / 2 - .5, 0, .6, 0, k % 2 ? 0x1e1e1e : 0xd9a32a);
+    stencil(K, 3, 1.4, .7, BW / 2 - .16, 2.1, -1.2, -HP); stencil(K, 3, 1.4, .7, -BW / 2 + .16, 2.1, -1.2, HP);
+    // outside: blast walls either side and sandbags across the front
+    for (let i = 0; i < 9; i++) { const x = -4.6 + (i % 5) * 1.15 + (i > 4 ? .55 : 0), y = .2 + (i > 4 ? .3 : 0), z = BD / 2 + 1.3; const sg = new THREE.BoxGeometry(1.05, .3, .5); K.geo('cloth', sg, htm(x - (x > -1.6 && x < 1.6 ? 0 : 0), y, z, 0, hr(-.05, .05), 0), tint(0x8a7e5a)); }
+    for (const sd of [-1, 1]) { const bw = hmodel('props/barrier', 3.4); if (bw) { bw.position.set(sd * (BW / 2 + 1.1), 0, .5); bw.rotation.y = HP; inner.add(bw); } const w = shopL2W(D, sd * (BW / 2 + 1.1), .5), w0 = shopL2W(D, sd * (BW / 2 + 1.1), -3.2), w1 = shopL2W(D, sd * (BW / 2 + 1.1), 4.2); addColLine(w0.x, w0.z, w1.x, w1.z, .6); }
+    const w = shopL2W(D, 4.5, -2.3); addCol(w.x, w.z, 1);
+  } else if (id === 'store') {
+    // the Storehouse: steel racks of crates, sacks and drums floor to ceiling, a tally board, a hand truck
+    for (const [rz, n] of [[-BD / 2 + .55, 3], [-.6, 2]]) for (let k = 0; k < n; k++) { const rx = -BW / 2 + 1.6 + k * 2.3;
+      for (const y of [.05, .9, 1.75]) K.box('metal', 2.1, .05, .8, rx, y, rz, 0, 0, 0, 0x4a4c4e); for (const ex of [-1.02, 1.02]) K.box('metal', .06, 2.5, .8, rx + ex, 1.25, rz, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .95, 1.8]) for (let j = 0; j < 3; j++) { const r = hrnd(); if (r < .45) crate(K, rx - .65 + j * .65, y, rz, hr(-.1, .1), .9); else if (r < .75) sack(K, rx - .65 + j * .65, y, rz, .8); else barrel(K, rx - .65 + j * .65, y, rz, tint(hpick(stuff)), .7); }
+      const c0 = shopL2W(D, rx - 1, rz), c1 = shopL2W(D, rx + 1, rz); addColLine(c0.x, c0.z, c1.x, c1.z, .5); }
+    K.box('plate', 1.2, .9, .03, BW / 2 - .1, 1.6, 1.5, 0, -HP, 0, 0x3a3e3a); for (let k = 0; k < 5; k++) K.box('plain', .8, .01, .02, BW / 2 - .13, 1.85 - k * .12, 1.5, 0, -HP, 0, 0xd8d4c8);
+    K.box('metal', .5, .05, .4, 2, .12, 2.3, 0, .4, 0, 0x8a2a22); K.box('metal', .05, 1.1, .05, 2, .6, 2.1, .2, .4, 0, 0x8a2a22);
+  } else if (id === 'depot') {
+    // the Depot: the station's own lockers, a server rack and a terminal still taking power, fuel cells on charge, a pallet of plate
+    npInst(inner, 'locker', [-3.6, -2.84, -2.08, -1.32].map(x => [x, .22, -BD / 2 + .5, 0, 1]), false); { const c0 = shopL2W(D, -4, -BD / 2 + .5), c1 = shopL2W(D, -1, -BD / 2 + .5); addColLine(c0.x, c0.z, c1.x, c1.z, .5); }
+    npInst(inner, 'server-rack', [[1.2, .22, -BD / 2 + .6, 0]], false); npInst(inner, 'wall-4', [[3.6, .22, -BD / 2 + .3, 0]], false);
+    npInst(inner, 'computer-console', [[BW / 2 - 1.1, .22, .6, -HP, .8]], false); { const c = shopL2W(D, BW / 2 - 1.1, .6); addCol(c.x, c.z, .6); }
+    npInst(inner, 'fuel-cell', [[-3.6, .22, 1.8], [-3, .22, 2.2, .8], [-3.3, .22, 1.2, 2]], false); npInst(inner, 'gas-bottle', [[-BW / 2 + .45, .22, -1.2], [-BW / 2 + .45, .22, -.7, 1]], false);
+    for (let k = 0; k < 6; k++) K.box('hull', 1.6, .04, 1.1, .6, .3 + k * .05, 1.6, 0, hr(-.1, .1), 0, tint(hpick(SHIPC), .05), 2); K.box('plate', 1.4, .14, 1.2, .6, .2, 1.6, 0, 0, 0, 0x7a6a50);
+    { const c = shopL2W(D, .6, 1.6); addCol(c.x, c.z, .8); }
   }
   dressShop(D, K, inner, Hs);                       // (Nov 10) Bryce's props: the wood stove, gas bottles, medkits, radios
   // collision: back + side walls, counter, the side station (as before), and the side door gaps left open
@@ -636,7 +740,7 @@ function wireBetween(K, a, b, sag = .5, col = 0x1e1e1e, r = .012) {
 }
 function buildYard() {
   const g = new THREE.Group(); g.position.set(0, H0, 0); world.add(g);
-  const K = hkit(LOW);
+  const K = shipKit(hkit(LOW));
   // the power yard: Bryce's substation inside a fence, the genset beside it, a pole line out to the buildings
   const PX = 24, PZ = -8;
   const sub = hmodel('props/substation', 2.9); if (sub) { sub.position.set(PX, 0, PZ); sub.rotation.y = -Math.PI / 2; g.add(sub); }
@@ -654,33 +758,33 @@ function buildYard() {
     for (let i = 0; i < 6; i++) K.box('metal', .02, .7, .9, gx + .3 + i * .12, .78, gz + .57, 0, 0, 0, 0x2a2a28); K.cyl('metal', .07, .07, 1.4, 8, gx + .8, 1.9, gz - .3, 0, 0, 0, 0x3a3634); K.cyl('metal', .1, .07, .2, 8, gx + .8, 2.65, gz - .3, .4, 0, 0, 0x2a2826);
     barrel(K, gx - 1.8, 0, gz + .3, 0xa83a2a); K.box('metal', .35, .45, .18, gx - 1.7, .23, gz - .5, 0, .4, 0, 0x7a2a22); addCol(gx, gz, 1.3); }
   // poles: from the yard down Arc Row and up Main Street, wires to each building's eave
-  const poles = [[PX - 3.2, PZ + 3], [10, -13], [-6, -13], [-24, -13], [-38, -6], [6, 6], [6, 26], [30, 16], [40, 16], [-6, 26], [-25, 26.5]];
+  const poles = [[PX - 3.2, PZ + 3], [10, -14], [-8, -14.5], [-24, -13], [-40, -4], [5, 4], [5, 24], [5.5, 40], [-5, 44], [-5, 26], [-20, 2], [30, 20], [46, 21], [60, 19], [76, 13], [54, 32], [-46, 12]];
   const tops = [];
   for (const [x, z] of poles) { const h = 6.2; K.cyl('board', .11, .14, h, 7, x, h / 2, z, hr(-.02, .02), 0, hr(-.02, .02), tint(0x6a5a46)); K.box('board', 1.4, .1, .1, x, h - .3, z, 0, hr(0, 3), 0, 0x5a4a3a);
     for (const s of [-.5, .5]) K.cyl('plain', .04, .05, .12, 6, x + s, h - .2, z, 0, 0, 0, 0xb8b0a0); addCol(x, z, .25); tops.push(new THREE.Vector3(x, h - .15, z)); }
-  const chain = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 9], [9, 10], [0, 7], [7, 8]];
+  const chain = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 16], [16, 10], [0, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [0, 11], [11, 12], [12, 13], [13, 14], [12, 15]];
   for (const [a, b] of chain) wireBetween(K, tops[a], tops[b], .6);
-  const toHouse = { craft: 2, trade: 10, med: 4, wear: 10, guns: 9, cook: 6, bunk: 8, salvage: 7 };
+  const toHouse = { craft: 3, trade: 9, med: 16, wear: 9, guns: 8, cook: 7, bunk: 6, salvage: 12, ammo: 14, depot: 15, store: 4 };
   for (const D of SHOP_DEFS) { const t = tops[toHouse[D.id]]; if (!t) continue; const e = shopL2W(D, D.bw / 2 - .3, D.bd / 2); wireBetween(K, t, new THREE.Vector3(e.x, (HOUSE_STYLE[D.id].upper ? 5.9 : 3.3), e.z), .4); }
-  // string lights over the commons walk (warm after dark)
-  { const pts = [[6, 2.5], [14, 1.5], [22, 2.5], [30, 1.5], [38, 2.5]];
-    for (const [x, z] of pts) { K.cyl('board', .06, .07, 4, 6, x, 2, z + (z > 2 ? 1.6 : -1.6), 0, 0, 0, 0x5a4a3a); addCol(x, z + (z > 2 ? 1.6 : -1.6), .15); }
-    for (let i = 0; i < pts.length - 1; i++) { const a = new THREE.Vector3(pts[i][0], 3.9, pts[i][1] + (pts[i][1] > 2 ? 1.6 : -1.6)), b = new THREE.Vector3(pts[i + 1][0], 3.9, pts[i + 1][1] + (pts[i + 1][1] > 2 ? 1.6 : -1.6));
+  // string lights round the commons fire (warm after dark)
+  { const pts = [[15.5, 11.5], [19, 3.5], [27.5, 2.5], [31.5, 9.5], [27, 12.6]];
+    for (const [x, z] of pts) { K.cyl('metal', .06, .07, 4, 6, x, 2, z, 0, 0, 0, 0x4a4c4e); addCol(x, z, .15); }
+    for (let i = 0; i < pts.length; i++) { const p0 = pts[i], p1 = pts[(i + 1) % pts.length], a = new THREE.Vector3(p0[0], 3.9, p0[1]), b = new THREE.Vector3(p1[0], 3.9, p1[1]);
       wireBetween(K, a, b, .45, 0x2a2a28, .008);
       for (let k = 1; k < 8; k++) { const t = k / 8; K.box('win', .07, .1, .07, lerp(a.x, b.x, t), lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * .45 - .07, lerp(a.z, b.z, t)); } } }
   // the notice board inside the gate: a roofed board of notices, a bench, a bucket of sand
-  { const nx = 7, nz = 50, ry = -Math.PI / 2; const m = htm(nx, 0, nz, 0, ry, 0);
+  { const nx = 7.5, nz = 58, ry = -Math.PI / 2; const m = htm(nx, 0, nz, 0, ry, 0);
     K.at(m); for (const s of [-1, 1]) K.box('board', .12, 2.6, .12, s * 1.3, 1.3, 0, 0, 0, 0, 0x5a4a3a); K.box('board', 2.8, 1.5, .06, 0, 1.6, 0, 0, 0, 0, 0x8a7a5a);
     K.box('corr', 3.1, .03, .8, 0, 2.65, .1, .25, 0, 0, 0x9a6a4a);
     for (let i = 0; i < 9; i++) K.poster(i % 8, hr(.3, .5), hr(.38, .55), -1.1 + (i % 5) * .55 + hr(-.05, .05), 1.25 + Math.floor(i / 5) * .62 + hr(-.05, .05), .04, 0, hr(-.08, .08));
     K.box('board', 1.8, .06, .4, 0, .48, 1.4, 0, 0, 0, 0x7a6650); for (const s of [-1, 1]) K.box('board', .06, .46, .36, s * .8, .23, 1.4, 0, 0, 0, 0x5a4636);
     K.at(null); addColLine(nx, nz - 1.4, nx, nz + 1.4, .3); }
   // planters of herbs along the streets, a cart, a ladder against a wall
-  for (const [x, z, r] of [[-5.5, 30, 0], [5.5, 14, 0], [-5.5, 44, 0], [5.5, 40, 0], [-27, 8, Math.PI / 2], [9, 26, 0]]) {
+  for (const [x, z, r] of [[-5.6, 39.6, .05], [5.8, 33, -.04], [-5.5, 56, 0], [-16, 1.6, .1], [57, 21.5, .5], [-31, 1.8, -.08]]) {
     K.box('board', 2.2, .45, .7, x, .23, z, 0, r, 0, tint(0x6a5038)); K.box('plain', 2.1, .05, .6, x, .44, z, 0, r, 0, 0x3a2e22);
     for (let i = 0; i < 7; i++) { const p = new THREE.Vector3(-.9 + i * .3, 0, hr(-.15, .15)).applyAxisAngle(new THREE.Vector3(0, 1, 0), r); const pg = new THREE.SphereGeometry(hr(.1, .18), 6, 4); pg.scale(1, hr(.8, 1.6), 1); K.geo('plain', pg, htm(x + p.x, .55, z + p.z), tint(hpick([0x4a6a32, 0x5a7a3a, 0x6a7a3a]))); }
     addCol(x, z, .9); }
-  { const cx = -8, cz = 18; K.box('board', 1.2, .08, 2, cx, .62, cz, 0, .3, 0, 0x7a6650); for (const s of [-1, 1]) { K.box('board', .06, .35, 2, cx + s * .58 * Math.cos(.3), .78, cz - s * .58 * Math.sin(.3), 0, .3, 0, 0x6a5440); const w = new THREE.TorusGeometry(.38, .05, 6, 14); K.geo('board', w, htm(cx + s * .66 * Math.cos(.3), .38, cz - s * .66 * Math.sin(.3), 0, .3 + Math.PI / 2, 0), 0x4a3a2a); }
+  { const cx = -44, cz = -2; K.box('board', 1.2, .08, 2, cx, .62, cz, 0, .3, 0, 0x7a6650); for (const s of [-1, 1]) { K.box('board', .06, .35, 2, cx + s * .58 * Math.cos(.3), .78, cz - s * .58 * Math.sin(.3), 0, .3, 0, 0x6a5440); const w = new THREE.TorusGeometry(.38, .05, 6, 14); K.geo('board', w, htm(cx + s * .66 * Math.cos(.3), .38, cz - s * .66 * Math.sin(.3), 0, .3 + Math.PI / 2, 0), 0x4a3a2a); }
     K.box('board', .06, .06, 1.4, cx - .5, .5, cz + 1.4, .5, .3, 0, 0x5a4636); sack(K, cx, .66, cz - .3); sack(K, cx + .2, .66, cz + .4); addCol(cx, cz, 1.1); }
   K.build(g);
   // blast walls outside the gate: Bryce's concrete barrier sections, either side of the road, razor wire on top
@@ -697,11 +801,11 @@ function buildYard() {
 /* ---------- the gatehouse: two block towers either side of the gate, a covered walk across the top ---------- */
 function buildGatehouse() {
   const gz = CAMP_R, gy = heightAt(0, gz);
-  const g = new THREE.Group(); g.position.set(0, gy, gz); world.add(g); const K = hkit(LOW);
+  const g = new THREE.Group(); g.position.set(0, gy, gz); world.add(g); const K = shipKit(hkit(LOW));
   for (const s of [-1, 1]) {
     const x = s * (GATE_X + 3.2);
     K.at(htm(x, 0, 0));
-    K.box('block', 5, 4.2, 6, 0, 2.1, 0, 0, 0, 0, 0xd0cabe, 1.6);                                     // block base
+    cladRun(K.at(htm(x - 2.5, 0, 3)), 5, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x + 2.5, 0, -3, 0, Math.PI, 0)), 5, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x + 2.5, 0, 3, 0, HP, 0)), 6, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x - 2.5, 0, -3, 0, -HP, 0)), 6, 4.2, 'hull', { col: 0x9a9890 }); K.at(htm(x, 0, 0)); K.box('plate', 4.9, .2, 5.9, 0, 4.1, 0, 0, 0, 0, 0x6a6c6a);                                     // block base
     for (const z of [-3.02, 3.02]) { K.box('metal', 1.4, .14, .08, 0, 2.6, z, 0, 0, 0, 0x2a2a28); K.box('win', 1.2, .12, .02, 0, 2.6, z * .995); }   // firing slits
     // the guard room on top: salvaged hull plate on all four sides, a slot window on each
     for (const [wx, wz, wr, L] of [[2.5, -3, Math.PI, 5], [2.5, 3, Math.PI / 2, 6], [-2.5, -3, -Math.PI / 2, 6], [-2.5, 3, 0, 5]])
@@ -731,17 +835,17 @@ function buildGatehouse() {
 function towerKit(t) {
   const K = hkit(LOW);
   const leg = [[-1.35, -1.35], [1.35, -1.35], [-1.35, 1.35], [1.35, 1.35]];
-  for (const [x, z] of leg) K.cyl('board', .13, .16, 8.2, 7, x * 1.04, 4.05, z * 1.04, z * -.02, 0, x * .02, tint(0x6a5a46));
+  for (const [x, z] of leg) K.cyl('metal', .13, .16, 8.2, 7, x * 1.04, 4.05, z * 1.04, z * -.02, 0, x * .02, tint(0x6e7072));
   for (let y = 1; y < 8; y += 2.4) for (const [a, b] of [[0, 1], [1, 3], [3, 2], [2, 0]]) { const [ax, az] = leg[a], [bx, bz] = leg[b], L = Math.hypot(bx - ax, bz - az);
-    const yaw = Math.atan2(-(bz - az), bx - ax); K.box('board', L, .1, .1, (ax + bx) / 2, y, (az + bz) / 2, 0, yaw, 0, 0x5a4a3a);
-    K.box('board', Math.hypot(L, 2.4), .08, .08, (ax + bx) / 2, y + 1.2, (az + bz) / 2, 0, yaw, Math.atan2(2.4, L) * (y % 2 > 1 ? 1 : -1), 0x5a4a3a); }
-  for (let x = -1.75; x < 1.75; x += .22) K.box('board', .21, .07, 3.6, x + .11, 8, 0, 0, 0, 0, tint(0x7a6a56, .1));
+    const yaw = Math.atan2(-(bz - az), bx - ax); K.box('metal', L, .1, .1, (ax + bx) / 2, y, (az + bz) / 2, 0, yaw, 0, 0x4a4c4e);
+    K.box('metal', Math.hypot(L, 2.4), .08, .08, (ax + bx) / 2, y + 1.2, (az + bz) / 2, 0, yaw, Math.atan2(2.4, L) * (y % 2 > 1 ? 1 : -1), 0x4a4c4e); }
+  for (let x = -1.75; x < 1.75; x += .22) K.box('metal', .21, .07, 3.6, x + .11, 8, 0, 0, 0, 0, tint(0x7a7c78, .08));
   for (const [x, z, w, d] of [[0, 1.7, 3.6, .3], [-1.7, 0, .3, 3.6], [1.7, 0, .3, 3.6]]) for (let i = 0; i < Math.round(Math.max(w, d) / .6); i++) { const sg = new THREE.BoxGeometry(w > d ? .62 : .42, .26, w > d ? .42 : .62);
     const sg2 = sg.clone(); K.geo('cloth', sg, htm(w > d ? -1.5 + i * .6 : x, 8.2, w > d ? z : -1.5 + i * .6, 0, hr(-.06, .06), 0), tint(0x8a7e5a)); K.geo('cloth', sg2, htm(w > d ? -1.2 + i * .6 : x, 8.45, w > d ? z : -1.2 + i * .6, 0, hr(-.06, .06), 0), tint(0x8a7e5a)); }
-  for (const [px, pz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) K.box('board', .12, 3, .12, px, 9.6, pz, 0, 0, 0, 0x5a4a3a);
-  for (let x = -2.1; x < 2.1; x += .84) K.box('corr', .9, .02, 4.4, x + .42, 11.15, 0, .12, 0, hr(-.01, .01), tint(hpick(RUST), .1));
-  K.box('board', .08, 8, .08, -.4, 4, -1.45, 0, 0, 0, 0x6a5440); K.box('board', .08, 8, .08, .4, 4, -1.45, 0, 0, 0, 0x6a5440);
-  for (let k = 0; k < 10; k++) K.box('board', .8, .07, .07, 0, .4 + k * .8, -1.45, 0, 0, 0, 0x7d6448);
+  for (const [px, pz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) K.box('metal', .12, 3, .12, px, 9.6, pz, 0, 0, 0, 0x4a4c4e);
+  for (let x = -2.1; x < 2.1; x += .84) K.box('hull', .9, .02, 4.4, x + .42, 11.15, 0, .12, 0, hr(-.01, .01), tint(hpick([0xc8c6be, 0xb0aea6, 0x9a948a]), .06));
+  K.box('metal', .08, 8, .08, -.4, 4, -1.45, 0, 0, 0, 0x55585a); K.box('metal', .08, 8, .08, .4, 4, -1.45, 0, 0, 0, 0x55585a);
+  for (let k = 0; k < 10; k++) K.box('metal', .8, .07, .07, 0, .4 + k * .8, -1.45, 0, 0, 0, 0x6a6c6e);
   K.box('metal', .25, .2, .2, -1.6, 10.6, 1.6, 0, 0, 0, 0x2a2a2a);
   K.build(t);
 }

@@ -84,6 +84,28 @@ const HALF = 2400;                          // half-size of the terrain square
 const IN_HALF = 800;                        // the fine heightmap covers the valley; the outlands use a coarser one
 const CAMP_R = 64;
 const GATE_HALF = 4.7 / CAMP_R;
+/* (Nov 11) Kestrel's wall isn't a circle any more: it was put up a stretch at a time, so it runs in straight, uneven lengths
+   round whatever the settlers needed — tight behind the Arc and to the west, and out a long way to the east, where the
+   workshops, salvage and the munitions shed spread. CAMP_R is still the gate's distance (the wall crosses the road square
+   at z = 64); wallR(a) is the wall's distance at angle a (x = sin a, z = cos a, as everywhere else), campD(x, z) is "how far
+   out" a point is, scaled so the wall sits at CAMP_R in every direction: compare it with CAMP_R where you'd have compared
+   Math.hypot(x, z). */
+const WALL_PTS = [[8, 64], [28, 61], [50, 55], [72, 42], [90, 22], [96, -2], [90, -26], [70, -44], [46, -57], [20, -65], [-10, -67], [-36, -62], [-55, -46], [-64, -20], [-63, 8], [-56, 34], [-36, 55], [-8, 64]]
+  .map(([x, z]) => ({ x, z, a: (Math.atan2(x, z) + Math.PI * 2) % (Math.PI * 2) }));
+const CAMP_RMAX = 97;
+const WALL_LUT = (() => {
+  const N = 1440, L = new Float32Array(N + 1), P = WALL_PTS, n = P.length;
+  for (let k = 0; k <= N; k++) {
+    const a = k / N * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a); let r = CAMP_R;
+    for (let i = 0; i < n; i++) { const A = P[i], B = P[(i + 1) % n], ex = B.x - A.x, ez = B.z - A.z, den = dx * ez - dz * ex; if (Math.abs(den) < 1e-9) continue;
+      const t = (A.x * ez - A.z * ex) / den, s = (A.x * dz - A.z * dx) / den; if (t > 0 && s >= -1e-6 && s <= 1 + 1e-6) { r = t; break; } }
+    L[k] = r;
+  }
+  return L;
+})();
+function wallR(a) { const N = WALL_LUT.length - 1; let u = (a / (Math.PI * 2)) % 1; if (u < 0) u += 1; const f = u * N, i = Math.floor(f); return WALL_LUT[i] + (WALL_LUT[Math.min(N, i + 1)] - WALL_LUT[i]) * (f - i); }
+const campD = (x, z) => Math.hypot(x, z) * CAMP_R / wallR(Math.atan2(x, z));
+const wallPt = (a, off = 0) => { const r = wallR(a) + off; return { x: Math.sin(a) * r, z: Math.cos(a) * r }; };
 const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14;
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
@@ -285,6 +307,7 @@ function waterAt(x, z) {                   // water surface at (x,z), or -1e9 wh
 }
 function prepFlats() {
   addFlat(0, 0, 80, 118);
+  { const H = FLATS[FLATS.length - 1].h; addFlat(52, -2, 58, 92, H); }      // (Nov 11) the east side of Kestrel, level with the rest
   addFlat(POI.village.x, POI.village.z, 22, 40);
   addFlat(POI.pod.x, POI.pod.z, 8, 22);
   addFlat(POI.vault.x, POI.vault.z + 12, 10, 22);
@@ -682,7 +705,7 @@ function terrainColor(x, z, h, sl, out) {
   out.lerp(TC.snow, smooth(snowL, snowL + 28 + snowL * .08, h + fbm(x * .05, z * .05) * (14 + snowL * .1)) * (1 - smooth(1.2, 1.8, sl) * (snowL > 200 ? .8 : .5)));
   const w = waterAt(x, z); if (w > -1e8) out.lerp(TC.sand, (1 - smooth(.2, 2.2, h - w)) * .85);
   const pd = pathDist(x, z); out.lerp(TC.dirt, (1 - smooth(1.8, 4.2, pd)) * .9);
-  const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(CAMP_R - 14, CAMP_R + 6, cd)) * .55); if (cd < CAMP_R + 4) out.lerp(TC.dirt, (1 - smooth(-.5, 3, streetDist(x, z))) * .8);
+  const cd = campD(x, z); out.lerp(TC.mud, (1 - smooth(CAMP_R - 14, CAMP_R + 6, cd)) * .55); if (cd < CAMP_R + 4) out.lerp(TC.dirt, (1 - smooth(-.5, 3, streetDist(x, z))) * .8);
   for (const p of [POI.village, POI.ashmere]) { const vd = Math.hypot(x - p.x, z - p.z); out.lerp(TC.dirt, (1 - smooth(14, 30, vd)) * .7); }
   const hd = Math.hypot(x - POI.halvard.x, z - POI.halvard.z); if (hd < 90) { const gx = Math.abs(((x - POI.halvard.x) % 26 + 26) % 26 - 13), gz = Math.abs(((z - POI.halvard.z) % 26 + 26) % 26 - 13); if (Math.min(gx, gz) > 9.5 && hd < 75) out.lerp(TC.street, .8); }
   const cd2 = Math.hypot(x - CITY.x, z - CITY.z);
@@ -888,6 +911,7 @@ async function buildForest() {
     const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
     if (pathDist(x, z) < 3 || Math.hypot(x, z) < CAMP_R + 2 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
+    if (campD(x, z) < CAMP_R + 2) { dummy.scale.set(0, 0, 0); dummy.updateMatrix(); ferns.setMatrixAt(i, dummy.matrix); continue; }   // (Nov 11) not inside the new east side
     ferns.setMatrixAt(i, dummy.matrix); addRes('fern', x, z, s);
   }
   ferns.receiveShadow = true; world.add(ferns);
@@ -998,7 +1022,7 @@ function updGrass(px, pz) {
     const hx = hash(Math.round(gx / step), Math.round(gz / step)), hz = hash(Math.round(gz / step) + 7, Math.round(gx / step));
     const x = gx + (hx - .5) * step, z = gz + (hz - .5) * step;
     const dd = (x - px) ** 2 + (z - pz) ** 2; if (dd > R * R) continue;
-    const cd = Math.hypot(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
+    const cd = campD(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
     const h = heightAt(x, z);
     if (h > 128 || waterAt(x, z) > h - .3) continue;
     const dens = fbm(x * .04, z * .04); if (hx > dens * 1.5) continue;
@@ -1251,7 +1275,7 @@ function buildArc() {
     addCol(ARC.x + x, ARC.z + z, 1); }
   for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7, cl = apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), ry = arr(-.06, .06); if (!propsIn) mesh(new THREE.BoxGeometry(1, 2.2, .6), M(cl), x, 1.1 - C, z, g).rotation.y = ry; }
   addColLine(ARC.x - 4, ARC.z - ARC.W + .7, ARC.x + 4, ARC.z - ARC.W + .7, .6);
-  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn && Math.abs(z - 4.3) < 2.5 && (Math.abs(x - 18.6) < 6 || Math.abs(x + 22) < 3.5)) { arr(-.3, .3); continue; }   // the passages stand there now
+  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn) { arr(-.3, .3); continue; }   // (Nov 11) the fitted-out base has its own stores (fitArc in 1h-props.js)   // the passages stand there now
     mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
   // strip lights + one warm lamp so it isn't a cave
   const strip = new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false });
@@ -1340,50 +1364,56 @@ function updHullDoor(dt) {
   for (const d of hullDoors) { d.g.position.set(d.s * (ARC.DOOR / 2 + hullDoor.t * (ARC.DOOR + .2)), 0, zO); d.g.rotation.z = hullDoor.hp <= 0 ? d.s * .08 : 0; }
 }
 
-/* the wall: corrugated sheets, log posts, and the gate with its sign */
+/* the wall (Nov 11): put up from what came down with the Arc — hull plating cut into panels (each its own paint: station
+   white, primer, bare steel, scorched), stood between snapped ribs and I-beams, in straight uneven runs round the yard
+   (WALL_PTS in 1-world.js). Upgrades add a second course, braces, spikes cut from rib stock, then razor wire. */
 const WALL_H = [2.4, 3.6, 4.6, 5.4];
+let WL_S = 31337, wallFirst = true;
+const wlr = () => (WL_S = (WL_S * 16807) % 2147483647, (WL_S - 1) / 2147483646), wlrr = (a, b) => a + wlr() * (b - a), wlpk = a => a[Math.floor(wlr() * a.length)];
+// the wall's line, as short pieces from the gate's east post round to its west post
+function wallRun() {
+  const P = WALL_PTS, n = P.length, out = [], g0 = { x: GATE_X, z: CAMP_R }, g1 = { x: -GATE_X, z: CAMP_R };
+  const pts = [g0, ...P, g1];
+  for (let i = 0; i < pts.length - 1; i++) { const A = pts[i], B = pts[i + 1], L = Math.hypot(B.x - A.x, B.z - A.z), k = Math.max(1, Math.round(L / 2.7));
+    for (let j = 0; j < k; j++) out.push({ ax: lerp(A.x, B.x, j / k), az: lerp(A.z, B.z, j / k), bx: lerp(A.x, B.x, (j + 1) / k), bz: lerp(A.z, B.z, (j + 1) / k), corner: j === 0 && i > 0 }); }
+  return out;
+}
 function buildWall(level) {
+  if (wallFirst) { for (let i = 0; i < 512; i++) rnd(); wallFirst = false; }   // the old wall drew from the world's stream: keep everything after it where it was
+  WL_S = 31337;
   if (wallGroup) world.remove(wallGroup);
-  wallGroup = new THREE.Group(); wallGroup.position.y = 0; world.add(wallGroup);
-  const H = WALL_H[level];
-  const sheetCols = [0x9da3a6, 0x8f9a9e, 0x7f8f9e, 0xa2a49d, 0x9a7f6a, 0x9b5a3e, 0x6f86a0];
-  const SEG = 96, segA = (Math.PI * 2 - GATE_HALF * 2) / SEG;
-  const posts = [];
-  for (let i = 0; i < SEG; i++) {
-    const a = GATE_HALF + segA * (i + .5);
-    const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R, y = heightAt(x, z);
-    const w = segA * CAMP_R + .15;
-    const sh = level === 0 && rnd() < .25 ? H * rr(.6, .85) : H * rr(.94, 1.04);
-    const mat = new THREE.MeshLambertMaterial({ map: texCorr, normalMap: texCorrN, color: pick(sheetCols) });
-    const s = mesh(new THREE.BoxGeometry(w, sh, .18), mat, x, y + sh / 2 - .2, z, wallGroup);
-    s.rotation.set(rr(-.03, .03), a, rr(-.02, .02));
-    if (i % 3 === 0) posts.push([a - segA / 2, y]);
-    if (level >= 2) { // sharpened log spikes outside
-      for (let k = -1; k <= 1; k += 2) {
-        const sx = Math.sin(a + k * segA * .25) * (CAMP_R + 1.1), sz = Math.cos(a + k * segA * .25) * (CAMP_R + 1.1);
-        const sp = mesh(new THREE.ConeGeometry(.12, 2.4, 5), M(0x7a5a3c), sx, heightAt(sx, sz) + .7, sz, wallGroup);
-        sp.rotation.set(-Math.cos(a) * .9, 0, Math.sin(a) * .9);
-      }
-    }
-    if (level >= 3) { // razor wire coil
-      const rw = mesh(new THREE.TorusGeometry(.32, .03, 4, 10), M(0x8a8a8a), x, y + sh + .1, z, wallGroup);
-      rw.rotation.y = a; rw.scale.set(w * 1.5, 1, 1); rw.castShadow = false;
-    }
-    if (level >= 1 && i % 2 === 0) { // horizontal braces on the inside
-      const b = mesh(new THREE.BoxGeometry(w, .22, .22), M(0x5f4936), Math.sin(a) * (CAMP_R - .3), y + sh * .7, Math.cos(a) * (CAMP_R - .3), wallGroup); b.rotation.y = a;
-    }
-  }
-  for (const [a, y] of posts) {
-    const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R;
-    const p = mesh(new THREE.CylinderGeometry(.22, .28, H + 1.4, 6), new THREE.MeshLambertMaterial({ map: texWood, color: 0xb59a7e }), x, y + (H + 1.4) / 2 - .4, z, wallGroup);
-    p.rotation.z = rr(-.04, .04);
-  }
-  if (typeof bakeGroup === 'function') bakeGroup(wallGroup, new Set(), 40);
+  wallGroup = new THREE.Group(); world.add(wallGroup);
+  const H = WALL_H[level], K = hkit(LOW);
+  const paint = [0xd8d6cf, 0xc8c6bf, 0xb8b6ae, 0x9a9890, 0x8a8e90, 0x7c6a58, 0xa06a48, 0x6a6e70, 0xcfc9b4, 0x5e6266];
+  const run = wallRun();
+  run.forEach((S, i) => {
+    const L = Math.hypot(S.bx - S.ax, S.bz - S.az), cx = (S.ax + S.bx) / 2, cz = (S.az + S.bz) / 2, yaw = Math.atan2(S.bz - S.az, S.bx - S.ax), y = heightAt(cx, cz);
+    // outward normal (away from the yard)
+    const ox = -Math.sin(-yaw), oz = Math.cos(-yaw), sgn = (cx * Math.sin(yaw) * -1 + cz * Math.cos(yaw)) > 0 ? 1 : -1;
+    K.at(htm(cx, y, cz, 0, -yaw, 0));
+    const short = level === 0 && wlr() < .2 ? wlrr(.65, .85) : wlrr(.95, 1.04), sh = H * short;
+    // one plate, or two courses with the upper lapped over; now and then a curved bit of the hull itself
+    const col = tint(wlpk(paint), .06);
+    if (wlr() < .12) { const g = new THREE.CylinderGeometry(2.2, 2.2, sh + .1, 8, 1, true, -L / 4.4, L / 2.2); const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * L / 2, uv.getY(k) * sh / 2); if (sgn < 0) g.rotateY(Math.PI); g.translate(0, (sh + .1) / 2 - .25, (-2.2 + .1) * sgn); K.geo('hull', g, null, col); }
+    else if (sh > 3) { K.box('hull', L + .06, sh * .56, .14, 0, sh * .28 - .2, 0, wlrr(-.02, .02), 0, wlrr(-.01, .01), col, 2); K.box('hull', L + .1, sh * .5, .14, 0, sh * .75 - .2, .07 * sgn, wlrr(-.02, .02), 0, wlrr(-.012, .012), tint(wlpk(paint), .06), 2); }
+    else K.box('hull', L + .06, sh, .14, 0, sh / 2 - .25, 0, wlrr(-.03, .03), 0, wlrr(-.015, .015), col, 2);
+    // seams: a welded strap over each joint, rivet heads along the top
+    K.box('metal', .16, sh, .2, -L / 2, sh / 2 - .25, 0, 0, 0, 0, 0x4a4c4e);
+    if (wlr() < .3) K.box('metal', L * wlrr(.3, .7), wlrr(.08, .3), .17, wlrr(-.4, .4), wlrr(.4, sh - .5), 0, 0, 0, wlrr(-.1, .1), wlpk([0xd9a32a, 0x2a2a28]));   // a band of hazard paint
+    // posts: a snapped rib or an I-beam every couple of panels, at every corner
+    if (S.corner || i % 2 === 0) { const ph = H + wlrr(.6, 1.6);
+      if (wlr() < .5) { K.box('metal', .34, ph, .1, -L / 2, ph / 2 - .4, .14 * -sgn, 0, 0, 0, 0x55585a); K.box('metal', .1, ph, .34, -L / 2, ph / 2 - .4, (.14 + .12) * -sgn, 0, 0, 0, 0x55585a); K.box('metal', .34, ph, .1, -L / 2, ph / 2 - .4, (.14 + .24) * -sgn, 0, 0, 0, 0x55585a); }
+      else { const rc = tint(0xc8c6be, .05); K.box('metal', .3, ph - .8, .55, -L / 2, (ph - .8) / 2 - .4, -.1 * sgn, wlrr(-.04, .04), 0, 0, rc); K.box('metal', .3, 1.5, .5, -L / 2, ph - .65, -.4 * sgn, -.55 * sgn, 0, 0, rc); } }
+    if (level >= 1 && i % 2 === 0) K.box('metal', L, .2, .14, 0, sh * .7, (.16) * -sgn, 0, 0, 0, 0x4a4c4e);
+    if (level >= 2) for (const k of [-1, 1]) { const sp = new THREE.ConeGeometry(.09, 2.2, 4); sp.rotateX(-.8 * sgn); K.geo('metal', sp, htm(k * L * .25, .6, 1.1 * sgn), 0x8a8478); }
+    if (level >= 3) { const rw = new THREE.TorusGeometry(.32, .03, 4, 10); rw.scale(L * 1.5, 1, 1); K.geo('metal', rw, htm(0, sh + .05, 0, 0, 0, 0), 0x8a8a8a); }
+  });
+  K.at(null); K.build(wallGroup);
 }
 const GATE_X = Math.sin(GATE_HALF) * CAMP_R;
 function buildGate() {
   gateGroup = new THREE.Group(); gateGroup.position.set(0, heightAt(0, CAMP_R), CAMP_R); world.add(gateGroup);
-  const wood = new THREE.MeshLambertMaterial({ map: texWood, color: 0xb8a088 });
+  const wood = new THREE.MeshStandardMaterial({ map: TX.metal, color: 0x8a8a84, metalness: .5, roughness: .55 });   // (Nov 11) two hull ribs, not logs
   for (const s of [-1, 1]) {
     mesh(new THREE.CylinderGeometry(.42, .5, 9, 7), wood, s * GATE_X, 4.1, 0, gateGroup);
     addCol(s * GATE_X, CAMP_R, .6);
@@ -1404,18 +1434,18 @@ function dressGate(level) {
   const W = GATE_X - .45, H = WALL_H[Math.max(1, level)] + .3;
   for (const d of gateDoors) {
     d.door.clear();
-    const cols = level >= 2 ? [0x6a6e70, 0x5e6466] : [0x8e8a7e, 0x7f8a8e, 0x9a7f6a];
+    const cols = level >= 2 ? [0x6a6e70, 0x5e6466] : [0xc8c6be, 0xb0aea6, 0x9a948a];
     for (let i = 0; i < 3; i++) {
-      const panel = mesh(new THREE.BoxGeometry(W / 3 + .05, H, .16), new THREE.MeshLambertMaterial({ map: texCorr, color: pick(cols) }), -d.s * (W / 6 + i * W / 3), H / 2 - .1, 0, d.door);
+      const panel = mesh(new THREE.BoxGeometry(W / 3 + .05, H, .16), new THREE.MeshStandardMaterial({ map: texPanel, normalMap: TX.metal2N, color: pick(cols), metalness: .45, roughness: .6 }), -d.s * (W / 6 + i * W / 3), H / 2 - .1, 0, d.door);
       panel.rotation.z = rr(-.02, .02);
     }
-    if (level >= 1) for (const y of [.8, H - .8]) mesh(new THREE.BoxGeometry(W, .3, .25), M(0x5f4936), -d.s * W / 2, y, .15, d.door);
-    if (level >= 1) { const x = mesh(new THREE.BoxGeometry(.25, Math.hypot(W, H - 1.6), .22), M(0x5f4936), -d.s * W / 2, H / 2, .2, d.door); x.rotation.z = d.s * Math.atan2(W, H - 1.6); }
+    if (level >= 1) for (const y of [.8, H - .8]) mesh(new THREE.BoxGeometry(W, .3, .25), M(0x4a4c4e), -d.s * W / 2, y, .15, d.door);
+    if (level >= 1) { const x = mesh(new THREE.BoxGeometry(.25, Math.hypot(W, H - 1.6), .22), M(0x4a4c4e), -d.s * W / 2, H / 2, .2, d.door); x.rotation.z = d.s * Math.atan2(W, H - 1.6); }
     if (level >= 2) mesh(new THREE.BoxGeometry(W, H * .5, .1), M(0x55595b), -d.s * W / 2, H * .32, .28, d.door);
     if (level >= 3) for (let i = 0; i < 4; i++) { const sp = mesh(new THREE.ConeGeometry(.1, .7, 4), M(0x9a9a9a), -d.s * (.4 + i * W / 4), H * .5, .55, d.door); sp.rotation.x = Math.PI / 2; }
   }
 }
-const TOWER_POS = [[.42, 59], [-.42, 59], [2.75, 59.5], [-2.75, 59.5]];
+const TOWER_POS = [[.42, 0], [-.42, 0], [1.62, 0], [2.6, 0], [-2.75, 0]].map(([a]) => [a, wallR(a) - 5]);   // (Nov 11) just inside the wall, wherever it runs; a fifth over the east side
 function buildTowers() {
   for (const [a, r] of TOWER_POS) {
     const x = Math.sin(a) * r, z = Math.cos(a) * r, y = heightAt(x, z);
@@ -1423,7 +1453,7 @@ function buildTowers() {
     towerKit(t);   // (Nov 10) timber legs, sandbagged platform, tin roof: 1f-houses.js
     const gun = new THREE.Group(); gun.position.set(0, 9.2, 1.2); t.add(gun); gun.visible = false;
     const lamp = new THREE.Group(); lamp.position.set(-1.2, 11.5, 1.5); t.add(lamp); lamp.visible = false;
-    towers.push({ g: t, x, z, y, gun, lamp, cool: rnd(), a });
+    towers.push({ g: t, x, z, y, gun, lamp, cool: towers.length < 4 ? rnd() : .5, a });
     addCol(x, z, 2);
   }
 }
@@ -1450,33 +1480,40 @@ function dressTowers(turLv, lightLv) {
 
 /* inside the walls: the yard fire, and the settlement's buildings in a ring just inside the wall — where you cook, craft,
    trade and gear up. Each has a keeper behind a counter (E: trade) and a station at the side you can use yourself. */
-/* the layout (from Bryce's sketch): Main Street runs from the gate straight to the Arc's door; Arc Row crosses in front of
-   the hull; Cross Street cuts the yard in half; West Lane and East Lane split the blocks. Buildings face their street.
+/* the layout (Nov 11, Bryce's second plan): in through the gate, Main Street wanders up to the Arc's door. On the left, three
+   buildings face the street (Gunsmith, Outfitter, Trading Post), then an opening — West Lane — leads round the back to the
+   Clinic, the Workshop and the Storehouse. On the right, two (Cookhouse, Bunkhouse), then East Row branches off to the right
+   where the wall runs out a long way: the commons fire and the power yard, Salvage, the Munitions shed (ammo + explosives,
+   kept well apart behind blast walls) and the Depot up Foundry Lane. Nothing's ruled straight: every street is a run of short
+   legs that kink, and every building sits a little off square.
    ry: which way the front faces (0 = south/+z, π/2 = east/+x, π = north, -π/2 = west) */
 const HP = Math.PI / 2;
-const STREETS = [   // (Nov 10) relatively straight, not ruled: the lanes wander a little and meet a little off square
-  { n: 'Main Street', a: [0, 66], b: [.9, 22], w: 8 },
-  { n: 'Main Street', a: [.9, 22], b: [0, -24], w: 8 },
-  { n: 'Arc Row', a: [-52, -15.8], b: [-18, -17.4], w: 6 },
-  { n: 'Arc Row', a: [-18, -17.4], b: [22, -16.4], w: 6 },
-  { n: 'Cross Street', a: [-55, 23.2], b: [-2, 21.4], w: 6 },
-  { n: 'Cross Street', a: [-2, 21.4], b: [55, 22.6], w: 6 },
-  { n: 'West Lane', a: [-31.5, -17], b: [-30, 17], w: 4 },
-  { n: 'West Lane', a: [-30, 17], b: [-32.4, 50], w: 4 },
-  { n: 'East Lane', a: [28, 22], b: [29.6, 52], w: 4 },
-  { n: 'Shop Walk', a: [-4, 3], b: [-27, 4.3], w: 3 },
-  { n: 'Commons Walk', a: [4, 2], b: [44, 2], w: 3.5 },
+const STREET_LINES = [
+  { n: 'Main Street', w: 6.5, p: [[0, 66], [1.6, 50], [-.8, 36], [1.2, 21], [-.4, 7], [.6, -6], [0, -22]] },
+  { n: 'Arc Row', w: 4.5, p: [[-33, -16.5], [-18, -18.6], [0, -19.6], [16, -18.2], [25, -14.5]] },
+  { n: 'West Lane', w: 4.2, p: [[-.4, 7], [-12, 5.2], [-24, 7.4], [-36, 4.6], [-46, 7.2], [-52, .5], [-50.5, -4]] },
+  { n: 'West Lane', w: 3.4, p: [[-24, 7.4], [-27.5, -1]] },
+  { n: 'Clinic Walk', w: 3.4, p: [[-36, 4.6], [-40.5, 13.6]] },
+  { n: 'East Row', w: 5, p: [[1.2, 21], [12, 19], [24, 15.6], [36, 14.2], [50, 16.4], [64, 12.6], [80, 8.4], [86, 2]] },
+  { n: 'Foundry Lane', w: 4, p: [[50, 16.4], [56.5, 27.5], [62.5, 34]] },
+  { n: 'Yard Walk', w: 3.4, p: [[36, 14.2], [34.2, 1.4], [30.4, -4]] },
+  { n: 'Shed Walk', w: 3.2, p: [[64, 12.6], [67.5, 4.4]] },
+  { n: 'Salvage Walk', w: 3.2, p: [[50, 16.4], [45.2, 8.6]] },
 ];
+const STREETS = STREET_LINES.flatMap(L => L.p.slice(1).map((b, i) => ({ n: L.n, a: L.p[i], b, w: L.w })));
 const streetDist = (x, z) => { let d = 1e9; for (const S of STREETS) d = Math.min(d, segDist(x, z, S.a[0], S.a[1], S.b[0], S.b[1]) - S.w / 2); return d; };
 const SHOP_DEFS = [
-  { id: 'craft', x: -16.6, z: -5.4, ry: HP + .06, sign: 'WORKSHOP', who: 'kade', name: 'Kade', st: ['bench', 'forge'], stN: 'Workbench + forge · craft', cat: 'tool', col: 0x8a9092, tint: 0xd8d0c4 },
-  { id: 'trade', x: -15.6, z: 12.2, ry: HP - .08, sign: 'TRADING POST', who: 'odile', name: 'Odile', st: ['bench'], stN: 'Sorting table · craft materials', cat: 'mat', col: 0x9a8a5a, tint: 0x9a7a60 },
-  { id: 'med', x: -45.4, z: 5.2, ry: HP + .1, bw: 14, bd: 9, sign: 'CLINIC', who: 'juno', name: 'Juno', st: ['lab'], stN: 'Clinic lab · make medicine', cat: 'med', col: 0xb8b8b0, tint: 0xe0d8cc },
-  { id: 'wear', x: -42.8, z: 33.4, ry: Math.PI - .07, sign: 'OUTFITTER', who: 'wren', name: 'Wren', st: ['bench'], stN: 'Sewing table · craft clothing', cat: 'wear', col: 0x6a8aa0, tint: 0xa0b0c8 },
-  { id: 'guns', x: -15.4, z: 33.8, ry: HP + .05, sign: 'GUNSMITH', who: 'rook', name: 'Rook', st: ['bench'], stN: 'Gun bench · craft weapons + ammo', cat: 'weap', col: 0x6a7a4a, tint: 0x8a9070 },
-  { id: 'cook', x: 16.5, z: 32.4, ry: -HP - .07, sign: 'COOKHOUSE', who: 'bram', name: 'Bram', st: ['fire', 'cook'], stN: 'Stove · cook', cat: 'food', col: 0xa86a48, tint: 0xc8a888 },
-  { id: 'bunk', x: 40.6, z: 34.6, ry: Math.PI + .08, bw: 12, sign: 'BUNKHOUSE', st: [], stN: 'Rest in a bunk', col: 0x7a7a5a },
-  { id: 'salvage', x: 49.6, z: 5, ry: -HP + .07, sign: 'SALVAGE', who: 'gus', name: 'Gus', st: ['bench'], stN: 'Strip-down bench · craft materials', cat: 'mat', col: 0x8a6a52, tint: 0x9a8a7a },
+  { id: 'guns', x: -13.6, z: 47.6, ry: HP + .07, sign: 'GUNSMITH', who: 'rook', name: 'Rook', st: ['bench'], stN: 'Gun bench · craft weapons + ammo', cat: 'weap', col: 0x6a7a4a, tint: 0x8a9070 },
+  { id: 'wear', x: -12.8, z: 32.4, ry: HP - .05, sign: 'OUTFITTER', who: 'wren', name: 'Wren', st: ['bench'], stN: 'Sewing table · craft clothing', cat: 'wear', col: 0x6a8aa0, tint: 0xa0b0c8 },
+  { id: 'trade', x: -14, z: 17.4, ry: HP + .04, sign: 'TRADING POST', who: 'odile', name: 'Odile', st: ['bench'], stN: 'Sorting table · craft materials', cat: 'mat', col: 0x9a8a5a, tint: 0x9a7a60 },
+  { id: 'med', x: -42.4, z: 22.6, ry: Math.PI + .07, bw: 14, bd: 9, sign: 'CLINIC', who: 'juno', name: 'Juno', st: ['lab'], stN: 'Clinic lab · make medicine', cat: 'med', col: 0xb8b8b0, tint: 0xe0d8cc },
+  { id: 'craft', x: -29.6, z: -5.8, ry: -.06, sign: 'WORKSHOP', who: 'kade', name: 'Kade', st: ['bench', 'forge'], stN: 'Workbench + forge · craft', cat: 'tool', col: 0x8a9092, tint: 0xd8d0c4 },
+  { id: 'store', x: -51.6, z: -12.4, ry: .1, bw: 9, bd: 7, sign: 'STOREHOUSE', st: [], stN: null, col: 0x7a7a6a },
+  { id: 'cook', x: 15.2, z: 47.2, ry: -HP - .06, sign: 'COOKHOUSE', who: 'bram', name: 'Bram', st: ['fire', 'cook'], stN: 'Stove · cook', cat: 'food', col: 0xa86a48, tint: 0xc8a888 },
+  { id: 'bunk', x: 16, z: 30.4, ry: -HP + .05, bw: 12, sign: 'BUNKHOUSE', st: [], stN: 'Rest in a bunk', col: 0x7a7a5a },
+  { id: 'salvage', x: 44.2, z: .6, ry: .06, sign: 'SALVAGE', who: 'gus', name: 'Gus', st: ['bench'], stN: 'Strip-down bench · craft materials', cat: 'mat', col: 0x8a6a52, tint: 0x9a8a7a },
+  { id: 'ammo', x: 68.4, z: -3.6, ry: -.08, bw: 12, sign: 'MUNITIONS', who: 'vesna', name: 'Vesna', late: 1, st: ['bench'], stN: 'Powder bench · ammo + explosives', cat: 'weap', col: 0x7a6a3a, tint: 0x8a7a5a },
+  { id: 'depot', x: 71.6, z: 26.4, ry: -HP + .1, bw: 10, bd: 8, sign: 'DEPOT', st: [], stN: null, col: 0x6a7076 },
 ];
 function shopL2W(D, lx, lz) { const c = Math.cos(D.ry), s = Math.sin(D.ry); return { x: D.cx + lx * c + lz * s, z: D.cz - lx * s + lz * c }; }
 for (const D of SHOP_DEFS) { D.cx = D.x; D.cz = D.z; D.bw = D.bw || 11; D.bd = D.bd || 8; D.keeper = shopL2W(D, 0, -1.1); D.spot = shopL2W(D, -3.9, 1.9); D.front = shopL2W(D, 0, 2.1); D.forge = shopL2W(D, 3.9, 2.6); }
@@ -1547,7 +1584,7 @@ function buildStreets() {
     const nx = (bz - az) / L, nz = -(bx - ax) / L;
     for (let d = 7, k = 0; d < L - 3; d += 14, k++) {
       const sd = (k % 2 ? 1 : -1) * (S.w / 2 + .7), x = lerp(ax, bx, d / L) + nx * sd, z = lerp(az, bz, d / L) + nz * sd;
-      if (Math.hypot(x, z) > CAMP_R - 3 || inHull(x, z) || SHOP_DEFS.some(D => Math.hypot(x - D.cx, z - D.cz) < Math.max(D.bw, D.bd) / 2 + 1.2) || Math.hypot(x - SPOTS.fire.x, z - SPOTS.fire.z) < 6 || streetDist(x, z) < -.2) continue;
+      if (campD(x, z) > CAMP_R - 3 || inHull(x, z) || SHOP_DEFS.some(D => Math.hypot(x - D.cx, z - D.cz) < Math.max(D.bw, D.bd) / 2 + 1.2) || Math.hypot(x - SPOTS.fire.x, z - SPOTS.fire.z) < 6 || streetDist(x, z) < -.2) continue;
       const lp = new THREE.Group(); lp.position.set(x, H0, z); world.add(lp);
       mesh(new THREE.CylinderGeometry(.08, .11, 4.2, 6), M(0x3a3a38), 0, 2.1, 0, lp);
       mesh(new THREE.BoxGeometry(.9, .08, .08), M(0x3a3a38), -Math.sign(sd) * nx * .4, 4.15, -Math.sign(sd) * nz * .4, lp).rotation.y = Math.atan2(nx, nz) + HP;
@@ -1795,6 +1832,18 @@ function paintSign(text, style) {
   });
 }
 
+// (Nov 11) markings that were on the Arc's plating when it came down: deck and bay numbers, hazard chevrons, arrows, the
+// station's ring logo — an atlas of 4 x 2, picked by UV, stuck on salvaged panels so you can tell where each one came from
+const texStencil = ctex(512, 256, (g, w, h) => {
+  g.clearRect(0, 0, w, h); const cw = w / 4, ch = h / 2;
+  const txt = (i, t, sz, col = 'rgba(30,30,30,.85)') => { const x = (i % 4) * cw, y = Math.floor(i / 4) * ch; g.fillStyle = col; g.font = `900 ${sz}px "Big Shoulders Stencil Display", Impact, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, x + cw / 2, y + ch / 2, cw - 10); };
+  txt(0, 'DECK 4', 40); txt(1, 'BAY 12-C', 34); txt(2, 'ARC', 64, 'rgba(160,40,30,.85)'); txt(5, 'NO STEP', 30);
+  { const x = 3 * cw, y = 0; g.save(); g.beginPath(); g.rect(x + 4, y + 30, cw - 8, ch - 60); g.clip(); for (let k = -6; k < 12; k++) { g.fillStyle = k % 2 ? 'rgba(20,20,20,.9)' : 'rgba(220,160,40,.95)'; g.beginPath(); g.moveTo(x + k * 22, y + 30); g.lineTo(x + k * 22 + 22, y + 30); g.lineTo(x + k * 22 - 18, y + ch - 30); g.lineTo(x + k * 22 - 40, y + ch - 30); g.fill(); } g.restore(); }
+  { const x = 0, y = ch; g.strokeStyle = 'rgba(40,40,40,.85)'; g.lineWidth = 7; g.beginPath(); g.arc(x + cw / 2, y + ch / 2, 38, 0, 7); g.stroke(); g.beginPath(); g.arc(x + cw / 2, y + ch / 2, 20, 0, 7); g.stroke(); for (let k = 0; k < 6; k++) { const a = k / 6 * 6.283; g.beginPath(); g.moveTo(x + cw / 2 + Math.cos(a) * 20, y + ch / 2 + Math.sin(a) * 20); g.lineTo(x + cw / 2 + Math.cos(a) * 38, y + ch / 2 + Math.sin(a) * 38); g.stroke(); } }
+  { const x = 2 * cw, y = ch; g.fillStyle = 'rgba(30,30,30,.85)'; g.beginPath(); g.moveTo(x + 20, y + ch / 2 - 14); g.lineTo(x + cw - 50, y + ch / 2 - 14); g.lineTo(x + cw - 50, y + ch / 2 - 34); g.lineTo(x + cw - 14, y + ch / 2); g.lineTo(x + cw - 50, y + ch / 2 + 34); g.lineTo(x + cw - 50, y + ch / 2 + 14); g.lineTo(x + 20, y + ch / 2 + 14); g.fill(); }
+  txt(7, 'O2 · 7', 40, 'rgba(30,70,120,.85)');
+  for (let i = 0; i < 1600; i++) { g.clearRect(rnd() * w, rnd() * h, rr(1, 4), rr(1, 3)); }        // worn off in flecks
+});
 /* ---------- materials: one per surface kind, all tinted per piece by vertex colour ---------- */
 const HMATS = {};
 function hm(k) {
@@ -1812,6 +1861,8 @@ function hm(k) {
     shiny: () => new THREE.MeshStandardMaterial({ ...vc, roughness: .35, metalness: .55 }),
     paper: () => new THREE.MeshStandardMaterial({ ...vc, map: texPaper, roughness: .95, metalness: 0, side: THREE.DoubleSide }),
     rock: () => new THREE.MeshStandardMaterial({ ...vc, map: TX.rock, roughness: .95, metalness: 0 }),
+    plate: () => new THREE.MeshStandardMaterial({ ...vc, map: TX.metal, normalMap: TX.metalN, normalScale: new THREE.Vector2(.6, .6), roughness: .62, metalness: .32 }),
+    stencil: () => new THREE.MeshStandardMaterial({ ...vc, map: texStencil, roughness: .6, metalness: .3, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     glass: () => new THREE.MeshStandardMaterial({ color: 0x46545c, roughness: .06, metalness: .7, transparent: true, opacity: .55, depthWrite: false }),
     glow: () => new THREE.MeshBasicMaterial({ ...vc, toneMapped: false }),
     win: () => new THREE.MeshBasicMaterial({ color: 0x2a2620, toneMapped: false }),       // lit from inside after dark (HOUSE_NIGHT)
@@ -1893,6 +1944,30 @@ function hkit(lowDetail) {
   return K;
 }
 
+/* (Nov 11) Kestrel's buildings are made out of the Arc: every part a settler would have cut from wood or tin is cut from
+   the hull instead. shipKit wraps a kit so 'board' parts come out as salvaged plate (painted, primer, rust where the paint's
+   gone) and 'corr' parts as hull panelling; models and cloth are untouched. */
+function shipKit(K) {
+  const map = m => m === 'board' ? 'plate' : m === 'corr' ? 'hull' : m;
+  const W = Object.create(K);
+  W.box = (m, ...a) => K.box(map(m), ...a); W.cyl = (m, ...a) => K.cyl(map(m), ...a); W.geo = (m, ...a) => K.geo(map(m), ...a);
+  W.at = m => { K.at(m); return W; }; W.raw = K;
+  return W;
+}
+// a stencil off the hull (atlas cell 0-7) on a panel, w x h, in the current frame
+function stencil(K, cell, w, h, x, y, z, ry = 0, rz = 0) {
+  const g = new THREE.PlaneGeometry(w, h), uv = g.attributes.uv, cx = (cell % 4) / 4, cy = 1 - (Math.floor(cell / 4) + 1) / 2;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, cx + uv.getX(i) / 4, cy + uv.getY(i) / 2);
+  K.geo('stencil', g, htm(x, y, z, 0, ry, rz), 0xffffff);
+}
+// a porthole off the station: a ring of plate round thick glass (lit from inside after dark)
+function porthole(K, x, y, r = .32) {
+  const ring = new THREE.TorusGeometry(r + .06, .07, 6, 16); K.geo('metal', ring, htm(x, y, .06), 0x5a5e60);
+  for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283; K.box('shiny', .04, .04, .03, x + Math.cos(a) * (r + .06), y + Math.sin(a) * (r + .06), .12, 0, 0, 0, 0x8a8e90); }
+  const gl = new THREE.CircleGeometry(r, 16); K.geo('win', gl.clone(), htm(x, y, -.02)); K.geo('glass', gl, htm(x, y, .02));
+}
+// the hull's own paint, as it came down: station white, pale grey, primer, gunmetal, a teal bulkhead
+const SHIPC = [0xd6d4cc, 0xc4c2ba, 0xb4b2aa, 0x9a8a7a, 0x7a8286, 0x6a6e70, 0xa8b4b0, 0x8a6a52];
 /* ---------- palettes ---------- */
 const WOODC = [0x8a7a66, 0x9a8670, 0x7a6a58, 0x6e6152, 0xa08a6e, 0x857766];          // bare, weathered
 const RUST = [0xb07850, 0x9a6a4a, 0xa88a72, 0x8a8a86, 0x9c9a94, 0xb59474, 0x7f6a5a]; // tin, from new-ish grey to orange
@@ -1919,7 +1994,7 @@ function cladRun(K, L, H, kind, o) {
     for (const [y0, y1] of vspans(a, b)) {
       const hh = y1 - y0;
       if (kind === 'board') {
-        const c = hp(.08) ? hpick(WOODC) : hp(.06) ? tint(o.patch || 0x6a7a8a) : tint(col, .12);
+        const c = hp(.08) ? hpick(WOODC) : hp(.06) ? tint(o.patch || 0x6a7a8a) : tint(col, .12);   // (inside a ship kit these come out as plate strips)
         const top = y1 >= H - .01 ? hr(-.04, .02) : 0;
         K.box('board', w - .012, hh + top, .035, cx, y0 + (hh + top) / 2, hr(-.006, .006), 0, 0, hr(-.008, .008), c);
         if (hp(.25) && hh > 1) K.box('metal', .016, .016, .01, cx + hr(-.03, .03), y0 + hr(.1, .3), .022, 0, 0, 0, 0x3a3634);   // nail heads
@@ -1930,7 +2005,12 @@ function cladRun(K, L, H, kind, o) {
         for (const [r0, r1] of rows) K.box('corr', w + .05, r1 - r0, .02, cx, (r0 + r1) / 2, (alt++ % 2) * .014 + hr(0, .006), hr(-.01, .01), 0, hr(-.012, .012), c);
       } else if (kind === 'hull') {
         const rowH = hr(1.1, 1.5);
-        for (let y = y0; y < y1 - .02; y += rowH) { const top = Math.min(y1, y + rowH); K.box('hull', w - .02, top - y - .02, .05, cx, (y + top) / 2, hr(-.008, .012), 0, 0, hr(-.006, .006), tint(o.col || 0xc8c4bc, .08), 2); }
+        for (let y = y0; y < y1 - .02; y += rowH) { const top = Math.min(y1, y + rowH), ph = top - y - .02, oddC = hp(.16), c = oddC ? tint(hpick(o.pal || SHIPC), .06) : tint(o.col || 0xc8c4bc, .07), lap = (alt++ % 2) * .02;
+          K.box('hull', w + .03, ph, .05, cx, (y + top) / 2, lap + hr(-.006, .01), hr(-.008, .008), 0, hr(-.008, .008), c, 2);
+          if (ph > .5 && w > .6) { for (const sx of [-1, 1]) for (let ry = y + .12; ry < top - .05; ry += .32) K.box('shiny', .025, .025, .02, cx + sx * (w / 2 - .05), ry, lap + .035, 0, 0, 0, 0x7a7e80); }   // rivets down the lap
+          if (!o.inside && ph > .7 && w > .9 && hp(.07)) stencil(K, hpick([0, 1, 2, 5, 7, 4, 6]), Math.min(w * .8, 1.1), .55, cx, y + ph / 2, lap + .03, 0, hr(-.03, .03));
+          if (!o.inside && hp(.04) && ph > .8) K.box('plate', w * hr(.4, .8), ph * hr(.3, .6), .03, cx + hr(-.1, .1), y + ph * hr(.3, .7), lap + .04, 0, 0, hr(-.1, .1), hpick([0x8a5a3a, 0x7a4a32, 0x5a5e60]));   // a patch welded over a hole
+        }
       } else if (kind === 'block') {
         K.box('block', w, hh, .2, cx, y0 + hh / 2, -.08, 0, 0, 0, tint(col || 0xd8d2c8, .05), 1.6);
       }
@@ -1939,7 +2019,7 @@ function cladRun(K, L, H, kind, o) {
 }
 // a window: frame, sill, glass (lit from inside after dark), and one of: curtains, shutters, boards, bars
 function windowAt(K, x, y, w, h, o = {}) {
-  const fc = o.frame || 0x5a4a3a, t = .06;
+  const fc = o.frame || 0x4a4c4e, t = .08;
   for (const [px, py, pw, ph] of [[x, y + h / 2 + t / 2, w + t * 2, t], [x, y - h / 2 - t / 2, w + t * 2, t], [x - w / 2 - t / 2, y, t, h], [x + w / 2 + t / 2, y, t, h]]) K.box('board', pw, ph, .09, px, py, .03, 0, 0, 0, fc);
   K.box('board', w + .24, .05, .16, x, y - h / 2 - t - .02, .07, .06, 0, 0, tint(fc));             // sill
   if (o.boarded) { for (let i = 0; i < 3; i++) K.box('board', w + .3, .14, .03, x, y - h / 3 + i * h / 3, .1, 0, 0, hr(-.25, .25), hpick(WOODC)); K.box('win', w, h, .01, x, y, -.02); return; }
@@ -1965,6 +2045,12 @@ function doorAt(K, x, w, h, o = {}) {
   for (let i = 0; i < n; i++) { const pw = lw / n, g = new THREE.BoxGeometry(pw - .008, h - .04, .04); boxUV(g, pw, h, .04, 1, hrnd() * 9, hrnd() * 9); g.translate((i + .5) * pw, h / 2, 0); K.geo(o.metal ? 'metal' : 'board', g, m.clone(), tint(dc, .1)); }
   if (!o.metal) for (const yy of [.35, h - .35]) { const g = new THREE.BoxGeometry(lw - .06, .1, .03); g.translate(lw / 2, yy, .035); K.geo('board', g, m.clone(), tint(dc, .1)); }
   const hg = new THREE.SphereGeometry(.035, 6, 4); hg.translate(lw - .1, h * .48, .06); K.geo('shiny', hg, m.clone(), 0x8a7a50);
+  if (o.metal) {   // (Nov 11) a bulkhead door off the Arc: a handwheel, a band of hazard paint, its little window
+    const wg = new THREE.TorusGeometry(.17, .025, 5, 14); wg.translate(lw / 2, h * .5, .07); K.geo('shiny', wg, m.clone(), 0x8a8e90);
+    for (let k = 0; k < 3; k++) { const sg = new THREE.BoxGeometry(.34, .025, .02); sg.rotateZ(k * 1.047); sg.translate(lw / 2, h * .5, .07); K.geo('shiny', sg, m.clone(), 0x8a8e90); }
+    for (let k = 0; k < Math.floor(lw / .2); k++) { const sg = new THREE.BoxGeometry(.1, .14, .012); sg.translate(.1 + k * .2, .2, .03); K.geo('plain', sg, m.clone(), k % 2 ? 0x1e1e1e : 0xd9a32a); }
+    const gw = new THREE.CircleGeometry(.13, 12); gw.translate(lw / 2, h * .78, .03); K.geo('win', gw, m.clone());
+  }
 }
 
 /* ---------- models from Bryce's prop packs (Nov 10), placed by size; parts of a pack picked by mesh name ---------- */
@@ -2021,15 +2107,17 @@ function stovepipe(K, x, y0, z, h, c = 0x3a3634) { K.cyl('metal', .1, .1, h, 10,
 function raiseHouse(D, S) {
   const g = new THREE.Group(); g.position.set(D.cx, H0, D.cz); g.rotation.y = D.ry; world.add(g);
   const inner = new THREE.Group(); inner.position.copy(g.position); inner.rotation.y = D.ry; world.add(inner);   // the inside: its own cull entry
-  const K = hkit(LOW), KI = hkit(LOW);
+  const K = shipKit(hkit(LOW)), KI = shipKit(hkit(LOW));
   const BW = D.bw, BD = D.bd, H1 = 3.3, H2 = S.upper ? 2.75 : 0, HT = H1 + H2, OPEN = BW / 2 - 1.6;
   const kind = S.clad, col = S.col, low = S.base === 'block' ? 1.05 : 0;
   // floor: the old slab, then boards over it in the timber houses
   K.box('conc', BW + .7, .22, BD + .7, 0, .11, 0, 0, 0, 0, 0xb0aaa0, 2);
   if (S.floor === 'board') for (let x = -BW / 2 + .1; x < BW / 2 - .1; x += .2) K.box('board', .19, .03, BD - .2, x + .1, .235, 0, 0, 0, 0, tint(0x8a7a64, .12));
   // the frame: corner posts, the posts either side of the shop front, top plates
-  const postC = kind === 'hull' || kind === 'corr' ? 0x4a4644 : 0x5a4a3a, postM = kind === 'hull' ? 'metal' : 'board';
-  for (const [px, pz] of [[-BW / 2, -BD / 2], [BW / 2, -BD / 2], [-BW / 2, BD / 2], [BW / 2, BD / 2], [-OPEN, BD / 2], [OPEN, BD / 2]]) K.box(postM, .16, HT + .05, .16, px, HT / 2, pz, 0, 0, 0, tint(postC));
+  // the frame: lengths of the Arc's own ribs and I-beams, still in their station white or gunmetal (Nov 11)
+  const postC = S.ribC || 0x55585a, postM = 'metal';
+  for (const [px, pz] of [[-BW / 2, -BD / 2], [BW / 2, -BD / 2], [-BW / 2, BD / 2], [BW / 2, BD / 2], [-OPEN, BD / 2], [OPEN, BD / 2]]) {
+    const c = tint(postC, .05); K.box(postM, .26, HT + .05, .08, px, HT / 2, pz - .09, 0, 0, 0, c); K.box(postM, .08, HT + .05, .22, px, HT / 2, pz, 0, 0, 0, c); K.box(postM, .26, HT + .05, .08, px, HT / 2, pz + .09, 0, 0, 0, c); }
   K.box(postM, BW + .2, .18, .2, 0, H1, BD / 2 + .02, 0, 0, 0, tint(postC));                          // lintel over the shop front
   // walls: back, the two sides, and the front stubs either side of the opening (upper storey: a whole front with windows)
   const wallM = (x, z, ry) => htm(x, 0, z, 0, ry, 0);
@@ -2040,6 +2128,9 @@ function raiseHouse(D, S) {
     { m: wallM(-BW / 2, BD / 2, 0), L: BW, side: 'front' },
   ];
   const winY = 1.75, upY = H1 + 1.45;
+  // (Nov 11) the gable roofs are a length of the Arc's hull laid over the walls: an arch, chord BD + overhang, sagging 1.5 m
+  const AOV = .55, ACH = BD + AOV * 2, ASAG = 1.55, AR = (ACH * ACH / 4 + ASAG * ASAG) / (2 * ASAG), AY0 = HT + .08 + ASAG - AR;
+  const archY = z => AY0 + Math.sqrt(Math.max(0, AR * AR - z * z));
   for (const R of runs) {
     const holes = [], wins = [], doors = [];
     if (R.side === 'front') holes.push({ x0: 1.6, x1: BW - 1.6, y0: -1, y1: H1 - .1 });
@@ -2058,19 +2149,22 @@ function raiseHouse(D, S) {
     cladRun(K, R.L, HT - low, kind, { holes: holes.map(h => ({ ...h, y0: h.y0 - low, y1: h.y1 - low })), col, pal: S.pal, patch: S.patch });
     if (R.side !== 'front') {        // the inside face: boards or plaster on the studs, round the same openings
       KI.at(R.m.clone().multiply(htm(.17, .2, -.17)));
-      cladRun(KI, R.L - .34, H1 - .25, 'board', { holes: holes.filter(h => h.y0 < H1).map(h => ({ ...h, x0: h.x0 - .17, x1: h.x1 - .17, y0: h.y0 - .2, y1: h.y1 - .2 })), col: S.liner || 0xb8ae9c });
+      cladRun(KI, R.L - .34, H1 - .25, 'hull', { holes: holes.filter(h => h.y0 < H1).map(h => ({ ...h, x0: h.x0 - .17, x1: h.x1 - .17, y0: h.y0 - .2, y1: h.y1 - .2 })), col: S.liner || 0xc8c6be, pal: [0xb8bcb8, 0xd0cec6, 0xa8b0ae], inside: true });
       KI.at(null);
     }
     K.at(R.m);
     for (const [u, y, w, h] of wins) windowAt(K, u, y, w, h, { frame: S.frame, curtain: hp(.6) ? hpick(CLOTHC) : null, shutters: S.shutters && hp(.6) ? S.shutters : null, boarded: hp(S.boarded || .1), bars: S.bars, crack: hp(.3) });
-    for (const [u, w, h, y0 = 0] of doors) { K.at(R.m.clone().multiply(htm(0, y0, 0))); doorAt(K, u, w, h, { col: S.door || 0x6a5a48, frame: S.frame, metal: S.metalDoor, open: y0 > 0 ? hr(.05, .5) : undefined }); }
+    for (const [u, w, h, y0 = 0] of doors) { K.at(R.m.clone().multiply(htm(0, y0, 0))); doorAt(K, u, w, h, { col: S.door || 0x8a8e90, frame: S.frame, metal: true, open: y0 > 0 ? hr(.05, .5) : undefined }); }
+    // portholes where there's wall to spare, and a run of conduit along the top (it came off the Arc with the plate)
+    if (R.side !== 'front' && R.L > 6) { K.at(R.m); for (const u of [R.L * .14, R.L * .86]) if (!holes.some(h => u > h.x0 - .6 && u < h.x1 + .6 && h.y0 < 2.4)) porthole(K, u, 1.85, .3); }
+    if (R.side !== 'front') { K.at(R.m); K.cyl('metal', .045, .045, R.L - .4, 6, R.L / 2, H1 - .35, .09, 0, 0, Math.PI / 2, 0x4a4c4e); }
     // gable / shed fill above the wall top on the sides
     if ((R.side === 'left' || R.side === 'right') && S.roof) {
       K.at(R.m);
       const pitch = S.roof === 'gable' ? .42 : 0, rise = S.roof === 'shed' ? 1.1 : 0;
       for (let u = 0; u < R.L - .02;) { const w = Math.min(R.L - u, kind === 'board' ? hr(.17, .27) : hr(.82, .92)); const c = u + w / 2;
         const zf = R.side === 'right' ? BD / 2 - c : c - BD / 2;                       // where this strip is front-to-back (front = +)
-        const hh = S.roof === 'gable' ? (BD / 2 - Math.abs(zf)) * Math.tan(pitch) : rise * (zf + BD / 2) / BD;
+        const hh = S.roof === 'gable' ? archY(zf) - HT : rise * (zf + BD / 2) / BD;
         if (hh > .05) K.box(kind === 'board' ? 'board' : kind === 'hull' ? 'hull' : 'corr', w - .01, hh, .03, c, HT + hh / 2 - .02, 0, 0, 0, 0, kind === 'board' ? tint(col, .1) : tint(hpick(S.pal || RUST), .1));
         u += w; }
     }
@@ -2079,22 +2173,25 @@ function raiseHouse(D, S) {
   }
   K.at(null);
   // the ceiling: boards across the joists (the upstairs floor, or under the roof)
-  for (let x = -BW / 2 + .2; x < BW / 2 - .2; x += .24) KI.box('board', .23, .03, BD - .3, x + .12, H1 - .12, 0, 0, 0, 0, tint(S.liner || 0xb8ae9c, .1));
-  for (let z = -BD / 2 + .6; z < BD / 2; z += 1.2) KI.box('board', BW - .3, .14, .09, 0, H1 - .2, z, 0, 0, 0, 0x5a4a3a);
+  // the ceiling: deck plate laid across I-beam joists (the upstairs floor, or under the roof)
+  for (let x = -BW / 2 + .2; x < BW / 2 - .2; x += 1.2) KI.box('hull', 1.19, .03, BD - .3, x + .6, H1 - .12, 0, 0, 0, 0, tint(0x8e908c, .06), 1.6);
+  for (let z = -BD / 2 + .6; z < BD / 2; z += 1.6) KI.box('metal', BW - .3, .16, .1, 0, H1 - .22, z, 0, 0, 0, 0x4a4c4e);
   // ---- the roof ----
   const ov = .55, pal = S.roofPal || RUST;
   const sheet = (x, y, z, w, len, rx, c) => K.box('corr', w, .02, len, x, y, z, rx, 0, hr(-.012, .012), c);
   if (S.roof === 'gable') {
-    const a = .42, half = BD / 2 + ov, len = half / Math.cos(a) + .1, ridge = HT + BD / 2 * Math.tan(a);
-    for (const s of [1, -1]) {
-      const cz = s * half / 2, cy = HT + (BD / 2 - half / 2) * Math.tan(a) + .02;
-      for (let x = -BW / 2 - ov; x < BW / 2 + ov - .1; x += .84) sheet(x + .43, cy + ((x * 7) % 2 > 1 ? .012 : 0), cz, .9, len, s * a, hp(.1) ? tint(0x6a7f96) : tint(hpick(pal), .1));
-      K.box('board', BW + ov * 2 + .1, .2, .05, 0, HT - ov * Math.tan(a) - .1, s * (half + .02), 0, 0, 0, tint(0x5a4a3a));   // fascia
-      // gutter + downpipe at the front corner, into a barrel
-      K.cyl('metal', .09, .09, BW + ov * 2, 8, 0, HT - ov * Math.tan(a) - .17, s * (half + .1), 0, 0, Math.PI / 2, 0x6a6a66, true, 0, Math.PI);
-    }
-    K.box('corr', BW + ov * 2 + .1, .03, .5, 0, ridge + .03, .16, -.42, 0, 0, tint(0x7a7672)); K.box('corr', BW + ov * 2 + .1, .03, .5, 0, ridge + .03, -.16, .42, 0, 0, tint(0x7a7672));
-    S._eave = HT - ov * Math.tan(a) - .17;
+    // the shell: a curved length of hull, its skin wavy where it hit, the station's ribs still on it, end trims and a gutter
+    const half = Math.asin(ACH / 2 / AR), L = BW + ov * 2 + .1, rc = tint(hpick(S.roofPal || [0xd0cec6, 0xbcbab2, 0xc8c4b8]), .05);
+    const sg = new THREE.CylinderGeometry(AR, AR, L, 18, Math.max(2, Math.round(L / 1.2)), true, HP - half, half * 2);
+    { const pa = sg.attributes.position, uv = sg.attributes.uv; for (let i = 0; i < pa.count; i++) { const y = pa.getY(i), x = pa.getX(i), z = pa.getZ(i), k = 1 + (Math.sin(y * 1.7 + x * 2.3) * .012 + Math.sin(y * .6) * .01); pa.setX(i, x * k); pa.setZ(i, z * k); } for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * AR * half * 2 / 2, uv.getY(i) * L / 2); }
+    sg.rotateZ(HP); sg.computeVertexNormals(); K.geo('hull', sg, htm(0, AY0, 0), rc);
+    const ig = sg.clone(); ig.scale(1, .985, .985); K.geo('hull', ig, htm(0, AY0 - .05, 0), tint(0x8a8c8a, .05));     // the underside, so it reads from inside
+    // patches welded on, a stencil, the ribs over the top
+    for (let i = 0; i < 3; i++) { const pz = hr(-BD / 2, BD / 2), px = hr(-BW / 2 + 1, BW / 2 - 1), sl = Math.atan2(-pz, Math.sqrt(AR * AR - pz * pz)); K.box('plate', hr(.8, 1.8), .03, hr(.6, 1.4), px, archY(pz) + .04, pz, -sl, 0, hr(-.1, .1), hpick([0x8a5a3a, 0x7a7e80, 0x9a948a])); }
+    for (let x = -BW / 2 + .6; x < BW / 2; x += hr(2.1, 2.8)) { const rg = new THREE.TorusGeometry(AR + .08, .09, 4, 22, half * 2); rg.rotateZ(HP - half); rg.rotateY(HP); K.geo('metal', rg, htm(x, AY0, 0), tint(0xc8c6be, .05)); K.box('metal', .14, .14, .22, x, archY(0) + .14, 0, 0, 0, 0, 0x6a6e70); }
+    for (const sx of [-1, 1]) { const tg = new THREE.TorusGeometry(AR + .02, .07, 4, 22, half * 2); tg.rotateZ(HP - half); tg.rotateY(HP); K.geo('metal', tg, htm(sx * L / 2, AY0, 0), 0x4a4c4e); }
+    for (const sz of [1, -1]) K.cyl('metal', .09, .09, BW + ov * 2, 8, 0, HT - .06, sz * (ACH / 2 + .06), 0, 0, Math.PI / 2, 0x6a6a66, true, 0, Math.PI);
+    S._eave = HT - .1;
   } else {
     const rise = 1.1, ovF = S.upper ? .6 : 1.6, dz = BD + ov + ovF, a = Math.atan2(rise, BD), len = dz / Math.cos(a) + .1;
     const cz = (ovF - ov) / 2, cy = HT + rise / 2 + (cz / BD) * rise + .04;
@@ -2105,17 +2202,17 @@ function raiseHouse(D, S) {
     S._eave = HT - ov * rise / BD - .2;
   }
   // a tarp over the leaks, held down with tyres and sandbags
-  if (S.tarp) { const [tx, tz, tw, td] = S.tarp, ty = S.roof === 'gable' ? HT + (BD / 2 - Math.abs(tz)) * Math.tan(.42) + .06 : HT + 1.1 * (tz + BD / 2) / BD + .58;
+  if (S.tarp) { const [tx, tz, tw, td] = S.tarp, ty = S.roof === 'gable' ? archY(tz) + .06 : HT + 1.1 * (tz + BD / 2) / BD + .58;
     const tg = new THREE.PlaneGeometry(tw, td, 6, 6); const pa = tg.attributes.position; for (let i = 0; i < pa.count; i++) pa.setZ(i, (hash(pa.getX(i) * 3, pa.getY(i) * 3) - .5) * .06); tg.computeVertexNormals();
-    K.geo('cloth', tg, htm(tx, ty, tz, -Math.PI / 2 + (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), S.tarpC || 0x3a5a8a);
-    for (let i = 0; i < 3; i++) { const t = new THREE.TorusGeometry(.26, .1, 6, 12); t.rotateX(Math.PI / 2); K.geo('plain', t, htm(tx + hr(-tw / 2.5, tw / 2.5), ty + .1, tz + hr(-td / 3, td / 3), (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), 0x1e1e1e); } }
+    K.geo('cloth', tg, htm(tx, ty, tz, -Math.PI / 2 + (S.roof === 'gable' ? Math.atan2(tz, Math.sqrt(AR * AR - tz * tz)) : .11), 0, 0), S.tarpC || 0x3a5a8a);
+    for (let i = 0; i < 0; i++) { const t = new THREE.TorusGeometry(.26, .1, 6, 12); t.rotateX(Math.PI / 2); K.geo('plain', t, htm(tx + hr(-tw / 2.5, tw / 2.5), ty + .1, tz + hr(-td / 3, td / 3), (S.roof === 'gable' ? (tz > 0 ? .42 : -.42) : .11), 0, 0), 0x1e1e1e); } }
   // rain barrel under the back gutter, with its downpipe
   { const bx = H2 ? -BW / 2 + .5 : BW / 2 - .5, bz = -BD / 2 - .55; barrel(K, bx, 0, bz, tint(0x3a4a5a)); K.cyl('metal', .045, .045, S._eave - .9, 6, bx + .1, .9 + (S._eave - .9) / 2, -BD / 2 - .62, 0, 0, 0, 0x6a6a66); }
-  if (S.chim) stovepipe(K, S.chim[0], HT - .2, S.chim[1], (S.roof === 'gable' ? BD / 2 * Math.tan(.42) : 1.1) + 1.4);
+  if (S.chim) stovepipe(K, S.chim[0], HT - .2, S.chim[1], (S.roof === 'gable' ? archY(S.chim[1]) - HT : 1.1) + 1.4);
   // an aerial and a panel or two on the roof
   if (S.aerial) { K.cyl('metal', .025, .03, 3.4, 5, -BW / 2 + .4, HT + 1.6, -BD / 2 + .3, 0, 0, 0, 0x5a5a58); for (let i = 0; i < 4; i++) K.box('metal', .9 - i * .15, .02, .02, -BW / 2 + .4, HT + 2.4 + i * .3, -BD / 2 + .3, 0, .5, 0, 0x5a5a58); }
-  if (S.solar) { const sy = S.roof === 'gable' ? HT + BD / 4 * Math.tan(.42) + .15 : HT + .9, sz = S.roof === 'gable' ? -BD / 4 : -BD * .15;
-    for (const sx of [-BW / 4, 0]) { K.box('hull', 1.6, .05, 1.1, sx, sy, sz, S.roof === 'gable' ? -.42 : -.11, 0, 0, 0x2a3a5a, 1.2); K.box('metal', 1.66, .04, 1.16, sx, sy - .03, sz, S.roof === 'gable' ? -.42 : -.11, 0, 0, 0x8a8a88); } }
+  if (S.solar) { const sz = S.roof === 'gable' ? -BD / 4 : -BD * .15, sy = S.roof === 'gable' ? archY(sz) + .15 : HT + .9, sa = S.roof === 'gable' ? -Math.atan2(-sz, Math.sqrt(AR * AR - sz * sz)) : -.11;
+    for (const sx of [-BW / 4, 0]) { K.box('hull', 1.6, .05, 1.1, sx, sy, sz, sa, 0, 0, 0x2a3a5a, 1.2); K.box('metal', 1.66, .04, 1.16, sx, sy - .03, sz, sa, 0, 0, 0x8a8a88); } }
   // ---- the upstairs: balcony over the shop front, stairs up the back ----
   if (H2) {
     const bd = 1.5, x0 = -BW / 2 + .4, x1 = BW / 2 - .4;
@@ -2157,17 +2254,20 @@ function raiseHouse(D, S) {
 }
 
 /* ---------- what's inside: the counter, the back wall, the keeper's own corner, and each trade's tools ---------- */
-const HOUSE_STYLE = {
-  craft:   { clad: 'corr', base: 'block', col: 0x9aa0a4, pal: [0x9c9a94, 0x8a8a86, 0xb07850, 0xa88a72], roof: 'shed', front: 'rollup', lean: true, chim: [3.9, 1.4], aerial: true, sign: ['WORKSHOP', 'stencil'], tarp: [-2, -1, 3, 2.6], tarpC: 0x4a5a3a, sideDoor: 'left', frame: 0x4a4644, bars: false, floor: 'conc' },
-  trade:   { clad: 'board', col: 0x6f8a7c, patch: 0xa86a4a, roof: 'gable', upper: true, shutters: 0x5a6a4a, sign: ['TRADING POST', '#c8a050'], frame: 0x4a3c2e, floor: 'board', door: 0x7a5a3a, tarp: [2.5, 2, 3.4, 2.4], tarpC: 0x9a6a2a },
-  med:     { clad: 'board', base: 'block', col: 0xd8d4c6, patch: 0x9aa8b0, roof: 'gable', solar: true, sign: ['CLINIC', '#b8392e'], frame: 0x8a8a84, lean: true, floor: 'board', sideDoor: 'right', shutters: 0xa8b0a8, door: 0xa8aca4 },
-  wear:    { clad: 'board', col: 0x9a6458, patch: 0x6a7a8a, roof: 'gable', upper: true, shutters: 0x4a5a6a, sign: ['OUTFITTER', '#d8c8a8'], frame: 0x4a3c2e, floor: 'board', door: 0x5a6a7a },
-  guns:    { clad: 'hull', base: 'block', col: 0xc0beb6, roof: 'shed', pal: [0x8a8a86, 0x7a7a76, 0x9c9a94], sign: ['GUNSMITH', 'stencil'], frame: 0x3a3836, bars: true, metalDoor: true, boarded: .05, lean: true, aerial: true, floor: 'conc', sideDoor: 'left' },
-  cook:    { clad: 'board', base: 'block', col: 0xa8885e, patch: 0x7a8a6a, roof: 'gable', chim: [-3.3, .5], sign: ['COOKHOUSE', '#e0b060'], frame: 0x4a3c2e, lean: true, floor: 'board', shutters: 0x7a4a32, door: 0x6a4a32, tarp: [-3, -2, 3, 2.2], tarpC: 0x6a7a4a },
-  bunk:    { clad: 'corr', col: 0x7a8a6a, pal: [0x7a8a6a, 0x8a9a7a, 0x9c9a94, 0xb07850], roof: 'gable', upper: true, sign: ['BUNKHOUSE', '#c8c0a8'], frame: 0x4a4644, floor: 'board', door: 0x5a6a4a, solar: true, aerial: true },
-  salvage: { clad: 'corr', col: 0x9a8a7a, pal: [0xb07850, 0x9a6a4a, 0x8a5a3a, 0xa88a72, 0x9c9a94], patch: 0xc0beb6, roof: 'shed', front: 'rollup', lean: true, sign: ['SALVAGE', 'spray'], frame: 0x4a4644, floor: 'conc', tarp: [1, 0, 3.6, 3], tarpC: 0x8a4a2a, sideDoor: 'right' },
+const HOUSE_STYLE = {   // (Nov 11) all of them cut from the Arc: col = the plate's paint, pal = the odd panel from somewhere else on the ship
+  craft:   { clad: 'hull', col: 0x8a9094, pal: [0x6a6e70, 0x9a8a7a, 0xb4b2aa], roof: 'shed', front: 'rollup', lean: true, chim: [3.9, 1.4], aerial: true, sign: ['WORKSHOP', 'stencil'], tarp: [-2, -1, 3, 2.6], tarpC: 0x4a5a3a, sideDoor: 'left', frame: 0x3a3c3e, floor: 'conc', ribC: 0x4a4c4e },
+  trade:   { clad: 'hull', col: 0xa8b4b0, pal: [0xd6d4cc, 0x8a6a52, 0x7a8286], roof: 'gable', upper: true, shutters: 0x6a7a74, sign: ['TRADING POST', 'stencil'], frame: 0x4a4c4e, floor: 'board', ribC: 0xc8c6be },
+  med:     { clad: 'hull', col: 0xdcdad2, pal: [0xc4c2ba, 0xb8c4c8], roof: 'gable', solar: true, sign: ['CLINIC', '#b8392e'], frame: 0x8a8e90, lean: true, floor: 'board', sideDoor: 'right', shutters: 0xa8b0a8, door: 0xc8ccc8, ribC: 0xd8d6ce },
+  wear:    { clad: 'hull', col: 0x7a8a9a, pal: [0x9a8a7a, 0xc4c2ba, 0x6a6e70], roof: 'gable', upper: true, shutters: 0x4a5a6a, sign: ['OUTFITTER', 'stencil'], frame: 0x3a3c3e, floor: 'board', door: 0x5a6a7a, ribC: 0x55585a },
+  guns:    { clad: 'hull', col: 0x6a7068, pal: [0x5a5e60, 0x7a7a76, 0x8a6a52], roof: 'shed', sign: ['GUNSMITH', 'stencil'], frame: 0x2e3032, bars: true, boarded: .05, lean: true, aerial: true, floor: 'conc', sideDoor: 'left', ribC: 0x3a3c3e },
+  cook:    { clad: 'hull', col: 0xc4bcae, pal: [0x9a8a7a, 0xd6d4cc, 0x8a6a52], roof: 'gable', chim: [-3.3, .5], sign: ['COOKHOUSE', 'stencil'], frame: 0x4a4c4e, lean: true, floor: 'board', shutters: 0x7a6a5a, door: 0x8a7a6a, tarp: [-3, -2, 3, 2.2], tarpC: 0x6a7a4a, ribC: 0xc8c6be },
+  bunk:    { clad: 'hull', col: 0xb4b2aa, pal: [0x7a8a7a, 0xc4c2ba, 0x9a8a7a], roof: 'gable', upper: true, sign: ['BUNKHOUSE', 'stencil'], frame: 0x4a4c4e, floor: 'board', door: 0x6a7a6a, solar: true, aerial: true, ribC: 0xd0cec6 },
+  salvage: { clad: 'hull', col: 0x8a6a52, pal: [0x9a8a7a, 0x6a6e70, 0xb4b2aa, 0x7a4a32], roof: 'shed', front: 'rollup', lean: true, sign: ['SALVAGE', 'spray'], frame: 0x3a3c3e, floor: 'conc', tarp: [1, 0, 3.6, 3], tarpC: 0x8a4a2a, sideDoor: 'right', ribC: 0x4a4c4e },
+  ammo:    { clad: 'hull', col: 0x6e6a52, pal: [0x5a5e60, 0x7a6a3a, 0x8a8e90], roof: 'gable', sign: ['MUNITIONS', 'stencil'], frame: 0x2e3032, bars: true, floor: 'conc', sideDoor: 'right', aerial: true, ribC: 0x3a3c3e, roofPal: [0x8a8a7a, 0x7a7c70] },
+  store:   { clad: 'hull', col: 0x9a948a, pal: [0xc4c2ba, 0x7a8286], roof: 'gable', sign: ['STOREHOUSE', 'stencil'], frame: 0x3a3c3e, floor: 'conc', ribC: 0xc8c6be, lean: true },
+  depot:   { clad: 'hull', col: 0x7a8286, pal: [0x6a6e70, 0x9a8a7a, 0xd6d4cc], roof: 'shed', front: 'rollup', sign: ['DEPOT', 'stencil'], frame: 0x3a3c3e, floor: 'conc', ribC: 0x4a4c4e, sideDoor: 'left', aerial: true },
 };
-const STOCK_COL = { cook: [0x8a3a2a, 0x7a6a4a, 0xc8a050, 0x5a7a3a], craft: [0x6d7276, 0x9a6040, 0x8a8c8c, 0x3a5a7a], trade: [0x7a5a3e, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a, 0xa87a4a],
+const STOCK_COL = { ammo: [0x4f5a3a, 0x6a5a3a, 0x3a3a3a, 0x8a6a2a], store: [0x8a7a5a, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a], depot: [0x6d7276, 0x8a8c8c, 0x3a5a7a, 0x9a6040], cook: [0x8a3a2a, 0x7a6a4a, 0xc8a050, 0x5a7a3a], craft: [0x6d7276, 0x9a6040, 0x8a8c8c, 0x3a5a7a], trade: [0x7a5a3e, 0x6a7a5a, 0x9a8a6a, 0x5a6a7a, 0xa87a4a],
   med: [0xd8d8d0, 0xc04040, 0x8ab0c8, 0xe0e0d8], guns: [0x2e3424, 0x4f5a3a, 0x3a3a3a, 0x6a5a3a], wear: [0x6a4a32, 0x5a6a7a, 0x8a7a5a, 0x7a3a3a, 0x3a4a5a], bunk: [0x6a7a5a, 0x8a8a80, 0x5a6a7a], salvage: [0x8a8c8c, 0x9a6040, 0x6d7276, 0xb0905a] };
 
 function shopHouse(D) {
@@ -2317,6 +2417,47 @@ function shopHouse(D) {
       K.box('metal', 1.9, .14, .14, ax, 2.98, az, 0, 0, 0, 0x6a5a3a); for (let k = 0; k < 14; k++) { const t = new THREE.TorusGeometry(.03, .01, 4, 6); K.geo('metal', t, htm(ax, 2.85 - k * .07, az, 0, k % 2 ? Math.PI / 2 : 0, 0), 0x3a3836); } K.box('metal', .14, .2, .1, ax, 1.8, az, 0, 0, 0, 0x3a3836); }
     hput(inner, hmodel('props/pipes', 2.2, 'x'), -BW / 2 + .6, 1.6, -1.6, Math.PI / 2);
     for (let i = 0; i < 6; i++) K.box('hull', 1.6, 1.1, .05, 1 + i * .06, .55, -BD / 2 + .5 + i * .1, -.15, 0, 0, tint(0xc0beb6, .06), 2);
+  } else if (id === 'ammo') {
+    // (Nov 11) the munitions shed: the powder bench (the station) with a reloading press, scales and trays of brass; racks of
+    // ammo crates down the back, explosive drums and gas behind a sandbag wall, frags in an open crate, a red lamp over the door
+    K.box('metal', 1.3, .06, 2.6, sx, .95, sz, 0, 0, 0, 0x5a5e60); K.box('metal', 1.2, .9, 2.4, sx, .45, sz, 0, 0, 0, 0x3a3e40);
+    K.cyl('metal', .06, .08, .45, 8, sx - .3, 1.2, sz - .8, 0, 0, 0, 0x2a2c2e); K.box('metal', .3, .08, .25, sx - .3, 1.45, sz - .8, 0, 0, 0, 0x2a2c2e); K.cyl('metal', .015, .015, .4, 4, sx - .1, 1.45, sz - .8, 0, 0, HP, 0x8a8e90);
+    for (let i = 0; i < 24; i++) K.cyl('shiny', .012, .012, .06, 6, sx + .1 + (i % 6) * .05, 1.01, sz - .2 + Math.floor(i / 6) * .05, 0, 0, 0, 0xc8a050);
+    for (let i = 0; i < 4; i++) K.cyl('metal', .08, .08, .22, 10, sx + .4, 1.09, sz + .3 + i * .22, 0, 0, 0, hpick([0x2a2a28, 0x6a2a22, 0x3a4a2a]));
+    K.cyl('shiny', .14, .14, .02, 12, sx - .3, 1.0, sz + .7, 0, 0, 0, 0x9a8a5a);
+    // racks of ammo crates along the back wall
+    for (const rx of [-3.6, -1.2, 1.2]) { for (const y of [.05, .75, 1.45]) K.box('metal', 2.1, .05, .7, rx, y, -BD / 2 + .6, 0, 0, 0, 0x4a4c4e); for (const ex of [-1.02, 1.02]) K.box('metal', .06, 2.1, .7, rx + ex, 1.05, -BD / 2 + .6, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .8, 1.5]) for (let k = 0; k < 3; k++) { if (hp(.2)) continue; if (MODELS['ammo-crate']) { const c = modelCopy('ammo-crate', .32); c.position.set(rx - .65 + k * .65, y, -BD / 2 + .62); c.rotation.y = hr(-.15, .15); inner.add(c); c.traverse(o => { if (o.isMesh) o.castShadow = false; }); } else crate(K, rx - .65 + k * .65, y, -BD / 2 + .62, 0, .9, 0x4f5a3a); } }
+    // explosive drums behind sandbags in the far corner, and the gas
+    for (const [x, z] of [[4.2, -2.6], [4.9, -2.1], [4.4, -1.6], [5.1, -2.9]]) { barrel(K, x, 0, z, 0x8a2a22); K.box('plain', .45, .12, .01, x, .55, z + .3, 0, 0, 0, 0xd9a32a); }
+    for (let i = 0; i < 5; i++) { const sg = new THREE.BoxGeometry(.7, .26, .4); K.geo('cloth', sg, htm(3.2 + i * .62, .14 + (i % 2) * .26 * 0, -1.0, 0, hr(-.08, .08), 0), tint(0x8a7e5a)); K.geo('cloth', new THREE.BoxGeometry(.7, .26, .4), htm(3.5 + i * .5, .4, -1.0, 0, hr(-.08, .08), 0), tint(0x8a7e5a)); }
+    // frags in an open crate, a box of molotovs (bottles and rag) by the counter
+    crate(K, 2.6, .22, 1.9, .2, 1.1, 0x4f5a3a); for (let i = 0; i < 8; i++) { const g2 = new THREE.SphereGeometry(.05, 7, 5); g2.scale(1, 1.3, 1); K.geo('plain', g2, htm(2.45 + (i % 4) * .1, .72, 1.82 + Math.floor(i / 4) * .12), 0x3a4a2a); }
+    bottleRow(K, 3.4, 3.9, .22, 2.2);
+    // a red lamp over the door, a hazard band on the floor inside the front, NO FLAME on the wall
+    K.box('glow', .22, .16, .12, 0, Hs.H1 + .3, BD / 2 + .1, 0, 0, 0, 0xff2a1a);
+    for (let k = 0; k < 14; k++) K.box('plain', .3, .006, .22, -2.6 + k * .4, .25, BD / 2 - .5, 0, .6, 0, k % 2 ? 0x1e1e1e : 0xd9a32a);
+    stencil(K, 3, 1.4, .7, BW / 2 - .16, 2.1, -1.2, -HP); stencil(K, 3, 1.4, .7, -BW / 2 + .16, 2.1, -1.2, HP);
+    // outside: blast walls either side and sandbags across the front
+    for (let i = 0; i < 9; i++) { const x = -4.6 + (i % 5) * 1.15 + (i > 4 ? .55 : 0), y = .2 + (i > 4 ? .3 : 0), z = BD / 2 + 1.3; const sg = new THREE.BoxGeometry(1.05, .3, .5); K.geo('cloth', sg, htm(x - (x > -1.6 && x < 1.6 ? 0 : 0), y, z, 0, hr(-.05, .05), 0), tint(0x8a7e5a)); }
+    for (const sd of [-1, 1]) { const bw = hmodel('props/barrier', 3.4); if (bw) { bw.position.set(sd * (BW / 2 + 1.1), 0, .5); bw.rotation.y = HP; inner.add(bw); } const w = shopL2W(D, sd * (BW / 2 + 1.1), .5), w0 = shopL2W(D, sd * (BW / 2 + 1.1), -3.2), w1 = shopL2W(D, sd * (BW / 2 + 1.1), 4.2); addColLine(w0.x, w0.z, w1.x, w1.z, .6); }
+    const w = shopL2W(D, 4.5, -2.3); addCol(w.x, w.z, 1);
+  } else if (id === 'store') {
+    // the Storehouse: steel racks of crates, sacks and drums floor to ceiling, a tally board, a hand truck
+    for (const [rz, n] of [[-BD / 2 + .55, 3], [-.6, 2]]) for (let k = 0; k < n; k++) { const rx = -BW / 2 + 1.6 + k * 2.3;
+      for (const y of [.05, .9, 1.75]) K.box('metal', 2.1, .05, .8, rx, y, rz, 0, 0, 0, 0x4a4c4e); for (const ex of [-1.02, 1.02]) K.box('metal', .06, 2.5, .8, rx + ex, 1.25, rz, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .95, 1.8]) for (let j = 0; j < 3; j++) { const r = hrnd(); if (r < .45) crate(K, rx - .65 + j * .65, y, rz, hr(-.1, .1), .9); else if (r < .75) sack(K, rx - .65 + j * .65, y, rz, .8); else barrel(K, rx - .65 + j * .65, y, rz, tint(hpick(stuff)), .7); }
+      const c0 = shopL2W(D, rx - 1, rz), c1 = shopL2W(D, rx + 1, rz); addColLine(c0.x, c0.z, c1.x, c1.z, .5); }
+    K.box('plate', 1.2, .9, .03, BW / 2 - .1, 1.6, 1.5, 0, -HP, 0, 0x3a3e3a); for (let k = 0; k < 5; k++) K.box('plain', .8, .01, .02, BW / 2 - .13, 1.85 - k * .12, 1.5, 0, -HP, 0, 0xd8d4c8);
+    K.box('metal', .5, .05, .4, 2, .12, 2.3, 0, .4, 0, 0x8a2a22); K.box('metal', .05, 1.1, .05, 2, .6, 2.1, .2, .4, 0, 0x8a2a22);
+  } else if (id === 'depot') {
+    // the Depot: the station's own lockers, a server rack and a terminal still taking power, fuel cells on charge, a pallet of plate
+    npInst(inner, 'locker', [-3.6, -2.84, -2.08, -1.32].map(x => [x, .22, -BD / 2 + .5, 0, 1]), false); { const c0 = shopL2W(D, -4, -BD / 2 + .5), c1 = shopL2W(D, -1, -BD / 2 + .5); addColLine(c0.x, c0.z, c1.x, c1.z, .5); }
+    npInst(inner, 'server-rack', [[1.2, .22, -BD / 2 + .6, 0]], false); npInst(inner, 'wall-4', [[3.6, .22, -BD / 2 + .3, 0]], false);
+    npInst(inner, 'computer-console', [[BW / 2 - 1.1, .22, .6, -HP, .8]], false); { const c = shopL2W(D, BW / 2 - 1.1, .6); addCol(c.x, c.z, .6); }
+    npInst(inner, 'fuel-cell', [[-3.6, .22, 1.8], [-3, .22, 2.2, .8], [-3.3, .22, 1.2, 2]], false); npInst(inner, 'gas-bottle', [[-BW / 2 + .45, .22, -1.2], [-BW / 2 + .45, .22, -.7, 1]], false);
+    for (let k = 0; k < 6; k++) K.box('hull', 1.6, .04, 1.1, .6, .3 + k * .05, 1.6, 0, hr(-.1, .1), 0, tint(hpick(SHIPC), .05), 2); K.box('plate', 1.4, .14, 1.2, .6, .2, 1.6, 0, 0, 0, 0x7a6a50);
+    { const c = shopL2W(D, .6, 1.6); addCol(c.x, c.z, .8); }
   }
   dressShop(D, K, inner, Hs);                       // (Nov 10) Bryce's props: the wood stove, gas bottles, medkits, radios
   // collision: back + side walls, counter, the side station (as before), and the side door gaps left open
@@ -2338,7 +2479,7 @@ function wireBetween(K, a, b, sag = .5, col = 0x1e1e1e, r = .012) {
 }
 function buildYard() {
   const g = new THREE.Group(); g.position.set(0, H0, 0); world.add(g);
-  const K = hkit(LOW);
+  const K = shipKit(hkit(LOW));
   // the power yard: Bryce's substation inside a fence, the genset beside it, a pole line out to the buildings
   const PX = 24, PZ = -8;
   const sub = hmodel('props/substation', 2.9); if (sub) { sub.position.set(PX, 0, PZ); sub.rotation.y = -Math.PI / 2; g.add(sub); }
@@ -2356,33 +2497,33 @@ function buildYard() {
     for (let i = 0; i < 6; i++) K.box('metal', .02, .7, .9, gx + .3 + i * .12, .78, gz + .57, 0, 0, 0, 0x2a2a28); K.cyl('metal', .07, .07, 1.4, 8, gx + .8, 1.9, gz - .3, 0, 0, 0, 0x3a3634); K.cyl('metal', .1, .07, .2, 8, gx + .8, 2.65, gz - .3, .4, 0, 0, 0x2a2826);
     barrel(K, gx - 1.8, 0, gz + .3, 0xa83a2a); K.box('metal', .35, .45, .18, gx - 1.7, .23, gz - .5, 0, .4, 0, 0x7a2a22); addCol(gx, gz, 1.3); }
   // poles: from the yard down Arc Row and up Main Street, wires to each building's eave
-  const poles = [[PX - 3.2, PZ + 3], [10, -13], [-6, -13], [-24, -13], [-38, -6], [6, 6], [6, 26], [30, 16], [40, 16], [-6, 26], [-25, 26.5]];
+  const poles = [[PX - 3.2, PZ + 3], [10, -14], [-8, -14.5], [-24, -13], [-40, -4], [5, 4], [5, 24], [5.5, 40], [-5, 44], [-5, 26], [-20, 2], [30, 20], [46, 21], [60, 19], [76, 13], [54, 32], [-46, 12]];
   const tops = [];
   for (const [x, z] of poles) { const h = 6.2; K.cyl('board', .11, .14, h, 7, x, h / 2, z, hr(-.02, .02), 0, hr(-.02, .02), tint(0x6a5a46)); K.box('board', 1.4, .1, .1, x, h - .3, z, 0, hr(0, 3), 0, 0x5a4a3a);
     for (const s of [-.5, .5]) K.cyl('plain', .04, .05, .12, 6, x + s, h - .2, z, 0, 0, 0, 0xb8b0a0); addCol(x, z, .25); tops.push(new THREE.Vector3(x, h - .15, z)); }
-  const chain = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 9], [9, 10], [0, 7], [7, 8]];
+  const chain = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 16], [16, 10], [0, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [0, 11], [11, 12], [12, 13], [13, 14], [12, 15]];
   for (const [a, b] of chain) wireBetween(K, tops[a], tops[b], .6);
-  const toHouse = { craft: 2, trade: 10, med: 4, wear: 10, guns: 9, cook: 6, bunk: 8, salvage: 7 };
+  const toHouse = { craft: 3, trade: 9, med: 16, wear: 9, guns: 8, cook: 7, bunk: 6, salvage: 12, ammo: 14, depot: 15, store: 4 };
   for (const D of SHOP_DEFS) { const t = tops[toHouse[D.id]]; if (!t) continue; const e = shopL2W(D, D.bw / 2 - .3, D.bd / 2); wireBetween(K, t, new THREE.Vector3(e.x, (HOUSE_STYLE[D.id].upper ? 5.9 : 3.3), e.z), .4); }
-  // string lights over the commons walk (warm after dark)
-  { const pts = [[6, 2.5], [14, 1.5], [22, 2.5], [30, 1.5], [38, 2.5]];
-    for (const [x, z] of pts) { K.cyl('board', .06, .07, 4, 6, x, 2, z + (z > 2 ? 1.6 : -1.6), 0, 0, 0, 0x5a4a3a); addCol(x, z + (z > 2 ? 1.6 : -1.6), .15); }
-    for (let i = 0; i < pts.length - 1; i++) { const a = new THREE.Vector3(pts[i][0], 3.9, pts[i][1] + (pts[i][1] > 2 ? 1.6 : -1.6)), b = new THREE.Vector3(pts[i + 1][0], 3.9, pts[i + 1][1] + (pts[i + 1][1] > 2 ? 1.6 : -1.6));
+  // string lights round the commons fire (warm after dark)
+  { const pts = [[15.5, 11.5], [19, 3.5], [27.5, 2.5], [31.5, 9.5], [27, 12.6]];
+    for (const [x, z] of pts) { K.cyl('metal', .06, .07, 4, 6, x, 2, z, 0, 0, 0, 0x4a4c4e); addCol(x, z, .15); }
+    for (let i = 0; i < pts.length; i++) { const p0 = pts[i], p1 = pts[(i + 1) % pts.length], a = new THREE.Vector3(p0[0], 3.9, p0[1]), b = new THREE.Vector3(p1[0], 3.9, p1[1]);
       wireBetween(K, a, b, .45, 0x2a2a28, .008);
       for (let k = 1; k < 8; k++) { const t = k / 8; K.box('win', .07, .1, .07, lerp(a.x, b.x, t), lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * .45 - .07, lerp(a.z, b.z, t)); } } }
   // the notice board inside the gate: a roofed board of notices, a bench, a bucket of sand
-  { const nx = 7, nz = 50, ry = -Math.PI / 2; const m = htm(nx, 0, nz, 0, ry, 0);
+  { const nx = 7.5, nz = 58, ry = -Math.PI / 2; const m = htm(nx, 0, nz, 0, ry, 0);
     K.at(m); for (const s of [-1, 1]) K.box('board', .12, 2.6, .12, s * 1.3, 1.3, 0, 0, 0, 0, 0x5a4a3a); K.box('board', 2.8, 1.5, .06, 0, 1.6, 0, 0, 0, 0, 0x8a7a5a);
     K.box('corr', 3.1, .03, .8, 0, 2.65, .1, .25, 0, 0, 0x9a6a4a);
     for (let i = 0; i < 9; i++) K.poster(i % 8, hr(.3, .5), hr(.38, .55), -1.1 + (i % 5) * .55 + hr(-.05, .05), 1.25 + Math.floor(i / 5) * .62 + hr(-.05, .05), .04, 0, hr(-.08, .08));
     K.box('board', 1.8, .06, .4, 0, .48, 1.4, 0, 0, 0, 0x7a6650); for (const s of [-1, 1]) K.box('board', .06, .46, .36, s * .8, .23, 1.4, 0, 0, 0, 0x5a4636);
     K.at(null); addColLine(nx, nz - 1.4, nx, nz + 1.4, .3); }
   // planters of herbs along the streets, a cart, a ladder against a wall
-  for (const [x, z, r] of [[-5.5, 30, 0], [5.5, 14, 0], [-5.5, 44, 0], [5.5, 40, 0], [-27, 8, Math.PI / 2], [9, 26, 0]]) {
+  for (const [x, z, r] of [[-5.6, 39.6, .05], [5.8, 33, -.04], [-5.5, 56, 0], [-16, 1.6, .1], [57, 21.5, .5], [-31, 1.8, -.08]]) {
     K.box('board', 2.2, .45, .7, x, .23, z, 0, r, 0, tint(0x6a5038)); K.box('plain', 2.1, .05, .6, x, .44, z, 0, r, 0, 0x3a2e22);
     for (let i = 0; i < 7; i++) { const p = new THREE.Vector3(-.9 + i * .3, 0, hr(-.15, .15)).applyAxisAngle(new THREE.Vector3(0, 1, 0), r); const pg = new THREE.SphereGeometry(hr(.1, .18), 6, 4); pg.scale(1, hr(.8, 1.6), 1); K.geo('plain', pg, htm(x + p.x, .55, z + p.z), tint(hpick([0x4a6a32, 0x5a7a3a, 0x6a7a3a]))); }
     addCol(x, z, .9); }
-  { const cx = -8, cz = 18; K.box('board', 1.2, .08, 2, cx, .62, cz, 0, .3, 0, 0x7a6650); for (const s of [-1, 1]) { K.box('board', .06, .35, 2, cx + s * .58 * Math.cos(.3), .78, cz - s * .58 * Math.sin(.3), 0, .3, 0, 0x6a5440); const w = new THREE.TorusGeometry(.38, .05, 6, 14); K.geo('board', w, htm(cx + s * .66 * Math.cos(.3), .38, cz - s * .66 * Math.sin(.3), 0, .3 + Math.PI / 2, 0), 0x4a3a2a); }
+  { const cx = -44, cz = -2; K.box('board', 1.2, .08, 2, cx, .62, cz, 0, .3, 0, 0x7a6650); for (const s of [-1, 1]) { K.box('board', .06, .35, 2, cx + s * .58 * Math.cos(.3), .78, cz - s * .58 * Math.sin(.3), 0, .3, 0, 0x6a5440); const w = new THREE.TorusGeometry(.38, .05, 6, 14); K.geo('board', w, htm(cx + s * .66 * Math.cos(.3), .38, cz - s * .66 * Math.sin(.3), 0, .3 + Math.PI / 2, 0), 0x4a3a2a); }
     K.box('board', .06, .06, 1.4, cx - .5, .5, cz + 1.4, .5, .3, 0, 0x5a4636); sack(K, cx, .66, cz - .3); sack(K, cx + .2, .66, cz + .4); addCol(cx, cz, 1.1); }
   K.build(g);
   // blast walls outside the gate: Bryce's concrete barrier sections, either side of the road, razor wire on top
@@ -2399,11 +2540,11 @@ function buildYard() {
 /* ---------- the gatehouse: two block towers either side of the gate, a covered walk across the top ---------- */
 function buildGatehouse() {
   const gz = CAMP_R, gy = heightAt(0, gz);
-  const g = new THREE.Group(); g.position.set(0, gy, gz); world.add(g); const K = hkit(LOW);
+  const g = new THREE.Group(); g.position.set(0, gy, gz); world.add(g); const K = shipKit(hkit(LOW));
   for (const s of [-1, 1]) {
     const x = s * (GATE_X + 3.2);
     K.at(htm(x, 0, 0));
-    K.box('block', 5, 4.2, 6, 0, 2.1, 0, 0, 0, 0, 0xd0cabe, 1.6);                                     // block base
+    cladRun(K.at(htm(x - 2.5, 0, 3)), 5, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x + 2.5, 0, -3, 0, Math.PI, 0)), 5, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x + 2.5, 0, 3, 0, HP, 0)), 6, 4.2, 'hull', { col: 0x9a9890 }); cladRun(K.at(htm(x - 2.5, 0, -3, 0, -HP, 0)), 6, 4.2, 'hull', { col: 0x9a9890 }); K.at(htm(x, 0, 0)); K.box('plate', 4.9, .2, 5.9, 0, 4.1, 0, 0, 0, 0, 0x6a6c6a);                                     // block base
     for (const z of [-3.02, 3.02]) { K.box('metal', 1.4, .14, .08, 0, 2.6, z, 0, 0, 0, 0x2a2a28); K.box('win', 1.2, .12, .02, 0, 2.6, z * .995); }   // firing slits
     // the guard room on top: salvaged hull plate on all four sides, a slot window on each
     for (const [wx, wz, wr, L] of [[2.5, -3, Math.PI, 5], [2.5, 3, Math.PI / 2, 6], [-2.5, -3, -Math.PI / 2, 6], [-2.5, 3, 0, 5]])
@@ -2433,17 +2574,17 @@ function buildGatehouse() {
 function towerKit(t) {
   const K = hkit(LOW);
   const leg = [[-1.35, -1.35], [1.35, -1.35], [-1.35, 1.35], [1.35, 1.35]];
-  for (const [x, z] of leg) K.cyl('board', .13, .16, 8.2, 7, x * 1.04, 4.05, z * 1.04, z * -.02, 0, x * .02, tint(0x6a5a46));
+  for (const [x, z] of leg) K.cyl('metal', .13, .16, 8.2, 7, x * 1.04, 4.05, z * 1.04, z * -.02, 0, x * .02, tint(0x6e7072));
   for (let y = 1; y < 8; y += 2.4) for (const [a, b] of [[0, 1], [1, 3], [3, 2], [2, 0]]) { const [ax, az] = leg[a], [bx, bz] = leg[b], L = Math.hypot(bx - ax, bz - az);
-    const yaw = Math.atan2(-(bz - az), bx - ax); K.box('board', L, .1, .1, (ax + bx) / 2, y, (az + bz) / 2, 0, yaw, 0, 0x5a4a3a);
-    K.box('board', Math.hypot(L, 2.4), .08, .08, (ax + bx) / 2, y + 1.2, (az + bz) / 2, 0, yaw, Math.atan2(2.4, L) * (y % 2 > 1 ? 1 : -1), 0x5a4a3a); }
-  for (let x = -1.75; x < 1.75; x += .22) K.box('board', .21, .07, 3.6, x + .11, 8, 0, 0, 0, 0, tint(0x7a6a56, .1));
+    const yaw = Math.atan2(-(bz - az), bx - ax); K.box('metal', L, .1, .1, (ax + bx) / 2, y, (az + bz) / 2, 0, yaw, 0, 0x4a4c4e);
+    K.box('metal', Math.hypot(L, 2.4), .08, .08, (ax + bx) / 2, y + 1.2, (az + bz) / 2, 0, yaw, Math.atan2(2.4, L) * (y % 2 > 1 ? 1 : -1), 0x4a4c4e); }
+  for (let x = -1.75; x < 1.75; x += .22) K.box('metal', .21, .07, 3.6, x + .11, 8, 0, 0, 0, 0, tint(0x7a7c78, .08));
   for (const [x, z, w, d] of [[0, 1.7, 3.6, .3], [-1.7, 0, .3, 3.6], [1.7, 0, .3, 3.6]]) for (let i = 0; i < Math.round(Math.max(w, d) / .6); i++) { const sg = new THREE.BoxGeometry(w > d ? .62 : .42, .26, w > d ? .42 : .62);
     const sg2 = sg.clone(); K.geo('cloth', sg, htm(w > d ? -1.5 + i * .6 : x, 8.2, w > d ? z : -1.5 + i * .6, 0, hr(-.06, .06), 0), tint(0x8a7e5a)); K.geo('cloth', sg2, htm(w > d ? -1.2 + i * .6 : x, 8.45, w > d ? z : -1.2 + i * .6, 0, hr(-.06, .06), 0), tint(0x8a7e5a)); }
-  for (const [px, pz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) K.box('board', .12, 3, .12, px, 9.6, pz, 0, 0, 0, 0x5a4a3a);
-  for (let x = -2.1; x < 2.1; x += .84) K.box('corr', .9, .02, 4.4, x + .42, 11.15, 0, .12, 0, hr(-.01, .01), tint(hpick(RUST), .1));
-  K.box('board', .08, 8, .08, -.4, 4, -1.45, 0, 0, 0, 0x6a5440); K.box('board', .08, 8, .08, .4, 4, -1.45, 0, 0, 0, 0x6a5440);
-  for (let k = 0; k < 10; k++) K.box('board', .8, .07, .07, 0, .4 + k * .8, -1.45, 0, 0, 0, 0x7d6448);
+  for (const [px, pz] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) K.box('metal', .12, 3, .12, px, 9.6, pz, 0, 0, 0, 0x4a4c4e);
+  for (let x = -2.1; x < 2.1; x += .84) K.box('hull', .9, .02, 4.4, x + .42, 11.15, 0, .12, 0, hr(-.01, .01), tint(hpick([0xc8c6be, 0xb0aea6, 0x9a948a]), .06));
+  K.box('metal', .08, 8, .08, -.4, 4, -1.45, 0, 0, 0, 0x55585a); K.box('metal', .08, 8, .08, .4, 4, -1.45, 0, 0, 0, 0x55585a);
+  for (let k = 0; k < 10; k++) K.box('metal', .8, .07, .07, 0, .4 + k * .8, -1.45, 0, 0, 0, 0x6a6c6e);
   K.box('metal', .25, .2, .2, -1.6, 10.6, 1.6, 0, 0, 0, 0x2a2a2a);
   K.build(t);
 }
@@ -2909,7 +3050,7 @@ async function buildFarTerrain() {
       const sl = Math.hypot(farH(x + 6, z) - h, farH(x, z + 6) - h) / 6;
       terrainColor(x, z, h, sl, c);
       // hillsides that carry forest read darker from a distance, the way a real conifer slope does
-      const dens = fbm(x * .018 + 5, z * .018 + 11), fk = smooth(.3, .6, dens) * (1 - smooth(110, 138, h)) * (1 - smooth(1, 1.5, sl)) * (Math.hypot(x, z) < CAMP_R + 12 ? 0 : 1);
+      const dens = fbm(x * .018 + 5, z * .018 + 11), fk = smooth(.3, .6, dens) * (1 - smooth(110, 138, h)) * (1 - smooth(1, 1.5, sl)) * (campD(x, z) < CAMP_R + 12 ? 0 : 1);
       c.lerp(fir, fk * .6);
       col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
     }
@@ -2936,7 +3077,7 @@ async function buildFarTerrain() {
 
 /* the far forest: same density rules as the real trees, so the silhouettes line up with what you'll find when you get there */
 function farTreeOK(x, z) {
-  const d = Math.hypot(x, z); if (d < CAMP_R + 12 || d > WORLD + 120) return false;
+  const d = Math.hypot(x, z); if (campD(x, z) < CAMP_R + 12 || d > WORLD + 120) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r0 + 6)) return false;
   if (inCity(x, z, 30) || inBase(x, z, 12)) return false;
@@ -3333,6 +3474,7 @@ const SHOP_STOCK = {
   med: { k: 12, mark: 1.2, tiered: 1, blurb: 'Juno’s clinic. She’ll still patch you up for free.', pool: ['bandage', 'herb_bandage', 'splint', 'poultice', 'disinfect', 'painkiller', 'antibiotic', 'sutures', 'alcohol', 'purify_tab', 'medkit', 'surgical_kit', 'iv', 'rust_med', 'inject', 'herb_med', 'med_parts', 'gas_mask', 'med_scanner'] },
   guns: { k: 14, mark: 1.3, tiered: 1, blurb: 'Rook keeps the guns. Bring scrap, leave armed.', pool: ['ammo_9', 'ammo_45', 'ammo_556', 'ammo_762', 'ammo_12', 'arrows', 'bolts_xb', 'ammo_flare', 'frag', 'smoke_gren', 'molotov', 'throw_spear', 'pistol', 'revolver', 'shotgun', 'smg', 'assault', 'sniper', 'lmg', 'flare_gun', 'shortbow', 'recurve', 'crossbow', 'longbow', 'yumi', 'hornbow', 'hunt_recurve', 'hand_xbow', 'heavy_xbow', 'repeat_xbow', 'm1911', 'pump_rifle', 'machete', 'kukri', 'tomahawk', 'sword', 'war_axe', 'hunting_knife', 'mil_knife', 'stun_baton', 'metal_spear', 'repair_kit', 'gunpowder'] },
   salvage: { k: 12, mark: 1.35, sell: .75, tiered: 1, blurb: 'Gus pays the best rate in Kestrel for salvage, and sells the rare stuff.', pool: ['arc_alloy', 'solar_cell', 'shielding', 'med_parts', 'engine_part', 'cable_spool', 'gas_tank', 'spare_tire', 'winch', 'battery', 'circuit', 'sensor', 'fuse', 'antenna', 'power_cell', 'data_drive', 'camera', 'tablet', 'cu_wiring', 'wire', 'copper', 'aluminum', 'pipe', 'gears', 'springs', 'rubber', 'glass', 'fuel'] },
+  ammo: { k: 12, mark: 1.25, tiered: 1, blurb: 'Vesna makes the rounds and the bangs. She works alone, behind the blast walls.', pool: ['ammo_9', 'ammo_45', 'ammo_556', 'ammo_762', 'ammo_12', 'ammo_flare', 'arrows', 'bolts_xb', 'frag', 'smoke_gren', 'molotov', 'gunpowder', 'fuel', 'cloth', 'nails', 'fuse', 'battery', 'flare_gun', 'repair_kit'] },
   wear: { k: 12, mark: 1.25, tiered: 1, blurb: 'Wren makes and mends what you wear.', pool: ['hide_coat', 'jacket', 'hunt_outfit', 'rain_cloak', 'leather_armor', 'metal_chest', 'arc_jumpsuit', 'util_vest', 'sec_uniform', 'tac_armor', 'hazmat', 'rust_suit', 'clan_mask', 'gas_mask', 'helmet', 'riot_helmet', 'nvg', 'gloves', 'arm_guards', 'shield', 'riot_shield', 'boots', 'hide_boots', 'backpack', 'duffel', 'canteen', 'thread', 'cloth', 'leather'] },
 };
 const SETTLER_POOL = ['log', 'plank', 'stick', 'stone', 'flint', 'fiber', 'rope', 'hide', 'leather', 'bone', 'sinew', 'fat', 'feather', 'meat', 'fish', 'berries', 'mushroom', 'roots', 'nuts', 'herb', 'herb_med', 'honey', 'clay', 'charcoal', 'metal_ore', 'cloth', 'wire', 'water_boiled', 'dried_meat', 'bandage', 'arrows', 'nails'];
@@ -3684,7 +3826,9 @@ function cityBuild(Q, root) {
   }
   weakFloors(Q);
 }
-function cityFinish(Q) { Q.KE.build(Q.g, true, false); Q.KI.build(Q.gi, true, true); }
+// (Nov 11) Bryce's props in the rooms: collected per building (local x/z, floor y, local yaw), instanced into the inside group
+function cprop(Q, name, lx, y, lz, ry = 0, sc = 1) { if (!npHas(name)) return false; const [x, z] = Q.W(lx, lz); ((Q.props ||= {})[name] ||= []).push([x, y, z, Q.yaw + ry, sc]); return true; }
+function cityFinish(Q) { Q.KE.build(Q.g, true, false); Q.KI.build(Q.gi, true, true); for (const n in Q.props || {}) if (n === '_bed') npInst(Q.gi, Q._bedP, Q.props[n], false); else npInst(Q.gi, n, Q.props[n], false); }
 
 /* ---------- rooms ---------- */
 function furnish(Q, k, ci, ri) {
@@ -3713,17 +3857,27 @@ function furnish(Q, k, ci, ri) {
     for (const ox of [-1, 1]) { const x = (a + b) / 2 + ox * (b - a) * .22, z = (c + d) / 2 + sz * (d - c) * .2; solid('board', 1.4, .75, .7, x, z, 0x6a5a48);
       K.box('plain', .5, .34, .06, x, y + 1.0, z, 0, 0, 0, 0x2a2c2e); K.box('glow', .44, .26, .01, x, y + 1.0, z + .035, 0, 0, 0, 0x0e1612); }
     const [x, z] = at(.5, .6, -sx, -sz); solid('metal', .5, 1.35, .6, x, z, 0x6a7072);
+    { const [tx, tz] = at(.6, .6, sx, -sz); if (cprop(Q, 'server-tower', tx, y, tz, 0)) { cprop(Q, 'server-tower', tx + (sx < 0 ? .65 : -.65), y, tz, 0); cbox(Q, tx, tz, .65, .3, y, y + 2); } }
+    if (Q.style === 'office' || Q.style === 'ctl' || Q.style === 'police') { const [cx, cz] = at(1.4, .9, -sx, sz); if (cprop(Q, 'computer-console', cx, y, cz, sz < 0 ? 0 : Math.PI, .7)) cbox(Q, cx, cz, .55, .45, y, y + 1); }
   } else if (kind === 'ward') {
-    for (const ox of [-1, 1]) { const [x, z] = at(.95, 2, ox, sz); solid('metal', .95, .55, 2, x, z, 0xb8bcbc); K.box('cloth', .85, .14, 1.9, x, y + .62, z, 0, 0, 0, 0xd8d8d0, 1); K.cyl('metal', .02, .02, 1.7, 5, x + ox * -.6, y + .85, z - .7, 0, 0, 0, 0x8a8e90); }
+    for (const ox of [-1, 1]) { const [x, z] = at(.95, 2, ox, sz); const bed = npHas('medbay-pack') && npPiece('medbay-pack', n => n.startsWith('Enf_Camilla'))[0];
+      if (bed) { const [wx, wz] = Q.W(x, z); ((Q.props ||= {})._bed ||= []).push([wx, y, wz, Q.yaw]); Q._bedP = bed; cbox(Q, x, z, .48, 1, y, y + .6); }
+      else { solid('metal', .95, .55, 2, x, z, 0xb8bcbc); K.box('cloth', .85, .14, 1.9, x, y + .62, z, 0, 0, 0, 0xd8d8d0, 1); }
+      K.cyl('metal', .02, .02, 1.7, 5, x + ox * -.6, y + .85, z - .7, 0, 0, 0, 0x8a8e90); }
+    { const [mx, mz] = at(.2, .3, -1, -sz); cprop(Q, 'medkit-small', mx, y + 1.3, mz, 0); }
     K.box('cloth', .04, 1.9, 2.4, (a + b) / 2, y + 1.3, (c + d) / 2, 0, 0, 0, 0x9ab0b4, 1);
   } else if (kind === 'locker') {
-    const [x, z] = at(2.4, .5, sx, sz); for (let i = 0; i < 4; i++) solid('metal', .58, 1.9, .5, x - .9 + i * .6, z, tint(0x5a6a6e, .08)); K.box('board', 2, .45, .4, (a + b) / 2, y + .22, (c + d) / 2 + sz * .4, 0, 0, 0, 0x6a5a48, 1);
+    const [x, z] = at(2.7, .8, sx, sz);
+    if (npHas('locker')) { cprop(Q, 'locker', x - .67, y, z, sz < 0 ? -HP : HP); cprop(Q, 'locker', x + .67, y, z, sz < 0 ? -HP : HP); cbox(Q, x, z, 1.35, .4, y, y + 1.8); }
+    else for (let i = 0; i < 4; i++) solid('metal', .58, 1.9, .5, x - .9 + i * .6, z, tint(0x5a6a6e, .08));
+    K.box('board', 2, .45, .4, (a + b) / 2, y + .22, (c + d) / 2 + sz * .4, 0, 0, 0, 0x6a5a48, 1);
   } else if (kind === 'cells') {
     for (let i = 0; i < 9; i++) K.cyl('metal', .025, .025, CFH - .4, 5, a + .3 + i * (b - a - .6) / 8, y + (CFH - .4) / 2, (c + d) / 2 + .6, 0, 0, 0, 0x4a4e50);
     cwall(Q, a, (c + d) / 2 + .6, (a + b) / 2 - .5, (c + d) / 2 + .6, y, y + 3); cwall(Q, (a + b) / 2 + .5, (c + d) / 2 + .6, b, (c + d) / 2 + .6, y, y + 3);
     const [x, z] = at(1.8, .7, sx, -1); solid('metal', 1.8, .4, .7, x, z, 0x6a6e70); bones(K, (a + b) / 2 + sx * 1.2, y, c + .4, Math.PI, 1);
   } else if (kind === 'lobby') {
     const [x, z] = at(2.6, .7, sx, -1); solid('board', 2.6, 1.05, .7, x, z, Q.style === 'hospital' ? 0xc8c4bc : 0x5a4a3a);
+    { const [cx, cz] = at(2.8, .7, -sx, 1); if (cprop(Q, 'chairs-x4', cx, y, cz, Math.PI)) cbox(Q, cx, cz, 1.36, .3, y, y + .9); }
   }
 }
 function shopFloor(Q) {
@@ -4314,7 +4468,7 @@ function envSites() {
   let best = null;
   for (let a = 0; a < 6.28; a += .13) for (const r of [84, 92, 100]) { const x = Math.cos(a) * r, z = Math.sin(a) * r; if (z > 40) continue;
     const sl = slopeAt(x, z), pd = pathDist(x, z), sc = sl * 40 - Math.min(pd, 30) + (SHELTERS.some(s => Math.hypot(s.x - x, s.z - z) < 25) ? 50 : 0) + (Math.hypot(x - 80, z + 36) < 44 || Math.hypot(x + 80, z + 24) < 36 ? 50 : 0);
-    if (pd > 15 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
+    if (pd > 15 && campD(x, z) > CAMP_R + 16 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
   if (best) S.push({ id: 'paddock', x: best.x, z: best.z, r: 16 });
   S.push({ id: 'arches', x: POI.arches.x, z: POI.arches.z, r: 34 });            // (Nov 10) the Old Arches: no pines or boulders through the ruin
   // two city blocks: the factory and the street
@@ -4399,7 +4553,7 @@ function propPile(parent, name, x, z, ry, n, spread, sMin = .9, sMax = 1.1, col 
 function buildEnvSites() {
   // Kestrel: against a side or back wall of Salvage, the Trading Post, the Workshop and the Gunsmith — never in a street or another house
   const inHouse = (x, z, me) => SHOP_DEFS.some(D => D !== me && Math.abs((x - D.cx) * Math.cos(D.ry) - (z - D.cz) * Math.sin(D.ry)) < D.bw / 2 + .6 && Math.abs((x - D.cx) * Math.sin(D.ry) + (z - D.cz) * Math.cos(D.ry)) < D.bd / 2 + .6);
-  const clear = (p, me, r) => streetDist(p.x, p.z) > r && !inHouse(p.x, p.z, me) && Math.hypot(p.x, p.z) < CAMP_R - 3 && !(typeof inHull === 'function' && inHull(p.x, p.z));
+  const clear = (p, me, r) => streetDist(p.x, p.z) > r && !inHouse(p.x, p.z, me) && campD(p.x, p.z) < CAMP_R - 3 && !(typeof inHull === 'function' && inHull(p.x, p.z));
   for (const [id, n] of [['salvage', 3], ['trade', 2], ['craft', 2], ['guns', 1], ['bunk', 1]]) {
     const D = SHOP[id]; if (!D) continue;
     const spots = [[D.bw / 2 + 1.1, -1.4], [-(D.bw / 2 + 1.1), -1.4], [D.bw / 2 + 1.1, 1], [-(D.bw / 2 + 1.1), 1], [-2.5, -(D.bd / 2 + 1.1)], [2.5, -(D.bd / 2 + 1.1)]].map(([lx, lz]) => ({ lx, lz, ...shopL2W(D, lx, lz) }));
@@ -4435,7 +4589,7 @@ function buildEnvSites() {
   // the old roads in the valley: a car left here and there
   { const car = whole('e/car'); if (car) { const L = [];
     for (const path of PATHS) for (let i = 0; i < path.length - 1; i++) { if (rnd() < .55) continue; const [ax, az] = path[i], [bx, bz] = path[i + 1], t = rr(.2, .8), x0 = lerp(ax, bx, t), z0 = lerp(az, bz, t), ry = Math.atan2(bx - ax, bz - az), off = (rnd() < .5 ? -1 : 1) * rr(3.5, 6);
-      const x = x0 + Math.cos(ry) * off, z = z0 - Math.sin(ry) * off; if (Math.hypot(x, z) < CAMP_R + 20 || waterAt(x, z) > -1e8 || envKeepClear(x, z)) continue;
+      const x = x0 + Math.cos(ry) * off, z = z0 - Math.sin(ry) * off; if (campD(x, z) < CAMP_R + 20 || waterAt(x, z) > -1e8 || envKeepClear(x, z)) continue;
       L.push(envM(x, heightAt(x, z) - .1, z, ry + rr(-.6, .6), 1, rr(-.05, .05), rr(-.08, .08))); addCol(x, z, 1.6, 1.6); }
     instParts(world, car.parts, L); } }
   // Greyhold Station: the bunker entrance, dug into the slope behind the station
@@ -4674,8 +4828,125 @@ function dressArc() {
   // room lights: cool over the radio desk, white in the infirmary, warm over the bunks (off whenever the interior isn't drawn,
   // so they never take a slot in the light pool from the yard)
   for (const [x, z, c, i] of [[ARC_RADIO.x - X, ARC_RADIO.z - Z, 0x9ad8ff, 2.2], [-29, -6, 0xf2f6ff, 2.4], [-13, -6, 0xffd8a8, 1.8]]) { const l = new THREE.PointLight(c, i, 22, 1.4); l.position.set(x, F + 3, z); l.userData.on = i; g.add(l); ARC_LIGHTS.push(l); }
+  fitArc(g, F);                                       // (Nov 11) the main base rebuilt: decks, mezzanine, mess, armoury, command post
   g.traverse(o => { if (o.isMesh) o.castShadow = false; });
   DECOR_ANIM.push(updArcInterior);
+}
+/* ================= (Nov 11) the main base, fitted out =================
+   Bryce: the inside of the Arc "looks like shit" — one dark, empty tube. Now it's somewhere people live and hold out: deck plating
+   laid over the floor a plate at a time (none of it quite square), a mezzanine of salvaged deck along the north wall on I-beams
+   with a stair up from the mess, the mess itself (tables of hull plate, the station's seats), a sandbagged firing point inside the
+   blast door, an armoury of lockers and racked rifles, a command post by the core (consoles, wall screens, the war table), racks
+   of stores under the catwalk, cross beams with cable trays and Kestrel's colours hung off them, and lights you can see by.
+   Built in one kit (merged per material, lit with the bounced-light materials), so it's a handful of draws. */
+function fitArc(g, F) {
+  const X = ARC.x, Z = ARC.z, K = shipKit(hkit(LOW)), lite = !LOW;
+  const col = (x, z, r) => addCol(X + x, Z + z, r), colL = (x0, z0, x1, z1, r) => addColLine(X + x0, Z + z0, X + x1, Z + z1, r);
+  const ny = (y) => Math.sqrt(Math.max(0, ARC.R * ARC.R - (y - ARC.C) ** 2));        // the hull's half-width at a height above the floor
+  K.at(htm(0, F, 0));                                       // everything below in floor coordinates: y = 0 is the deck
+  const plateC = [0x6e7274, 0x7a7e80, 0x666a6c, 0x84867e, 0x5e6264, 0x8a8478];
+  // ---- deck plating: 2.4 m plates, each its own shade, a little off true; tread strips down the walkways ----
+  for (let x = -21.6; x < ARC.LE - 1; x += 2.4) for (let z = -9.2; z < 8.6; z += 2.4) {
+    if (x > 12.6 && z > 1.8 && z < 6.4) continue;                    // the corridor's own floor
+    if (x < -18.6 && z > 1.8 && z < 6.8) continue;                   // the hallway
+    K.box('hull', 2.36, .025, 2.36, x + 1.2 + hr(-.03, .03), .012, z + 1.2 + hr(-.03, .03), 0, hr(-.012, .012), 0, tint(hpick(plateC), .05), 2.4);
+  }
+  for (let z = -2.5; z < 9.8; z += .42) K.box('metal', 2.4, .02, .34, 0, .028, z, 0, hr(-.01, .01), 0, 0x7a7e80);          // tread from the door up the middle
+  for (let k = 0; k < 18; k++) K.box('plain', .45, .006, .3, -4 + k * .47, .045, 9.2, 0, .5, 0, k % 2 ? 0x1e1e1e : 0xd9a32a);   // hazard band inside the blast door
+  // path lights let into the deck: door → mess, door → command post
+  for (let z = -1.6; z < 8.6; z += 1.4) for (const sx of [-1.35, 1.35]) K.box('glow', .22, .02, .06, sx, .045, z, 0, 0, 0, 0xffa848);
+  for (let x = 2; x < 17; x += 1.6) K.box('glow', .22, .02, .06, x, .045, -.6, 0, HP, 0, 0x7ad0ff);
+
+  // ---- the mezzanine: deck on I-beams along the north wall, x -22 → 10, 3.4 m up; a stair up from the mess ----
+  const MY = 3.4, mz0 = -10.4, mz1 = -5, mx0 = -22, mx1 = 10;
+  for (let x = mx0; x < mx1 - .01; x += 1.6) K.box('hull', 1.58, .12, mz1 - mz0, x + .8, MY - .06, (mz0 + mz1) / 2, 0, 0, hr(-.004, .004), tint(hpick(plateC), .05), 1.6);
+  K.box('metal', mx1 - mx0, .3, .16, (mx0 + mx1) / 2, MY - .27, mz1, 0, 0, 0, 0xc8c6be);                                   // the edge beam, station white
+  for (let x = mx0 + 1.2; x < mx1; x += 3.2) K.box('metal', .14, .24, mz1 - mz0, x, MY - .24, (mz0 + mz1) / 2, 0, 0, 0, 0x55585a);   // joists
+  for (const x of [-19, -14, -9, -4, 1, 5.6, 9.6]) { K.box('metal', .26, MY - .3, .08, x, (MY - .3) / 2, mz1 - .07, 0, 0, 0, 0x55585a); K.box('metal', .08, MY - .3, .22, x, (MY - .3) / 2, mz1, 0, 0, 0, 0x55585a); K.box('metal', .26, MY - .3, .08, x, (MY - .3) / 2, mz1 + .07, 0, 0, 0, 0x55585a); col(x, mz1, .22); }
+  // railing: posts, a mid rail, a yellow top rail (gap where the stair lands at the west end)
+  for (let x = -19.4; x < mx1; x += 1.5) K.box('metal', .05, 1.05, .05, x, MY + .52, mz1 + .03, 0, 0, 0, 0x4a4c4e);
+  K.box('metal', mx1 + 19.4, .05, .05, (mx1 - 19.4) / 2, MY + .55, mz1 + .03, 0, 0, 0, 0x4a4c4e); K.box('plain', mx1 + 19.4, .07, .07, (mx1 - 19.4) / 2, MY + 1.05, mz1 + .03, 0, 0, 0, 0xd9a32a);
+  for (let x = mx1 - .05, k = 0; k < 1; k++) { K.box('metal', .05, 1.05, mz1 - mz0, x, MY + .52, (mz0 + mz1) / 2, 0, 0, 0, 0x4a4c4e); }
+  // the landing at the stair head, west end
+  K.box('hull', 2.6, .12, 2.7, -20.7, MY - .06, -3.75, 0, 0, 0, 0x6e7274, 1.6);
+  addFloor(X + (mx0 + mx1) / 2, Z + (mz0 + mz1) / 2, 0, (mx1 - mx0) / 2, (mz1 - mz0) / 2, H0 + ARC.C + F + MY);
+  addFloor(X - 20.7, Z - 3.75, 0, 1.3, 1.35, H0 + ARC.C + F + MY);
+  // the stair: treads on two stringers, rising west from the mess
+  { const x0 = -12, x1 = -19.4, zc = -3.5, hw = 1.05, n = 16, L = x0 - x1;
+    for (let i = 0; i < n; i++) K.box('metal', L / n + .03, .05, hw * 2, x0 - (i + .5) * L / n, (i + 1) * MY / n, zc, 0, 0, 0, i % 4 === 0 ? 0xd9a32a : 0x5a5e60);
+    for (const sz of [-hw, hw]) K.box('metal', Math.hypot(L, MY), .26, .08, (x0 + x1) / 2, MY / 2 - .1, zc + sz, 0, 0, -Math.atan2(MY, L), 0x3a3c3e);
+    for (const sz of [-hw - .05, hw + .05]) { K.box('plain', Math.hypot(L, MY), .06, .06, (x0 + x1) / 2, MY / 2 + 1, zc + sz, 0, 0, -Math.atan2(MY, L), 0xd9a32a); for (let i = 1; i < 5; i++) K.box('metal', .04, 1, .04, x0 - i * L / 5, i * MY / 5 + .5, zc + sz, 0, 0, 0, 0x4a4c4e); }
+    FLOORS.push({ cx: X + (x0 + x1) / 2, cz: Z + zc, c: 1, s: 0, hw: L / 2, hd: hw, y: H0 + ARC.C + F + MY / 2, slope: -MY / L });
+    colL(-12.6, zc + hw + .32, -19.4, zc + hw + .32, .22); colL(-14.2, zc - hw - .32, -19.2, zc - hw - .32, .22); }
+  // up top: bedrolls and kit for the night watch, crates, a lookout desk with a radio set, a lamp
+  for (let i = 0; i < 5; i++) { const x = -16 + i * 2.6; K.box('cloth', .8, .12, 1.9, x, MY + .06, -8.1, 0, hr(-.15, .15), 0, tint(hpick(CLOTHC))); K.box('cloth', .45, .12, .3, x, MY + .14, -8.9, 0, 0, 0, 0xd8d4c8); if (hp(.6)) sack(K, x + .5, MY, -7.2, .7); }
+  for (let i = 0; i < 4; i++) crate(K, 2 + i * .7, MY, -9.4 + (i % 2) * .5, hr(-.2, .2), 1, 0x5a6a4a);
+  K.box('metal', 1.6, .06, .7, 7.6, MY + .8, -8.4, 0, 0, 0, 0x5a5e60); for (const [dx, dz] of [[-.7, -.3], [.7, -.3], [-.7, .3], [.7, .3]]) K.box('metal', .05, .8, .05, 7.6 + dx, MY + .4, -8.4 + dz, 0, 0, 0, 0x3a3c3e);
+  K.box('metal', .5, .3, .3, 7.3, MY + .98, -8.5, 0, .2, 0, 0x3a4a3a); K.box('glow', .2, .06, .01, 7.3, MY + 1.02, -8.34, 0, .2, 0, 0x8aff7a);
+
+  // ---- the mess: two long tables of hull plate on I-beam trestles, the station's seats either side ----
+  { const T = [-16.2, -11]; for (const tx of T) { K.box('hull', 3, .07, 1, tx, .78, 1.4, 0, hr(-.02, .02), 0, tint(0xc4c2ba, .05), 1.5);
+      for (const ex of [-1.2, 1.2]) { K.box('metal', .08, .75, .7, tx + ex, .38, 1.4, 0, 0, 0, 0x3a3c3e); K.box('metal', .1, .06, .9, tx + ex, .04, 1.4, 0, 0, 0, 0x3a3c3e); }
+      for (let k = 0; k < 5; k++) { K.cyl('plain', .13, .13, .02, 10, tx + hr(-1.3, 1.3), .82, 1.4 + hr(-.3, .3), 0, 0, 0, 0xa8a49a); if (hp(.5)) K.cyl('metal', .045, .04, .12, 8, tx + hr(-1.3, 1.3), .87, 1.4 + hr(-.3, .3), 0, 0, 0, hpick([0x6a7a8a, 0x8a5a3a])); }
+      colL(tx - 1.4, 1.4, tx + 1.4, 1.4, .55); }
+    npInst(g, 'chairs-x4', T.flatMap(tx => [[tx, F, 2.35, Math.PI, 1], [tx, F, .45, 0, 1]]), false);
+    for (const tx of T) { colL(tx - 1.3, 2.4, tx + 1.3, 2.4, .32); colL(tx - 1.3, .4, tx + 1.3, .4, .32); }
+    // the galley against the mezzanine: the kitchen props on a steel counter, a water drum, a ration board
+    K.box('metal', 3.6, .9, .7, -15, .45, -4.2 + .05, 0, 0, 0, 0x6a6e70); K.box('shiny', 3.7, .05, .75, -15, .92, -4.15, 0, 0, 0, 0x9a9e9e);
+    hput(g, hpart('props/kitchen', n => /Cylinder\.00[2-6]_|^Vert_kitchen|Cube\.002_/.test(n), .55, 'x'), -16.2, F + .95, -4.2);
+    hput(g, hpart('props/kitchen', n => /Cylinder\.00[78]_|Vert\.002_/.test(n), .3, 'y'), -14.6, F + .95, -4.2, .6);
+    barrel(K, -12.8, 0, -4.3, 0x3a5a7a); K.poster(0, .55, .7, -13.9, 1.8, -4.53, 0); colL(-16.8, -4.15, -12.6, -4.15, .45); }
+
+  // ---- inside the blast door: a sandbagged firing point either side of the way in, a rack of spare rifles ----
+  for (const sd of [-1, 1]) { for (let i = 0; i < 4; i++) for (let r = 0; r < 3; r++) { const sg = new THREE.BoxGeometry(.75, .26, .42); K.geo('cloth', sg, htm(sd * (2.2 + i * .62 + (r % 2) * .3), .14 + r * .26, 5.6 + Math.sin(i * .7) * .25, 0, hr(-.08, .08), 0), tint(0x5a5242)); } colL(sd * 2, 5.6, sd * 4.6, 5.8, .4); }
+  { const rx = -6.4, rz = 8.6; K.box('metal', 2.4, .08, .3, rx, .5, rz, 0, 0, 0, 0x3a3c3e); K.box('metal', 2.4, .06, .14, rx, 1.6, rz + .08, 0, 0, 0, 0x3a3c3e);
+    ['gun-night', 'gun-desert', 'gun-night', 'gun-desert'].forEach((r, i) => { const m = hmodel(r, .95, 'z'); if (!m) return; m.rotation.set(-HP + .12, 0, 0); m.position.set(rx - .9 + i * .6, F + 1.05, rz - .05); g.add(m); }); col(rx, rz, .5); }
+
+  // ---- the armoury, under the mezzanine east of the lockers: racked rifles, ammo crates, a bench ----
+  { const ax = 6.6; K.box('metal', 4.6, .08, .26, ax, 1.02, -9.55, 0, 0, 0, 0x3a3c3e); K.box('metal', 4.6, .06, .14, ax, 2.2, -9.65, 0, 0, 0, 0x3a3c3e);
+    ['gun-night', 'sniper', 'gun-desert', 'gun-night', 'gun-desert', 'sniper'].forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-HP + .12, r === 'sniper' ? -HP : 0, 0); m.position.set(ax - 2 + i * .8, F + 1.6, -9.5); g.add(m); });
+    for (let i = 0; i < 5; i++) { const m = modelCopy('ammo-crate', .4); if (!m) break; m.position.set(ax - 2 + i * .9, F + (i % 2) * .4, -7.4 + (i % 3) * .3); m.rotation.y = hr(-.3, .3); g.add(m); }
+    K.box('metal', 2, .06, .8, ax + .4, .92, -6.1, 0, 0, 0, 0x5a5e60); K.box('metal', 1.9, .86, .7, ax + .4, .45, -6.1, 0, 0, 0, 0x3a3e40); colL(ax - .6, -6.1, ax + 1.4, -6.1, .45);
+    npInst(g, 'walkie-talkie', [[ax - .1, F + .95, -6.1, .3, 1, -HPI], [ax + .2, F + .95, -6.0, -.2, 1, -HPI]], false); }
+
+  // ---- the command post, east of the core: consoles facing the wall screens, the war table ----
+  { npInst(g, 'wall-screen', [[18.7, F + 2.1, -9.85, 0, .9], [21.6, F + 2.3, -9.7, 0, .8]], false);
+    npInst(g, 'computer-console', [[18.6, F, -7.2, 0, .85], [21.4, F, -7.1, -.06, .85]], false); col(18.6, -7.2, .8); col(21.4, -7.1, .8);
+    npInst(g, 'chairs-x4', [[20, F, -4.7, Math.PI, .8]], false); colL(19, -4.7, 21, -4.7, .3);
+    npInst(g, 'server-tower', [0, 1, 2].map(k => [23 - k * .2, F, -8.6 + k * .66, -HPI]), false); colL(23, -9, 22.6, -7, .4);
+    // the war table: a plate on trestles with Kestrel's map, markers and a lamp
+    const tx = 7.4, tz = -1.6; K.box('hull', 2.6, .07, 1.6, tx, .9, tz, 0, .08, 0, 0x7a7e80, 2); for (const [dx, dz] of [[-1.1, -.6], [1.1, -.6], [-1.1, .6], [1.1, .6]]) K.box('metal', .07, .88, .07, tx + dx, .44, tz + dz, 0, .08, 0, 0x3a3c3e);
+    { const pg = new THREE.PlaneGeometry(1.5, 1.1), uv = pg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, .5 + uv.getX(i) / 4, uv.getY(i) / 2); K.geo('paper', pg, htm(tx, .94, tz, -HP, .08, 0), 0xffffff); }
+    for (let i = 0; i < 7; i++) K.cyl('plain', .03, .03, .08, 6, tx + hr(-.6, .6), .98, tz + hr(-.45, .45), 0, 0, 0, hpick([0xc0392b, 0x2e86c1, 0xd9a32a]));
+    colL(tx - 1.2, tz, tx + 1.2, tz, .75); }
+
+  // ---- stores under the catwalk: steel racks of crates, drums and sacks along the south wall ----
+  for (const [x0, x1] of [[-9.6, -5.8], [6, 12.4], [14, 21.6]]) { const n = Math.floor((x1 - x0) / 2.1);
+    for (let k = 0; k < n; k++) { const rx = x0 + 1.05 + k * 2.1, rz = 8.6;
+      for (const y of [.05, .9, 1.75]) K.box('metal', 2, .05, .75, rx, y, rz, 0, 0, 0, 0x4a4c4e); for (const ex of [-1, 1]) K.box('metal', .06, 2.5, .75, rx + ex, 1.25, rz, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .95, 1.8]) for (let j = 0; j < 3; j++) { const r = hrnd(); if (r < .4) crate(K, rx - .62 + j * .62, y, rz, hr(-.1, .1), .85); else if (r < .7) sack(K, rx - .62 + j * .62, y, rz, .75); else if (r < .9) barrel(K, rx - .62 + j * .62, y, rz, hpick([0x3a5a7a, 0x8a2a22, 0x4a5a3a]), .7); } }
+    colL(x0, 8.6, x1, 8.6, .5); }
+  npInst(g, 'fuel-cell', [[12.8, F, 7.6], [13.4, F, 7.9, 1]], false);
+
+  // ---- overhead: cross beams spanning the hull, cable trays, Kestrel's colours hung from them, lamps on chains ----
+  const BY = 10.6, bw = ny(BY) - .3;
+  for (const x of [-20, -8.6, 2.4, 13.6]) { K.box('metal', .26, .34, bw * 2, x, BY, 0, 0, 0, 0, 0xc8c6be); K.box('metal', .3, .06, bw * 2, x, BY + .19, 0, 0, 0, 0, 0x8a8c8a); K.box('metal', .3, .06, bw * 2, x, BY - .19, 0, 0, 0, 0, 0x8a8c8a);
+    // a lamp hung from each, and a banner on two of them
+    K.cyl('metal', .006, .006, 3.2, 3, x, BY - 1.8, -1, 0, 0, 0, 0x2a2a28); K.cyl('metal', .35, .2, .25, 10, x, BY - 3.5, -1, 0, 0, 0, 0x3a3c3e); K.cyl('glow', .3, .3, .02, 10, x, BY - 3.63, -1, 0, 0, 0, 0xfff0d0);
+    if (x === -8.6 || x === 13.6) { const bg = new THREE.PlaneGeometry(1.6, 3.2, 2, 4); const bp = bg.attributes.position; for (let i = 0; i < bp.count; i++) bp.setZ(i, Math.sin(bp.getY(i) * 2) * .06); bg.computeVertexNormals(); K.geo('cloth', bg, htm(x + .2, BY - 1.8, 3, 0, HP, 0), 0xf0a640); K.box('cloth', .02, .3, 1.6, x + .21, BY - 1.2, 3, 0, 0, 0, 0x2a2a28); } }
+  for (const sz of [-1, 1]) { const y = 6.2, z = sz * (ny(y) - .45); K.box('metal', ARC.LW + ARC.LE - 4, .08, .4, (ARC.LE - ARC.LW) / 2, y, z, 0, 0, 0, 0x4a4c4e); for (let k = 0; k < 3; k++) K.cyl('plain', .03, .03, ARC.LW + ARC.LE - 4.5, 5, (ARC.LE - ARC.LW) / 2, y + .08, z + (k - 1) * .1, 0, 0, HP, hpick([0x1e1e1e, 0x8a2a22, 0x2a4a6a])); }
+  // cables sagging from the trays down to the consoles and the galley
+  wireBetween(K, new THREE.Vector3(19, 6.2, -ny(6.2) + .45), new THREE.Vector3(19.5, 1.3, -8.4), .3, 0x1e1e1e, .02);
+  wireBetween(K, new THREE.Vector3(-14, 6.2, -ny(6.2) + .45), new THREE.Vector3(-14.5, 1.2, -4.4), .3, 0x1e1e1e, .02);
+  // the inside of the south wall either side of the door: lining panels, a stencil, a fire point
+  for (let x = -ARC.LW + 3; x < ARC.LE - 1.5; x += 2.2) if (Math.abs(x) > ARC.DOOR + 1.6) { K.box('hull', 2.15, 2.6, .05, x, 1.4, 9.35, 0, Math.PI, hr(-.006, .006), tint(hpick([0xc4c2ba, 0xb4b2aa, 0xa8b4b0]), .04), 2); }
+  stencil(K, 0, 1.6, .8, -8, 2.2, 9.3, Math.PI); stencil(K, 3, 1.4, .6, ARC.DOOR + 1.3, 2.9, 9.3, Math.PI); stencil(K, 3, 1.4, .6, -ARC.DOOR - 1.3, 2.9, 9.3, Math.PI);
+  K.box('plain', .3, .5, .2, 9, 1.4, 9.2, 0, 0, 0, 0xb8392e);
+  K.at(null);
+  K.build(g, false, true);
+  // room lights: the mess, the command post, the mezzanine (off whenever the interior isn't drawn)
+  for (const [x, y, z, c, i, r] of [[-13, 5, 1, 0xffd8a8, 2.4, 26], [20.5, 3.2, -5.5, 0x9ad8ff, 1.8, 16], [0, 3, 6, 0xffe0b8, 1.6, 18], [-6, 6.4, -7.6, 0xffd0a0, 1.2, 16]]) {
+    const l = new THREE.PointLight(c, i, r, 1.4); l.position.set(x, F + y, z); l.userData.on = i; g.add(l); ARC_LIGHTS.push(l); }
 }
 // a plain metal table (drawn), returns its top height
 function shopKitTable(g, x, y, z, w, d) {
@@ -4819,6 +5090,46 @@ function buildArches() {
   // what's under them: a sealed stone chest in the middle arch, a buried crate further back
   { const [x, z] = npL2W(A.x, A.z, ry, -1.5, 2.2); cache(g, x, z, ry, 'pry', 'ruin', { id: 'arches_chest', name: 'Stone chest under the arches', big: 1, rolls: 3, refill: 5 }); }
   { const [x, z] = npL2W(A.x, A.z, ry, 11, -7); cache(g, x, z, ry + 1, 'none', 'ruin', { id: 'arches_cache', name: 'Half-buried crate', rolls: 1, refill: 3 }); }
+}
+
+/* ================= (Nov 11) the underground places, furnished from the same props =================
+   The Mountain's quarters, mess, clinic, checkpoint, office, armory and reactor hall; Hesper's mess and dorm; the Brightwater
+   lab and archive. Props face the way they do elsewhere: lockers and bunks open to +x, screens, consoles and seats to +z, at yaw 0. */
+function dressPockets() {
+  const put = (pk, name, h, lx, lz, ry = 0, y = 0) => { const [x, z] = pw(pk, lx, lz); return xModel(pk.g, 'props/' + name, h, x, pk.y + y, z, ry); };
+  const M = POCKETS.mtn;
+  if (M) {
+    for (let i = 0; i < 6; i++) { put(M, 'locker', 1.73, -19.3, 17.2 + i * 1.4, Math.PI); } xSolid(M, -19.8, 16.4, -18.5, 25.4);                      // quarters: lockers down the east wall
+    for (const z of [24, 28, 32]) { for (const [x, s] of [[35.6, -1], [40.4, -1], [35.6, 1], [40.4, 1]]) put(M, 'chairs-x4', .88, x, z + s * 1, s < 0 ? 0 : Math.PI); xSolid(M, 34, z - 1.35, 42, z + 1.35); }   // the mess
+    put(M, 'wall-screen', 2, 5, 23.3, 0, 2.6);                                                                                                       // the concourse board
+    for (const x of [-14, 14]) { put(M, 'chairs-x4', .88, x, 25, 0); xSolid(M, x - 1.36, 24.6, x + 1.36, 25.4); }
+    put(M, 'computer-console', 1.1, 6.4, 12, -HP); xSolid(M, 5.9, 11.4, 6.9, 12.6);                                                                   // the checkpoint desk
+    put(M, 'computer-console', 1.1, 16.4, 40, -HP); xSolid(M, 15.9, 39.4, 16.9, 40.6); for (const z of [41, 43]) put(M, 'medkit-small', .4, 17.9, z, -HP, 1.3);   // clinic
+    put(M, 'medkit-case', .18, 16.4, 40.6, 0, 1.12);
+    for (let i = 0; i < 2; i++) put(M, 'server-rack', 2, 23.2, 48 + i * 1.4, HP); xSolid(M, 22.6, 47.2, 23.8, 50.2);                                  // the captain's office
+    put(M, 'wall-screen', 1.6, 28, 55.8, Math.PI, 1.4);
+    for (let i = 0; i < 4; i++) put(M, 'locker', 1.73, 30.4 + i * 1.34, 45.4, HP); xSolid(M, 29.6, 44.8, 35.6, 46);                                   // armory
+    for (let i = 0; i < 3; i++) put(M, 'fuel-cell', .75, 38 + i * .9, 45.2, i);
+    for (let i = 0; i < 8; i++) put(M, 'server-tower', 2.09, -39.4, 43.4 + i * .7, HP); xSolid(M, -39.8, 43, -38.9, 49);                                // reactor hall: racks and the panels
+    for (let i = 0; i < 4; i++) put(M, 'wall-4', 2, -19.2, 44 + i * 1.5, Math.PI); xSolid(M, -19.6, 43.2, -18.6, 50);
+    put(M, 'computer-console', 1.1, -22.2, 44, -HP); xSolid(M, -22.7, 43.4, -21.7, 44.6);
+    for (let i = 0; i < 3; i++) put(M, 'gas-bottle', 1.44, 40 + i * .5, 72.6, i, -5);                                                                // maintenance level
+  }
+  const Hs = POCKETS.hesper;
+  if (Hs) {
+    put(Hs, 'wall-screen', 1.4, 8, 9.15, 0, 1.4);
+    put(Hs, 'computer-console', 1.1, 8.6, 27.2, Math.PI); put(Hs, 'walkie-talkie', .36, 6.4, 25.5, .4, .82);                                          // the colonel's office
+    for (let i = 0; i < 4; i++) put(Hs, 'gas-bottle', 1.44, -1 + i * .55, 37.3, i);                                                                    // armory
+  }
+  const L = POCKETS.lab;
+  if (L) {
+    for (const x of [4.2, 8.4, 12.6]) { put(L, 'computer-console', 1.1, x, 13.2, 0); xSolid(L, x - .6, 12.7, x + .6, 13.8); }                         // lab A terminals
+    put(L, 'wall-screen', 1.6, 9, 12.15, 0, 1.6);
+    for (let i = 0; i < 3; i++) put(L, 'server-rack', 2, 5.3, 31 + i * 1.4, -HP); xSolid(L, 4.7, 30.2, 5.9, 35.2);                                      // the archive
+    for (let i = 0; i < 4; i++) put(L, 'server-tower', 2.09, -.4, 31 + i * .7, HP); xSolid(L, -.9, 30.6, .1, 33.6);
+    for (const z of [14, 16]) put(L, 'medkit-small', .4, 15.85, z, -HP, 1.3);
+    put(L, 'locker', 1.73, -11.3, 13.4, 0); put(L, 'locker', 1.73, -11.3, 14.8, 0); xSolid(L, -11.8, 12.6, -10.6, 15.6);                               // lab B: suit lockers
+  }
 }
 /* ================= (Nov 11, Part 3) weather =================
    Clear, cloudy, fog, rain and thunderstorms drift across the valley on their own schedule. Weather changes what you can
@@ -5243,16 +5554,16 @@ const gunStats = () => curW().st;
 const input = { mx: 0, my: 0, look: [0, 0], fire: false, jump: false, sprint: false };
 
 function wallCollide(o, rad, isPlayer) {
-  const d = Math.hypot(o.x, o.z), R = CAMP_R;
+  const d = Math.hypot(o.x, o.z); if (d < CAMP_R - 8 || d > CAMP_RMAX + 3) { o.pd = d; o.pdn = d; return; }
+  const a = Math.atan2(o.x, o.z), R = wallR(a);
   if (Math.abs(d - R) < rad + .45 && d > .01) {
-    const a = Math.atan2(o.x, o.z);
     const gateOpen = gate.open || gate.hp <= 0;
     if (Math.abs(a) < GATE_HALF - .02 && gateOpen) { o.pd = d; return; }   // (Nov 10) a shut gate stops you too: E opens it
-    const inside = (o.pd ?? d) < R;
+    const inside = (o.pdn ?? (o.pd ?? d) * CAMP_R / R) < CAMP_R;
     const nd = inside ? R - rad - .45 : R + rad + .45;
     o.x *= nd / d; o.z *= nd / d;
   }
-  o.pd = Math.hypot(o.x, o.z);
+  o.pd = Math.hypot(o.x, o.z); o.pdn = campD(o.x, o.z);
 }
 function collide(o, rad, isPlayer) {
   for (let pass = 0; pass < 2; pass++) {
@@ -5272,7 +5583,7 @@ function collide(o, rad, isPlayer) {
 /* is the straight walk from a to b free of anything solid (and not across the wall)? */
 function clearLine(x0, z0, x1, z1, rad) {
   const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(L / .8));
-  if ((Math.hypot(x0, z0) < CAMP_R) !== (Math.hypot(x1, z1) < CAMP_R)) return false;
+  if ((campD(x0, z0) < CAMP_R) !== (campD(x1, z1) < CAMP_R)) return false;
   for (let k = 1; k <= n; k++) {
     const x = lerp(x0, x1, k / n), z = lerp(z0, z1, k / n), cl = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (cl) for (const c of cl) if (Math.hypot(x - c.x, z - c.z) < c.r + rad) return false;
@@ -5712,7 +6023,7 @@ function updWild(e, dt) {
     else if (e.t <= 0) { e.t = rr(2, 6); wander(); }
     else if (e.tx !== undefined) { tx = e.tx; tz = e.tz; spd = F.walk; }
   } else if (F.kind === 'pred' || F.kind === 'lurk') {
-    const hurt = e.hp < e.maxhp * .25, home = Math.hypot(e.x - e.home.x, e.z - e.home.z), inCamp = Math.hypot(P.x, P.z) < CAMP_R + 4 || P.safe;
+    const hurt = e.hp < e.maxhp * .25, home = Math.hypot(e.x - e.home.x, e.z - e.home.z), inCamp = campD(P.x, P.z) < CAMP_R + 4 || P.safe;
     const aggro = F.aggro * stealth * (isNight() ? 1.35 : 1);
     if (e.state !== 'chase' && e.state !== 'flee' && dp < aggro && canSee && !inCamp && !hurt) { e.state = 'chase'; if (F.snd) sfx(F.snd); if (e.pack) for (const o of ents) if (o.pack === e.pack && !o.dead && o.state !== 'flee') o.state = 'chase'; }
     if (e.state === 'chase') {
@@ -5806,7 +6117,7 @@ function buildPaddock() {
 /* ---------- where things live ---------- */
 function wildCount(keys, inValley) { const inV = e => Math.hypot(e.home.x, e.home.z) < VALLEY; return ents.filter(e => e.wild && !e.dead && keys.includes(e.type) && inV(e) === inValley).length; }
 function landSpot(cx, cz, r, tries = 30, test) { for (let i = 0; i < tries; i++) { const a = rnd() * 6.28, d = Math.sqrt(rnd()) * r, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
-  if (Math.hypot(x, z) > WORLD - 60 || waterAt(x, z) > heightAt(x, z) - .5 || Math.hypot(x, z) < CAMP_R + 30 || inCity(x, z, -40) || inBase(x, z, 10)) continue; if (test && !test(x, z)) continue; return { x, z }; } return null; }
+  if (Math.hypot(x, z) > WORLD - 60 || waterAt(x, z) > heightAt(x, z) - .5 || campD(x, z) < CAMP_R + 30 || inCity(x, z, -40) || inBase(x, z, 10)) continue; if (test && !test(x, z)) continue; return { x, z }; } return null; }
 const steep = (x, z) => slopeAt(x, z) > .45 && heightAt(x, z) > 40;
 const WILD_PLAN = [
   // [species, valley?, how many groups, group size [min,max], where: 'meadow'|'forest'|'mount'|'zoo'|'lake'|'out']
@@ -6580,7 +6891,7 @@ function updSurvival(dt) {
   const dry = P.water <= 0;
   if (dry && P.stamT <= 0 && !P.sprinting) P.stam = Math.max(0, P.stam - dt * 9);   // stamina refills at about half speed
   if (P.food <= 0) { if (P.hp > SURV.starveFloor) P.hp = Math.max(SURV.starveFloor, P.hp - dt * SURV.starveHp); }
-  else if (!dry && P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  else if (!dry && P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (campD(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (B.heal > 0 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .9);
   // Energised: sprinting costs half as much and stamina comes back faster (updPlayer has already spent/refilled it this frame)
   if (B.stam > 0) { if (P.sprinting) P.stam = Math.min(100, P.stam + dt * 5.5); else if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * 10); }
@@ -7247,8 +7558,8 @@ function xAvoid() {
 }
 function xFind(D, taken, AV) {
   const ok = (x, z) => {
-    const d0 = Math.hypot(x, z); if (d0 > WORLD - D.r - 60 || d0 < CAMP_R + (D.near ? 20 : 70)) return false;
-    if (D.near && d0 > CAMP_R + 70) return false;
+    const d0 = Math.hypot(x, z), dn = D.near ? campD(x, z) : d0; if (d0 > WORLD - D.r - 60 || dn < CAMP_R + (D.near ? 20 : 70)) return false;
+    if (D.near && dn > CAMP_R + 70) return false;
     if (D.kind === 'valley' && d0 > VALLEY - 40) return false;
     for (const [ax, az, ar] of AV) if (!(D.near && !ax && !az) && Math.hypot(x - ax, z - az) < ar + D.r) return false;
     for (const t of taken) if (Math.hypot(x - t.x, z - t.z) < t.r + D.r + 20) return false;
@@ -7307,6 +7618,7 @@ function xSites() {
 const xSegD = (px, pz, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, t = clamp(((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(px - ax - dx * t, pz - az - dz * t); };
 // keep the forest (and the boulders) off a new place, the trail and the highway
 function xClear(x, z) {
+  if (campD(x, z) < CAMP_R + 12) return true;                    // (Nov 11) the wall moved out east: nothing grows inside it
   const S = xSites();
   for (const k in S) { const s = S[k]; const r = s.hill ? s.r + 4 : s.peak ? s.r + 3 : s.r + 6; if (Math.abs(x - s.x) < r && Math.abs(z - s.z) < r && Math.hypot(x - s.x, z - s.z) < r) return true; }
   for (const c of XCAMPS) if (Math.hypot(x - c.x, z - c.z) < 9) return true;
@@ -8428,7 +8740,7 @@ function spawnLeaders() {
 function nearestFoeOf(e, r) {
   let b = null, bd = r; const me = facOf(e);
   for (const o of ents) { if (o === e || o.type !== 'clan' || o.dead) continue;
-    const ok = e.mode === 'ally' ? (o.mode === 'raid' || (facHostileE(o) && Math.hypot(o.x, o.z) < CAMP_R + 40)) : o.mode === 'ally' ? false : atWar(me, facOf(o)) && o.mode !== 'raid';
+    const ok = e.mode === 'ally' ? (o.mode === 'raid' || (facHostileE(o) && campD(o.x, o.z) < CAMP_R + 40)) : o.mode === 'ally' ? false : atWar(me, facOf(o)) && o.mode !== 'raid';
     if (!ok) continue; const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; b = o; } }
   return b;
 }
@@ -8773,7 +9085,7 @@ const SET_LEVELS = ['Landing camp', 'Settlement', 'Fortified', 'Town'];
 function setS() { return G.flags.set ||= { ros: [], morale: 55, proj: {}, cur: null, stores: {}, lost: 0, saved: 0, lastWin: 1, why: [], seq: 0, lone: {} }; }
 const setLevel = () => { const n = Object.values(setS().proj).filter(p => p.done).length; return n >= 7 || (G.day > 100 && n >= 5) ? 3 : n >= 4 || G.flags.held100 ? 2 : n >= 1 || setS().ros.length > 8 ? 1 : 0; };
 const projDone = id => !!(setS().proj[id] && setS().proj[id].done);
-const housing = () => 10 + (projDone('housing') ? 6 : 0) + PLACED.filter(p => BUILD_DEF[p.k] && BUILD_DEF[p.k].rest && Math.hypot(p.x, p.z) < CAMP_R + 120).length;
+const housing = () => 10 + (projDone('housing') ? 6 : 0) + PLACED.filter(p => BUILD_DEF[p.k] && BUILD_DEF[p.k].rest && campD(p.x, p.z) < CAMP_R + 120).length;
 const stores = () => setS().stores;
 const sCnt = id => stores()[id] || 0;
 const sAdd = (id, n) => { const S = stores(); S[id] = Math.max(0, (S[id] || 0) + n); if (!S[id]) delete S[id]; };
@@ -8832,7 +9144,7 @@ function buildStores() {
   g.position.set(x, y, z); world.add(g); addCol(x, z, 1.4); STORE_SPOT = { x, z };
 }
 const nearStores = () => STORE_SPOT && Math.hypot(P.x - STORE_SPOT.x, P.z - STORE_SPOT.z) < 3.4 ? STORE_SPOT : null;
-const inKestrel = () => Math.hypot(P.x, P.z) < CAMP_R + 6;
+const inKestrel = () => campD(P.x, P.z) < CAMP_R + 6;
 
 /* ---------- projects: the buildings outside the wall ---------- */
 const PROJ_PLOT = { housing: 0, smoke: 1, green: 2, infirm: 3, towers: 4, power: 5, shop: 6, barracks: 7 };
@@ -9330,7 +9642,7 @@ function siegeRaider(e) {
 function siegeBreach() {
   const W = facRaidWeights(); let best = 'thorn', bw = -1; for (const f in W) if (W[f] > bw) { bw = W[f]; best = f; }
   const C = FAC[best].cap(); let a = C ? Math.atan2(C.x, C.z) : Math.PI; if (Math.abs(angWrap(a)) < GATE_HALF * 3) a += .5;   // not the gate itself
-  SIEGE.breachA = a; const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R, y = heightAt(x, z);
+  SIEGE.breachA = a; const { x, z } = wallPt(a), y = heightAt(x, z);
   sfx('boom'); puff(x, y + 2, z, 0x6a6058, 30, 8, .3, 1.6, -2); puff(x, y + 2, z, 0xff8a3a, 16, 6, .2, .6, -2);
   const g = new THREE.Group(); g.position.set(x, y, z); world.add(g); SIEGE.breachG = g;
   for (let i = 0; i < 14; i++) { const m = mesh(new THREE.BoxGeometry(rr(.4, 1.6), rr(.2, .7), rr(.4, 1.2)), new THREE.MeshLambertMaterial({ map: texWood, color: 0x3a2a1e }), rr(-3, 3), rr(.1, .8), rr(-2, 2), g); m.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3)); }
@@ -9352,8 +9664,8 @@ function douse(F) { F.out = true; world.remove(F.g); const i = SMOKES.indexOf(F.
 function siegeGrab(e, dt) {
   const p = e.p;
   if (e.carry) {
-    const d0 = Math.hypot(e.x, e.z), a = Math.atan2(e.x, e.z), tx = Math.sin(a) * 150, tz = Math.cos(a) * 150;
-    if (d0 < CAMP_R + 1 && d0 > CAMP_R - 2.5) { e.x = Math.sin(a) * (CAMP_R + 1.8); e.z = Math.cos(a) * (CAMP_R + 1.8); }   // over the wall with them
+    const d0 = campD(e.x, e.z), a = Math.atan2(e.x, e.z), tx = Math.sin(a) * 180, tz = Math.cos(a) * 180;
+    if (d0 < CAMP_R + 1 && d0 > CAMP_R - 2.5) { const w = wallPt(a, 1.8); e.x = w.x; e.z = w.z; }   // over the wall with them
     const v = moveEnt(e, tx, tz, e.speed * .85, dt); e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
     e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
     if (d0 > 128) { // gone
@@ -9370,7 +9682,7 @@ function siegeGrab(e, dt) {
     e.prey = b;
   }
   const o = e.prey; if (!o) return false;
-  if (Math.hypot(e.x, e.z) > CAMP_R + .5 && !e.climbing) return false;   // let the usual raid code get them over the wall
+  if (campD(e.x, e.z) > CAMP_R + .5 && !e.climbing) return false;   // let the usual raid code get them over the wall
   const d = Math.hypot(o.x - e.x, o.z - e.z);
   if (d < 1.5) { e.carry = o; o.grabbed = e; o.g.visible = false; SIEGE.grabbed.push(o);
     const bun = mesh(new THREE.BoxGeometry(.5, .5, 1.3), M(0x5a6a7a), .3, 1.6, 0, e.g); e.bundle = bun;
@@ -9401,7 +9713,7 @@ function updSiege(dt) {
   for (const F of SIEGE.fires) if (!F.out) { F.t += dt; F.l.intensity = 2 + Math.sin(G.t * 9) * .4; for (const f of F.flames) f.scale.y = 1 + Math.sin(G.t * 12 + f.position.x) * .25 + Math.min(1, F.t / 60); if (F.t > 75 && !F.gutted) { F.gutted = true; toast(`The ${F.D.sign.toLowerCase()} is gutted`, 3); } }
   // people getting hurt on the wall and in the yard
   if (st >= 0) { SIEGE.hurtT -= dt; if (SIEGE.hurtT <= 0) { SIEGE.hurtT = rr(30, 50);
-    const pool = ents.filter(o => o.type === 'npc' && !o.dead && !o.downed && !o.grabbed && o.g.visible && (o.guard || o.name === 'watch' || o.settler) && !inHull(o.x, o.z) && Math.hypot(o.home.x, o.home.z) < CAMP_R);
+    const pool = ents.filter(o => o.type === 'npc' && !o.dead && !o.downed && !o.grabbed && o.g.visible && (o.guard || o.name === 'watch' || o.settler) && !inHull(o.x, o.z) && campD(o.home.x, o.home.z) < CAMP_R);
     if (pool.length) { const o = pick(pool); o.downed = true; o.dieT = 90; o.siegeHurt = true; o.route = null; toast(`${o.shopName || (o.name === 'watch' ? 'One of the watch' : 'Someone')} is down — get a bandage into them!`, 4); } } }
   // anyone whose taker died is free
   for (const o of [...SIEGE.grabbed]) { const e = o.grabbed; if (e && (e.dead || !ents.includes(e)) && !o.dead) { o.grabbed = null; o.g.visible = true; o.x = e.x; o.z = e.z; SIEGE.grabbed.splice(SIEGE.grabbed.indexOf(o), 1); toast(`${o.shopName || 'They'} broke free!`, 2.6); } }
@@ -10678,7 +10990,7 @@ function quarrelPanel() {
 
 /* ---------- other ways through Season 1 ---------- */
 { const st = (id, i) => MISSIONS[MSI[id]] && MISSIONS[MSI[id]].steps[i];
-  const w1 = st('water', 1); if (w1) { const d0 = w1.done; w1.done = () => d0() || PLACED.some(p => p.k === 'water_filter' && Math.hypot(p.x, p.z) < CAMP_R + 10) && (G.flags.wellFixed ||= G.day); w1.txt = 'Bring the valve to Juno at the clinic — or build a water filter in Kestrel'; const w0 = st('water', 0); const d1 = w0.done; w0.done = () => d1() || PLACED.some(p => p.k === 'water_filter' && Math.hypot(p.x, p.z) < CAMP_R + 10); }
+  const w1 = st('water', 1); if (w1) { const d0 = w1.done; w1.done = () => d0() || PLACED.some(p => p.k === 'water_filter' && campD(p.x, p.z) < CAMP_R + 10) && (G.flags.wellFixed ||= G.day); w1.txt = 'Bring the valve to Juno at the clinic — or build a water filter in Kestrel'; const w0 = st('water', 0); const d1 = w0.done; w0.done = () => d1() || PLACED.some(p => p.k === 'water_filter' && campD(p.x, p.z) < CAMP_R + 10); }
   const h1 = st('hostile', 1); if (h1) { h1.txt = 'Take the Thornkin war-map from the outpost — or buy a copy at Farlight (40 scrap)'; h1.use = { at: () => FAC.arc.cap(), r: 30, label: 'Buy a copy of the Thornkin war-map (40 scrap)', need: () => INV.scrap >= 40 && !cnt('war_map') ? true : null, act: () => { INV.scrap -= 40; give('war_map', 1); } }; }
   const s1 = st('signal', 1); if (s1) { s1.txt = 'Wire a transmitter into the Arc’s radio desk (KVRN’s, or any you’ve found)'; s1.use = { at: () => ARC_RADIO, r: 3.2, label: 'Wire the transmitter into the desk', need: () => cnt('kvrn_tx') ? 'kvrn_tx' : has('transmitter') ? true : null, act: () => { if (cnt('kvrn_tx')) take('kvrn_tx', 1); G.flags.longRadio = G.day; } };
     const s0 = st('signal', 0); const d0 = s0.done; s0.done = () => d0() || has('transmitter'); }
@@ -10872,7 +11184,7 @@ const KEEPER_Q = {
 /* ================= interactables ================= */
 const GATE_SPOT = { x: 0, z: CAMP_R };
 const INTERACT = [
-  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.id === 'bunk' && P.hp >= 100 ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
+  ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => (D.id === 'bunk' && P.hp >= 100) || !D.stN ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
   { id: 'forge', at: () => SHOP.craft.forge, r: 2.4, label: () => 'Forge · smelt + metalwork', act: () => openCraft('mat') },
   { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
@@ -10907,7 +11219,7 @@ function findInteract() {
   for (const e of ents) if (e.type !== 'clan' && e.type !== 'npc' && e.dead && !e.butchered) {
     const d = Math.hypot(e.x - P.x, e.z - P.z); if (d < 2.8 && d < bd) { bd = d; best = { it: { act: () => butcher(e) }, l: `Butcher the ${e.sp ? e.sp.n.toLowerCase() : e.type}` }; }
   }
-  if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
+  if (!best && campD(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
 }
 // (Nov 10, Bryce) no bag button: E (phone: USE) does what's in front of you, and with nothing there it opens the bag; again closes it
@@ -11024,7 +11336,7 @@ function startNight() {
   horn(78, 3.2, .26, 4);
   if (night.final) { card('NIGHT 100', 'Everyone is coming', 5); say([['Kade', 'This is it. Every clan, Ironjaw, Greyhold — all of them. Hold the wall!']]); }
   else say([['Kade', G.day < 3 ? 'Horns in the trees. Everyone to the wall!' : pick(['Here they come again. To the wall!', 'Raiders! Close it up!', 'Lights out there — get inside!'])]]);
-  if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
+  if (campD(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
   facNight();
   nextWave();
 }
@@ -11080,7 +11392,7 @@ function startRust(scripted) {
   rust.state = 'warn'; rust.t = warnLen();
   G.flags.rustDay = rustDue(); P.fogT = 0;
   // who gets caught out: one or two of the settlers and townsfolk, late off the mark and slow
-  const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && Math.hypot(e.home.x, e.home.z) < CAMP_R);
+  const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && campD(e.home.x, e.home.z) < CAMP_R);
   for (const e of pool) { e.straggler = false; e.rescued = false; e.fogDose = 0; }
   for (let i = 0, n = 1 + (rnd() < .5 ? 1 : 0); i < n && pool.length; i++) pool.splice(Math.floor(rnd() * pool.length), 1)[0].straggler = true;
   horn(110, 3, .22, 0); setTimeout(() => horn(110, 3, .22, 0), 3600);
@@ -11090,7 +11402,7 @@ function nearestShelter() { return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp:
 function inShelter() { return inHull(P.x, P.z); }   // (Nov 10) fog gets under any roof: only the sealed hull keeps it out
 /* townsfolk in the fog: where to go, and what it does to them if they're out in it. Returns a move target or null. */
 function fogNPC(e, dt) {
-  if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
+  if (e.follow || campD(e.home.x, e.home.z) > CAMP_R) return null;
   if (e.downed) {
     e.dieT -= dt; if (rnd() < dt * .6) puff(e.x, e.y + .4, e.z, 0x9a3a22, 1, .6, .1, .5, 1.5);
     if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — ${e.siegeHurt ? 'their wounds were too much' : 'the Rust got them'}.`, 4); sfx('no'); }
@@ -11213,7 +11525,7 @@ function updClan(e, dt) {
   if (facUpd(e, dt)) return;
   if (aiUpd(e, dt)) return;   // hearing, flanking, fleeing, bosses — 2l-combat.js   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
-  const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
+  const insideP = campD(P.x, P.z) < CAMP_R, insideE = campD(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
   const hullP = inHull(P.x, P.z), hullE = inHull(e.x, e.z);
   const walled = (insideP !== insideE && gate.hp > 0 && !gate.open) || (hullP !== hullE && hullDoor.hp > 0 && !hullDoor.open);
   let tx = e.x, tz = e.z, spd = 0;
@@ -11228,7 +11540,7 @@ function updClan(e, dt) {
   if (e.climbing) {
     e.climbT -= dt; e.climbY = (1 - Math.abs(e.climbT / e.climbDur * 2 - 1)) * (WALL_H[UP.wall] + .3);
     p.body.rotation.x = -.25 + Math.sin(e.t * 9) * .08;
-    if (e.climbT <= 0) { e.climbing = false; e.climbY = 0; const d = Math.hypot(e.x, e.z); e.x *= (CAMP_R - 1.6) / d; e.z *= (CAMP_R - 1.6) / d; e.pd = CAMP_R - 1.6; e.state = 'chase'; }
+    if (e.climbT <= 0) { e.climbing = false; e.climbY = 0; const w = wallPt(Math.atan2(e.x, e.z), -1.6); e.x = w.x; e.z = w.z; e.pd = Math.hypot(w.x, w.z); e.pdn = CAMP_R - 1.6; e.state = 'chase'; }
     e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y + e.climbY, e.z); e.g.rotation.y = e.yaw; return;
   }
   if (e.state === 'idle') {
@@ -11238,16 +11550,16 @@ function updClan(e, dt) {
     if (dp < sees && !P.dead && !UG.at && facHostileE(e) && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
-    const dE = Math.hypot(e.x, e.z);
+    const dE = campD(e.x, e.z), toGate = d => { const a = angWrap(Math.atan2(e.x, e.z)); if (Math.abs(a) > .4) { const w = wallPt(a - Math.sign(a) * .4, 6); tx = w.x; tz = w.z; return true; } return false; };   // (Nov 11) round the wall to the gate, not through it
     if (!insideE) {
       if (e.climb && UP.wall < 3) {
-        const a = Math.atan2(e.x, e.z); tx = Math.sin(a) * (CAMP_R + 1); tz = Math.cos(a) * (CAMP_R + 1); spd = e.speed;
+        const a = Math.atan2(e.x, e.z), w = wallPt(a, 1); tx = w.x; tz = w.z; spd = e.speed;
         if (Math.abs(a) < GATE_HALF + .05) e.climb = false;
         if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = e.breach ? .7 : 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
       } else if (gate.hp > 0 && !gate.open) {
-        tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed;
+        tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed; if (toGate()) { /* still coming round */ }
         if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'gate'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
-      } else { tx = 0; tz = dE > CAMP_R + 4 ? CAMP_R + 3 : CAMP_R - 6; spd = e.speed; }
+      } else { tx = 0; tz = dE > CAMP_R + 4 ? CAMP_R + 3 : CAMP_R - 6; spd = e.speed; if (dE > CAMP_R + 2) toGate(); }
     } else {
       if (!hullE && hullDoor.hp > 0 && !hullDoor.open) {   // the Arc is sealed: break the doors
         tx = clamp(e.x, ARC.x - 3, ARC.x + 3); tz = ARC.z + ARC.W + 1.7; spd = e.speed;
@@ -11311,7 +11623,7 @@ function updNPC(e, dt) {
   } else if (e.guard && night.active && updGuard(e, dt)) {
     spd = 0;
   } else if (e.wander) {
-    const inCamp = Math.hypot(e.home.x, e.home.z) < CAMP_R;
+    const inCamp = campD(e.home.x, e.home.z) < CAMP_R;
     if (inCamp) {                       // Kestrel: walk the streets, stop at shop fronts, loiter, move on
       if (night.active) e.route = null;
       else if (e.route && e.route.length) {
@@ -11335,7 +11647,7 @@ function updNPC(e, dt) {
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
-  if (night.active && !e.follow && !e.guard && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
+  if (night.active && !e.follow && !e.guard && (e.name === 'extra' || e.settler) && campD(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   { const f = fogNPC(e, dt); if (e.dead) return; if (f) { tx = f.x; tz = f.z; spd = f.spd; } }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine && !e.downed) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
@@ -11485,7 +11797,7 @@ function updPlayer(dt) {
     const moving = hs > .6 && P.onGround;
     const stepLen = sprint ? 2.25 : 1.6, b0 = Math.floor(P.bob / Math.PI);
     if (P.onGround) P.bob += hs * dt / stepLen * Math.PI;
-    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || (Math.hypot(P.x, P.z) < CAMP_R && streetDist(P.x, P.z) < .3) || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
+    STEP_SURF = depth > -.1 ? 'sand' : fl > -1e8 && fl >= P.y - .1 ? (Math.hypot(P.x - POI.bridge.x, P.z - POI.bridge.z) < 50 ? 'gravel' : 'metal') : P.y > 122 ? 'snow' : pathDist(P.x, P.z) < 3 || (campD(P.x, P.z) < CAMP_R && streetDist(P.x, P.z) < .3) || Math.hypot(P.x - POI.halvard.x, P.z - POI.halvard.z) < 75 ? 'gravel' : 'trail';
     if (moving && Math.floor(P.bob / Math.PI) !== b0) { sfx('step', sprint ? 1.35 : clamp(hs / 5.4, .5, 1)); if (depth > -.05) sfx('splash'); }
     P.bobAmp = lerp(P.bobAmp, moving ? clamp(hs / 5.4, 0, 1.8) : 0, Math.min(1, dt * 8));
     // the eye follows the ground smoothly instead of snapping over every bump
@@ -11602,7 +11914,7 @@ function updTime(dt) {
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
   let far = VIEW_M ? Math.min(s.far, VIEW_M) : s.far;
-  if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
+  if (isNight() && campD(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
   scene.fog.far = lerp(far, 24, rk); scene.fog.near = packFogNear(lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60);
   skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
@@ -12156,7 +12468,7 @@ const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x
 function checkRegions() {
   if (UG.at) return;
   const seen = G.flags.seen = G.flags.seen || {};
-  if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
+  if (!G.flags.reached && campD(P.x, P.z) < CAMP_R + 10) {
     G.flags.reached = 1; G.flags.firstRustT = 45; save();
     say([['Kade', 'You made it. We’ve got a wall, a fire and not much else.'], ['Kade', 'The shops are open — trade, craft, eat. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
   }
@@ -12363,14 +12675,15 @@ async function boot() {
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
   seedScraps(); seedCrates(); buildRifle(); selectGunView('carbine');
-  for (const D of SHOP_DEFS.filter(D => D.who)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  for (const D of SHOP_DEFS.filter(D => D.who && !D.late)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: pick(['civilian', 'settler']), tint: D.tint, yaw: D.ry, h: rr(1.68, 1.82) }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; }
+  { const s0 = seed; seed = 7171717; for (const D of SHOP_DEFS.filter(D => D.who && D.late)) { const e = spawnNPC(D.who, D.keeper.x, D.keeper.z, { model: 'settler', tint: D.tint, yaw: D.ry, h: 1.7 }); e.shop = D.id; e.shopName = D.name; named[D.who] = e; } seed = s0; }   // (Nov 11) keepers added later draw from their own stream
   WALK.settle(); buildPaddock();
   for (let i = 0; i < 8; i++) { const n = pick(WALK.nodes); spawnNPC('extra', n.x + rr(-1, 1), n.z + rr(-1, 1), { wander: true }); }
   SETTLERS.forEach((S, i) => { const n = pick(WALK.nodes), e = spawnNPC('settler', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: pick(['civilian', 'settler', 'settler']), tint: S.tint, wander: true, h: rr(1.62, 1.84) }); e.settler = 1; e.shop = 'settler' + i; e.shopName = S.n; });
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

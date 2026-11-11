@@ -388,7 +388,7 @@ function updSurvival(dt) {
   const dry = P.water <= 0;
   if (dry && P.stamT <= 0 && !P.sprinting) P.stam = Math.max(0, P.stam - dt * 9);   // stamina refills at about half speed
   if (P.food <= 0) { if (P.hp > SURV.starveFloor) P.hp = Math.max(SURV.starveFloor, P.hp - dt * SURV.starveHp); }
-  else if (!dry && P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  else if (!dry && P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (campD(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (B.heal > 0 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .9);
   // Energised: sprinting costs half as much and stamina comes back faster (updPlayer has already spent/refilled it this frame)
   if (B.stam > 0) { if (P.sprinting) P.stam = Math.min(100, P.stam + dt * 5.5); else if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * 10); }

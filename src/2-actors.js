@@ -260,16 +260,16 @@ const gunStats = () => curW().st;
 const input = { mx: 0, my: 0, look: [0, 0], fire: false, jump: false, sprint: false };
 
 function wallCollide(o, rad, isPlayer) {
-  const d = Math.hypot(o.x, o.z), R = CAMP_R;
+  const d = Math.hypot(o.x, o.z); if (d < CAMP_R - 8 || d > CAMP_RMAX + 3) { o.pd = d; o.pdn = d; return; }
+  const a = Math.atan2(o.x, o.z), R = wallR(a);
   if (Math.abs(d - R) < rad + .45 && d > .01) {
-    const a = Math.atan2(o.x, o.z);
     const gateOpen = gate.open || gate.hp <= 0;
     if (Math.abs(a) < GATE_HALF - .02 && gateOpen) { o.pd = d; return; }   // (Nov 10) a shut gate stops you too: E opens it
-    const inside = (o.pd ?? d) < R;
+    const inside = (o.pdn ?? (o.pd ?? d) * CAMP_R / R) < CAMP_R;
     const nd = inside ? R - rad - .45 : R + rad + .45;
     o.x *= nd / d; o.z *= nd / d;
   }
-  o.pd = Math.hypot(o.x, o.z);
+  o.pd = Math.hypot(o.x, o.z); o.pdn = campD(o.x, o.z);
 }
 function collide(o, rad, isPlayer) {
   for (let pass = 0; pass < 2; pass++) {
@@ -289,7 +289,7 @@ function collide(o, rad, isPlayer) {
 /* is the straight walk from a to b free of anything solid (and not across the wall)? */
 function clearLine(x0, z0, x1, z1, rad) {
   const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(L / .8));
-  if ((Math.hypot(x0, z0) < CAMP_R) !== (Math.hypot(x1, z1) < CAMP_R)) return false;
+  if ((campD(x0, z0) < CAMP_R) !== (campD(x1, z1) < CAMP_R)) return false;
   for (let k = 1; k <= n; k++) {
     const x = lerp(x0, x1, k / n), z = lerp(z0, z1, k / n), cl = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL)));
     if (cl) for (const c of cl) if (Math.hypot(x - c.x, z - c.z) < c.r + rad) return false;

@@ -165,7 +165,7 @@ function spawnLeaders() {
 function nearestFoeOf(e, r) {
   let b = null, bd = r; const me = facOf(e);
   for (const o of ents) { if (o === e || o.type !== 'clan' || o.dead) continue;
-    const ok = e.mode === 'ally' ? (o.mode === 'raid' || (facHostileE(o) && Math.hypot(o.x, o.z) < CAMP_R + 40)) : o.mode === 'ally' ? false : atWar(me, facOf(o)) && o.mode !== 'raid';
+    const ok = e.mode === 'ally' ? (o.mode === 'raid' || (facHostileE(o) && campD(o.x, o.z) < CAMP_R + 40)) : o.mode === 'ally' ? false : atWar(me, facOf(o)) && o.mode !== 'raid';
     if (!ok) continue; const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; b = o; } }
   return b;
 }

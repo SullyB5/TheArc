@@ -226,7 +226,7 @@ function buildArc() {
     addCol(ARC.x + x, ARC.z + z, 1); }
   for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7, cl = apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), ry = arr(-.06, .06); if (!propsIn) mesh(new THREE.BoxGeometry(1, 2.2, .6), M(cl), x, 1.1 - C, z, g).rotation.y = ry; }
   addColLine(ARC.x - 4, ARC.z - ARC.W + .7, ARC.x + 4, ARC.z - ARC.W + .7, .6);
-  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn && Math.abs(z - 4.3) < 2.5 && (Math.abs(x - 18.6) < 6 || Math.abs(x + 22) < 3.5)) { arr(-.3, .3); continue; }   // the passages stand there now
+  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn) { arr(-.3, .3); continue; }   // (Nov 11) the fitted-out base has its own stores (fitArc in 1h-props.js)   // the passages stand there now
     mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
   // strip lights + one warm lamp so it isn't a cave
   const strip = new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false });
@@ -315,50 +315,56 @@ function updHullDoor(dt) {
   for (const d of hullDoors) { d.g.position.set(d.s * (ARC.DOOR / 2 + hullDoor.t * (ARC.DOOR + .2)), 0, zO); d.g.rotation.z = hullDoor.hp <= 0 ? d.s * .08 : 0; }
 }
 
-/* the wall: corrugated sheets, log posts, and the gate with its sign */
+/* the wall (Nov 11): put up from what came down with the Arc — hull plating cut into panels (each its own paint: station
+   white, primer, bare steel, scorched), stood between snapped ribs and I-beams, in straight uneven runs round the yard
+   (WALL_PTS in 1-world.js). Upgrades add a second course, braces, spikes cut from rib stock, then razor wire. */
 const WALL_H = [2.4, 3.6, 4.6, 5.4];
+let WL_S = 31337, wallFirst = true;
+const wlr = () => (WL_S = (WL_S * 16807) % 2147483647, (WL_S - 1) / 2147483646), wlrr = (a, b) => a + wlr() * (b - a), wlpk = a => a[Math.floor(wlr() * a.length)];
+// the wall's line, as short pieces from the gate's east post round to its west post
+function wallRun() {
+  const P = WALL_PTS, n = P.length, out = [], g0 = { x: GATE_X, z: CAMP_R }, g1 = { x: -GATE_X, z: CAMP_R };
+  const pts = [g0, ...P, g1];
+  for (let i = 0; i < pts.length - 1; i++) { const A = pts[i], B = pts[i + 1], L = Math.hypot(B.x - A.x, B.z - A.z), k = Math.max(1, Math.round(L / 2.7));
+    for (let j = 0; j < k; j++) out.push({ ax: lerp(A.x, B.x, j / k), az: lerp(A.z, B.z, j / k), bx: lerp(A.x, B.x, (j + 1) / k), bz: lerp(A.z, B.z, (j + 1) / k), corner: j === 0 && i > 0 }); }
+  return out;
+}
 function buildWall(level) {
+  if (wallFirst) { for (let i = 0; i < 512; i++) rnd(); wallFirst = false; }   // the old wall drew from the world's stream: keep everything after it where it was
+  WL_S = 31337;
   if (wallGroup) world.remove(wallGroup);
-  wallGroup = new THREE.Group(); wallGroup.position.y = 0; world.add(wallGroup);
-  const H = WALL_H[level];
-  const sheetCols = [0x9da3a6, 0x8f9a9e, 0x7f8f9e, 0xa2a49d, 0x9a7f6a, 0x9b5a3e, 0x6f86a0];
-  const SEG = 96, segA = (Math.PI * 2 - GATE_HALF * 2) / SEG;
-  const posts = [];
-  for (let i = 0; i < SEG; i++) {
-    const a = GATE_HALF + segA * (i + .5);
-    const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R, y = heightAt(x, z);
-    const w = segA * CAMP_R + .15;
-    const sh = level === 0 && rnd() < .25 ? H * rr(.6, .85) : H * rr(.94, 1.04);
-    const mat = new THREE.MeshLambertMaterial({ map: texCorr, normalMap: texCorrN, color: pick(sheetCols) });
-    const s = mesh(new THREE.BoxGeometry(w, sh, .18), mat, x, y + sh / 2 - .2, z, wallGroup);
-    s.rotation.set(rr(-.03, .03), a, rr(-.02, .02));
-    if (i % 3 === 0) posts.push([a - segA / 2, y]);
-    if (level >= 2) { // sharpened log spikes outside
-      for (let k = -1; k <= 1; k += 2) {
-        const sx = Math.sin(a + k * segA * .25) * (CAMP_R + 1.1), sz = Math.cos(a + k * segA * .25) * (CAMP_R + 1.1);
-        const sp = mesh(new THREE.ConeGeometry(.12, 2.4, 5), M(0x7a5a3c), sx, heightAt(sx, sz) + .7, sz, wallGroup);
-        sp.rotation.set(-Math.cos(a) * .9, 0, Math.sin(a) * .9);
-      }
-    }
-    if (level >= 3) { // razor wire coil
-      const rw = mesh(new THREE.TorusGeometry(.32, .03, 4, 10), M(0x8a8a8a), x, y + sh + .1, z, wallGroup);
-      rw.rotation.y = a; rw.scale.set(w * 1.5, 1, 1); rw.castShadow = false;
-    }
-    if (level >= 1 && i % 2 === 0) { // horizontal braces on the inside
-      const b = mesh(new THREE.BoxGeometry(w, .22, .22), M(0x5f4936), Math.sin(a) * (CAMP_R - .3), y + sh * .7, Math.cos(a) * (CAMP_R - .3), wallGroup); b.rotation.y = a;
-    }
-  }
-  for (const [a, y] of posts) {
-    const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R;
-    const p = mesh(new THREE.CylinderGeometry(.22, .28, H + 1.4, 6), new THREE.MeshLambertMaterial({ map: texWood, color: 0xb59a7e }), x, y + (H + 1.4) / 2 - .4, z, wallGroup);
-    p.rotation.z = rr(-.04, .04);
-  }
-  if (typeof bakeGroup === 'function') bakeGroup(wallGroup, new Set(), 40);
+  wallGroup = new THREE.Group(); world.add(wallGroup);
+  const H = WALL_H[level], K = hkit(LOW);
+  const paint = [0xd8d6cf, 0xc8c6bf, 0xb8b6ae, 0x9a9890, 0x8a8e90, 0x7c6a58, 0xa06a48, 0x6a6e70, 0xcfc9b4, 0x5e6266];
+  const run = wallRun();
+  run.forEach((S, i) => {
+    const L = Math.hypot(S.bx - S.ax, S.bz - S.az), cx = (S.ax + S.bx) / 2, cz = (S.az + S.bz) / 2, yaw = Math.atan2(S.bz - S.az, S.bx - S.ax), y = heightAt(cx, cz);
+    // outward normal (away from the yard)
+    const ox = -Math.sin(-yaw), oz = Math.cos(-yaw), sgn = (cx * Math.sin(yaw) * -1 + cz * Math.cos(yaw)) > 0 ? 1 : -1;
+    K.at(htm(cx, y, cz, 0, -yaw, 0));
+    const short = level === 0 && wlr() < .2 ? wlrr(.65, .85) : wlrr(.95, 1.04), sh = H * short;
+    // one plate, or two courses with the upper lapped over; now and then a curved bit of the hull itself
+    const col = tint(wlpk(paint), .06);
+    if (wlr() < .12) { const g = new THREE.CylinderGeometry(2.2, 2.2, sh + .1, 8, 1, true, -L / 4.4, L / 2.2); const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * L / 2, uv.getY(k) * sh / 2); if (sgn < 0) g.rotateY(Math.PI); g.translate(0, (sh + .1) / 2 - .25, (-2.2 + .1) * sgn); K.geo('hull', g, null, col); }
+    else if (sh > 3) { K.box('hull', L + .06, sh * .56, .14, 0, sh * .28 - .2, 0, wlrr(-.02, .02), 0, wlrr(-.01, .01), col, 2); K.box('hull', L + .1, sh * .5, .14, 0, sh * .75 - .2, .07 * sgn, wlrr(-.02, .02), 0, wlrr(-.012, .012), tint(wlpk(paint), .06), 2); }
+    else K.box('hull', L + .06, sh, .14, 0, sh / 2 - .25, 0, wlrr(-.03, .03), 0, wlrr(-.015, .015), col, 2);
+    // seams: a welded strap over each joint, rivet heads along the top
+    K.box('metal', .16, sh, .2, -L / 2, sh / 2 - .25, 0, 0, 0, 0, 0x4a4c4e);
+    if (wlr() < .3) K.box('metal', L * wlrr(.3, .7), wlrr(.08, .3), .17, wlrr(-.4, .4), wlrr(.4, sh - .5), 0, 0, 0, wlrr(-.1, .1), wlpk([0xd9a32a, 0x2a2a28]));   // a band of hazard paint
+    // posts: a snapped rib or an I-beam every couple of panels, at every corner
+    if (S.corner || i % 2 === 0) { const ph = H + wlrr(.6, 1.6);
+      if (wlr() < .5) { K.box('metal', .34, ph, .1, -L / 2, ph / 2 - .4, .14 * -sgn, 0, 0, 0, 0x55585a); K.box('metal', .1, ph, .34, -L / 2, ph / 2 - .4, (.14 + .12) * -sgn, 0, 0, 0, 0x55585a); K.box('metal', .34, ph, .1, -L / 2, ph / 2 - .4, (.14 + .24) * -sgn, 0, 0, 0, 0x55585a); }
+      else { const rc = tint(0xc8c6be, .05); K.box('metal', .3, ph - .8, .55, -L / 2, (ph - .8) / 2 - .4, -.1 * sgn, wlrr(-.04, .04), 0, 0, rc); K.box('metal', .3, 1.5, .5, -L / 2, ph - .65, -.4 * sgn, -.55 * sgn, 0, 0, rc); } }
+    if (level >= 1 && i % 2 === 0) K.box('metal', L, .2, .14, 0, sh * .7, (.16) * -sgn, 0, 0, 0, 0x4a4c4e);
+    if (level >= 2) for (const k of [-1, 1]) { const sp = new THREE.ConeGeometry(.09, 2.2, 4); sp.rotateX(-.8 * sgn); K.geo('metal', sp, htm(k * L * .25, .6, 1.1 * sgn), 0x8a8478); }
+    if (level >= 3) { const rw = new THREE.TorusGeometry(.32, .03, 4, 10); rw.scale(L * 1.5, 1, 1); K.geo('metal', rw, htm(0, sh + .05, 0, 0, 0, 0), 0x8a8a8a); }
+  });
+  K.at(null); K.build(wallGroup);
 }
 const GATE_X = Math.sin(GATE_HALF) * CAMP_R;
 function buildGate() {
   gateGroup = new THREE.Group(); gateGroup.position.set(0, heightAt(0, CAMP_R), CAMP_R); world.add(gateGroup);
-  const wood = new THREE.MeshLambertMaterial({ map: texWood, color: 0xb8a088 });
+  const wood = new THREE.MeshStandardMaterial({ map: TX.metal, color: 0x8a8a84, metalness: .5, roughness: .55 });   // (Nov 11) two hull ribs, not logs
   for (const s of [-1, 1]) {
     mesh(new THREE.CylinderGeometry(.42, .5, 9, 7), wood, s * GATE_X, 4.1, 0, gateGroup);
     addCol(s * GATE_X, CAMP_R, .6);
@@ -379,18 +385,18 @@ function dressGate(level) {
   const W = GATE_X - .45, H = WALL_H[Math.max(1, level)] + .3;
   for (const d of gateDoors) {
     d.door.clear();
-    const cols = level >= 2 ? [0x6a6e70, 0x5e6466] : [0x8e8a7e, 0x7f8a8e, 0x9a7f6a];
+    const cols = level >= 2 ? [0x6a6e70, 0x5e6466] : [0xc8c6be, 0xb0aea6, 0x9a948a];
     for (let i = 0; i < 3; i++) {
-      const panel = mesh(new THREE.BoxGeometry(W / 3 + .05, H, .16), new THREE.MeshLambertMaterial({ map: texCorr, color: pick(cols) }), -d.s * (W / 6 + i * W / 3), H / 2 - .1, 0, d.door);
+      const panel = mesh(new THREE.BoxGeometry(W / 3 + .05, H, .16), new THREE.MeshStandardMaterial({ map: texPanel, normalMap: TX.metal2N, color: pick(cols), metalness: .45, roughness: .6 }), -d.s * (W / 6 + i * W / 3), H / 2 - .1, 0, d.door);
       panel.rotation.z = rr(-.02, .02);
     }
-    if (level >= 1) for (const y of [.8, H - .8]) mesh(new THREE.BoxGeometry(W, .3, .25), M(0x5f4936), -d.s * W / 2, y, .15, d.door);
-    if (level >= 1) { const x = mesh(new THREE.BoxGeometry(.25, Math.hypot(W, H - 1.6), .22), M(0x5f4936), -d.s * W / 2, H / 2, .2, d.door); x.rotation.z = d.s * Math.atan2(W, H - 1.6); }
+    if (level >= 1) for (const y of [.8, H - .8]) mesh(new THREE.BoxGeometry(W, .3, .25), M(0x4a4c4e), -d.s * W / 2, y, .15, d.door);
+    if (level >= 1) { const x = mesh(new THREE.BoxGeometry(.25, Math.hypot(W, H - 1.6), .22), M(0x4a4c4e), -d.s * W / 2, H / 2, .2, d.door); x.rotation.z = d.s * Math.atan2(W, H - 1.6); }
     if (level >= 2) mesh(new THREE.BoxGeometry(W, H * .5, .1), M(0x55595b), -d.s * W / 2, H * .32, .28, d.door);
     if (level >= 3) for (let i = 0; i < 4; i++) { const sp = mesh(new THREE.ConeGeometry(.1, .7, 4), M(0x9a9a9a), -d.s * (.4 + i * W / 4), H * .5, .55, d.door); sp.rotation.x = Math.PI / 2; }
   }
 }
-const TOWER_POS = [[.42, 59], [-.42, 59], [2.75, 59.5], [-2.75, 59.5]];
+const TOWER_POS = [[.42, 0], [-.42, 0], [1.62, 0], [2.6, 0], [-2.75, 0]].map(([a]) => [a, wallR(a) - 5]);   // (Nov 11) just inside the wall, wherever it runs; a fifth over the east side
 function buildTowers() {
   for (const [a, r] of TOWER_POS) {
     const x = Math.sin(a) * r, z = Math.cos(a) * r, y = heightAt(x, z);
@@ -398,7 +404,7 @@ function buildTowers() {
     towerKit(t);   // (Nov 10) timber legs, sandbagged platform, tin roof: 1f-houses.js
     const gun = new THREE.Group(); gun.position.set(0, 9.2, 1.2); t.add(gun); gun.visible = false;
     const lamp = new THREE.Group(); lamp.position.set(-1.2, 11.5, 1.5); t.add(lamp); lamp.visible = false;
-    towers.push({ g: t, x, z, y, gun, lamp, cool: rnd(), a });
+    towers.push({ g: t, x, z, y, gun, lamp, cool: towers.length < 4 ? rnd() : .5, a });
     addCol(x, z, 2);
   }
 }
@@ -425,33 +431,40 @@ function dressTowers(turLv, lightLv) {
 
 /* inside the walls: the yard fire, and the settlement's buildings in a ring just inside the wall — where you cook, craft,
    trade and gear up. Each has a keeper behind a counter (E: trade) and a station at the side you can use yourself. */
-/* the layout (from Bryce's sketch): Main Street runs from the gate straight to the Arc's door; Arc Row crosses in front of
-   the hull; Cross Street cuts the yard in half; West Lane and East Lane split the blocks. Buildings face their street.
+/* the layout (Nov 11, Bryce's second plan): in through the gate, Main Street wanders up to the Arc's door. On the left, three
+   buildings face the street (Gunsmith, Outfitter, Trading Post), then an opening — West Lane — leads round the back to the
+   Clinic, the Workshop and the Storehouse. On the right, two (Cookhouse, Bunkhouse), then East Row branches off to the right
+   where the wall runs out a long way: the commons fire and the power yard, Salvage, the Munitions shed (ammo + explosives,
+   kept well apart behind blast walls) and the Depot up Foundry Lane. Nothing's ruled straight: every street is a run of short
+   legs that kink, and every building sits a little off square.
    ry: which way the front faces (0 = south/+z, π/2 = east/+x, π = north, -π/2 = west) */
 const HP = Math.PI / 2;
-const STREETS = [   // (Nov 10) relatively straight, not ruled: the lanes wander a little and meet a little off square
-  { n: 'Main Street', a: [0, 66], b: [.9, 22], w: 8 },
-  { n: 'Main Street', a: [.9, 22], b: [0, -24], w: 8 },
-  { n: 'Arc Row', a: [-52, -15.8], b: [-18, -17.4], w: 6 },
-  { n: 'Arc Row', a: [-18, -17.4], b: [22, -16.4], w: 6 },
-  { n: 'Cross Street', a: [-55, 23.2], b: [-2, 21.4], w: 6 },
-  { n: 'Cross Street', a: [-2, 21.4], b: [55, 22.6], w: 6 },
-  { n: 'West Lane', a: [-31.5, -17], b: [-30, 17], w: 4 },
-  { n: 'West Lane', a: [-30, 17], b: [-32.4, 50], w: 4 },
-  { n: 'East Lane', a: [28, 22], b: [29.6, 52], w: 4 },
-  { n: 'Shop Walk', a: [-4, 3], b: [-27, 4.3], w: 3 },
-  { n: 'Commons Walk', a: [4, 2], b: [44, 2], w: 3.5 },
+const STREET_LINES = [
+  { n: 'Main Street', w: 6.5, p: [[0, 66], [1.6, 50], [-.8, 36], [1.2, 21], [-.4, 7], [.6, -6], [0, -22]] },
+  { n: 'Arc Row', w: 4.5, p: [[-33, -16.5], [-18, -18.6], [0, -19.6], [16, -18.2], [25, -14.5]] },
+  { n: 'West Lane', w: 4.2, p: [[-.4, 7], [-12, 5.2], [-24, 7.4], [-36, 4.6], [-46, 7.2], [-52, .5], [-50.5, -4]] },
+  { n: 'West Lane', w: 3.4, p: [[-24, 7.4], [-27.5, -1]] },
+  { n: 'Clinic Walk', w: 3.4, p: [[-36, 4.6], [-40.5, 13.6]] },
+  { n: 'East Row', w: 5, p: [[1.2, 21], [12, 19], [24, 15.6], [36, 14.2], [50, 16.4], [64, 12.6], [80, 8.4], [86, 2]] },
+  { n: 'Foundry Lane', w: 4, p: [[50, 16.4], [56.5, 27.5], [62.5, 34]] },
+  { n: 'Yard Walk', w: 3.4, p: [[36, 14.2], [34.2, 1.4], [30.4, -4]] },
+  { n: 'Shed Walk', w: 3.2, p: [[64, 12.6], [67.5, 4.4]] },
+  { n: 'Salvage Walk', w: 3.2, p: [[50, 16.4], [45.2, 8.6]] },
 ];
+const STREETS = STREET_LINES.flatMap(L => L.p.slice(1).map((b, i) => ({ n: L.n, a: L.p[i], b, w: L.w })));
 const streetDist = (x, z) => { let d = 1e9; for (const S of STREETS) d = Math.min(d, segDist(x, z, S.a[0], S.a[1], S.b[0], S.b[1]) - S.w / 2); return d; };
 const SHOP_DEFS = [
-  { id: 'craft', x: -16.6, z: -5.4, ry: HP + .06, sign: 'WORKSHOP', who: 'kade', name: 'Kade', st: ['bench', 'forge'], stN: 'Workbench + forge · craft', cat: 'tool', col: 0x8a9092, tint: 0xd8d0c4 },
-  { id: 'trade', x: -15.6, z: 12.2, ry: HP - .08, sign: 'TRADING POST', who: 'odile', name: 'Odile', st: ['bench'], stN: 'Sorting table · craft materials', cat: 'mat', col: 0x9a8a5a, tint: 0x9a7a60 },
-  { id: 'med', x: -45.4, z: 5.2, ry: HP + .1, bw: 14, bd: 9, sign: 'CLINIC', who: 'juno', name: 'Juno', st: ['lab'], stN: 'Clinic lab · make medicine', cat: 'med', col: 0xb8b8b0, tint: 0xe0d8cc },
-  { id: 'wear', x: -42.8, z: 33.4, ry: Math.PI - .07, sign: 'OUTFITTER', who: 'wren', name: 'Wren', st: ['bench'], stN: 'Sewing table · craft clothing', cat: 'wear', col: 0x6a8aa0, tint: 0xa0b0c8 },
-  { id: 'guns', x: -15.4, z: 33.8, ry: HP + .05, sign: 'GUNSMITH', who: 'rook', name: 'Rook', st: ['bench'], stN: 'Gun bench · craft weapons + ammo', cat: 'weap', col: 0x6a7a4a, tint: 0x8a9070 },
-  { id: 'cook', x: 16.5, z: 32.4, ry: -HP - .07, sign: 'COOKHOUSE', who: 'bram', name: 'Bram', st: ['fire', 'cook'], stN: 'Stove · cook', cat: 'food', col: 0xa86a48, tint: 0xc8a888 },
-  { id: 'bunk', x: 40.6, z: 34.6, ry: Math.PI + .08, bw: 12, sign: 'BUNKHOUSE', st: [], stN: 'Rest in a bunk', col: 0x7a7a5a },
-  { id: 'salvage', x: 49.6, z: 5, ry: -HP + .07, sign: 'SALVAGE', who: 'gus', name: 'Gus', st: ['bench'], stN: 'Strip-down bench · craft materials', cat: 'mat', col: 0x8a6a52, tint: 0x9a8a7a },
+  { id: 'guns', x: -13.6, z: 47.6, ry: HP + .07, sign: 'GUNSMITH', who: 'rook', name: 'Rook', st: ['bench'], stN: 'Gun bench · craft weapons + ammo', cat: 'weap', col: 0x6a7a4a, tint: 0x8a9070 },
+  { id: 'wear', x: -12.8, z: 32.4, ry: HP - .05, sign: 'OUTFITTER', who: 'wren', name: 'Wren', st: ['bench'], stN: 'Sewing table · craft clothing', cat: 'wear', col: 0x6a8aa0, tint: 0xa0b0c8 },
+  { id: 'trade', x: -14, z: 17.4, ry: HP + .04, sign: 'TRADING POST', who: 'odile', name: 'Odile', st: ['bench'], stN: 'Sorting table · craft materials', cat: 'mat', col: 0x9a8a5a, tint: 0x9a7a60 },
+  { id: 'med', x: -42.4, z: 22.6, ry: Math.PI + .07, bw: 14, bd: 9, sign: 'CLINIC', who: 'juno', name: 'Juno', st: ['lab'], stN: 'Clinic lab · make medicine', cat: 'med', col: 0xb8b8b0, tint: 0xe0d8cc },
+  { id: 'craft', x: -29.6, z: -5.8, ry: -.06, sign: 'WORKSHOP', who: 'kade', name: 'Kade', st: ['bench', 'forge'], stN: 'Workbench + forge · craft', cat: 'tool', col: 0x8a9092, tint: 0xd8d0c4 },
+  { id: 'store', x: -51.6, z: -12.4, ry: .1, bw: 9, bd: 7, sign: 'STOREHOUSE', st: [], stN: null, col: 0x7a7a6a },
+  { id: 'cook', x: 15.2, z: 47.2, ry: -HP - .06, sign: 'COOKHOUSE', who: 'bram', name: 'Bram', st: ['fire', 'cook'], stN: 'Stove · cook', cat: 'food', col: 0xa86a48, tint: 0xc8a888 },
+  { id: 'bunk', x: 16, z: 30.4, ry: -HP + .05, bw: 12, sign: 'BUNKHOUSE', st: [], stN: 'Rest in a bunk', col: 0x7a7a5a },
+  { id: 'salvage', x: 44.2, z: .6, ry: .06, sign: 'SALVAGE', who: 'gus', name: 'Gus', st: ['bench'], stN: 'Strip-down bench · craft materials', cat: 'mat', col: 0x8a6a52, tint: 0x9a8a7a },
+  { id: 'ammo', x: 68.4, z: -3.6, ry: -.08, bw: 12, sign: 'MUNITIONS', who: 'vesna', name: 'Vesna', late: 1, st: ['bench'], stN: 'Powder bench · ammo + explosives', cat: 'weap', col: 0x7a6a3a, tint: 0x8a7a5a },
+  { id: 'depot', x: 71.6, z: 26.4, ry: -HP + .1, bw: 10, bd: 8, sign: 'DEPOT', st: [], stN: null, col: 0x6a7076 },
 ];
 function shopL2W(D, lx, lz) { const c = Math.cos(D.ry), s = Math.sin(D.ry); return { x: D.cx + lx * c + lz * s, z: D.cz - lx * s + lz * c }; }
 for (const D of SHOP_DEFS) { D.cx = D.x; D.cz = D.z; D.bw = D.bw || 11; D.bd = D.bd || 8; D.keeper = shopL2W(D, 0, -1.1); D.spot = shopL2W(D, -3.9, 1.9); D.front = shopL2W(D, 0, 2.1); D.forge = shopL2W(D, 3.9, 2.6); }
@@ -522,7 +535,7 @@ function buildStreets() {
     const nx = (bz - az) / L, nz = -(bx - ax) / L;
     for (let d = 7, k = 0; d < L - 3; d += 14, k++) {
       const sd = (k % 2 ? 1 : -1) * (S.w / 2 + .7), x = lerp(ax, bx, d / L) + nx * sd, z = lerp(az, bz, d / L) + nz * sd;
-      if (Math.hypot(x, z) > CAMP_R - 3 || inHull(x, z) || SHOP_DEFS.some(D => Math.hypot(x - D.cx, z - D.cz) < Math.max(D.bw, D.bd) / 2 + 1.2) || Math.hypot(x - SPOTS.fire.x, z - SPOTS.fire.z) < 6 || streetDist(x, z) < -.2) continue;
+      if (campD(x, z) > CAMP_R - 3 || inHull(x, z) || SHOP_DEFS.some(D => Math.hypot(x - D.cx, z - D.cz) < Math.max(D.bw, D.bd) / 2 + 1.2) || Math.hypot(x - SPOTS.fire.x, z - SPOTS.fire.z) < 6 || streetDist(x, z) < -.2) continue;
       const lp = new THREE.Group(); lp.position.set(x, H0, z); world.add(lp);
       mesh(new THREE.CylinderGeometry(.08, .11, 4.2, 6), M(0x3a3a38), 0, 2.1, 0, lp);
       mesh(new THREE.BoxGeometry(.9, .08, .08), M(0x3a3a38), -Math.sign(sd) * nx * .4, 4.15, -Math.sign(sd) * nz * .4, lp).rotation.y = Math.atan2(nx, nz) + HP;

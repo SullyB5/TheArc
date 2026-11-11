@@ -13,7 +13,7 @@ function terrainColor(x, z, h, sl, out) {
   out.lerp(TC.snow, smooth(snowL, snowL + 28 + snowL * .08, h + fbm(x * .05, z * .05) * (14 + snowL * .1)) * (1 - smooth(1.2, 1.8, sl) * (snowL > 200 ? .8 : .5)));
   const w = waterAt(x, z); if (w > -1e8) out.lerp(TC.sand, (1 - smooth(.2, 2.2, h - w)) * .85);
   const pd = pathDist(x, z); out.lerp(TC.dirt, (1 - smooth(1.8, 4.2, pd)) * .9);
-  const cd = Math.hypot(x, z); out.lerp(TC.mud, (1 - smooth(CAMP_R - 14, CAMP_R + 6, cd)) * .55); if (cd < CAMP_R + 4) out.lerp(TC.dirt, (1 - smooth(-.5, 3, streetDist(x, z))) * .8);
+  const cd = campD(x, z); out.lerp(TC.mud, (1 - smooth(CAMP_R - 14, CAMP_R + 6, cd)) * .55); if (cd < CAMP_R + 4) out.lerp(TC.dirt, (1 - smooth(-.5, 3, streetDist(x, z))) * .8);
   for (const p of [POI.village, POI.ashmere]) { const vd = Math.hypot(x - p.x, z - p.z); out.lerp(TC.dirt, (1 - smooth(14, 30, vd)) * .7); }
   const hd = Math.hypot(x - POI.halvard.x, z - POI.halvard.z); if (hd < 90) { const gx = Math.abs(((x - POI.halvard.x) % 26 + 26) % 26 - 13), gz = Math.abs(((z - POI.halvard.z) % 26 + 26) % 26 - 13); if (Math.min(gx, gz) > 9.5 && hd < 75) out.lerp(TC.street, .8); }
   const cd2 = Math.hypot(x - CITY.x, z - CITY.z);
@@ -219,6 +219,7 @@ async function buildForest() {
     const x = rr(-VALLEY, VALLEY), z = rr(-VALLEY, VALLEY);
     if (pathDist(x, z) < 3 || Math.hypot(x, z) < CAMP_R + 2 || waterAt(x, z) > heightAt(x, z) - .4) { i--; continue; }
     const s = rr(.6, 1.5); dummy.position.set(x, heightAt(x, z), z); dummy.rotation.set(0, rnd() * 6, 0); dummy.scale.set(s, s, s); dummy.updateMatrix();
+    if (campD(x, z) < CAMP_R + 2) { dummy.scale.set(0, 0, 0); dummy.updateMatrix(); ferns.setMatrixAt(i, dummy.matrix); continue; }   // (Nov 11) not inside the new east side
     ferns.setMatrixAt(i, dummy.matrix); addRes('fern', x, z, s);
   }
   ferns.receiveShadow = true; world.add(ferns);
@@ -329,7 +330,7 @@ function updGrass(px, pz) {
     const hx = hash(Math.round(gx / step), Math.round(gz / step)), hz = hash(Math.round(gz / step) + 7, Math.round(gx / step));
     const x = gx + (hx - .5) * step, z = gz + (hz - .5) * step;
     const dd = (x - px) ** 2 + (z - pz) ** 2; if (dd > R * R) continue;
-    const cd = Math.hypot(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
+    const cd = campD(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
     const h = heightAt(x, z);
     if (h > 128 || waterAt(x, z) > h - .3) continue;
     const dens = fbm(x * .04, z * .04); if (hx > dens * 1.5) continue;

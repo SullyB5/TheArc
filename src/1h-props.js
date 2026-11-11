@@ -216,8 +216,125 @@ function dressArc() {
   // room lights: cool over the radio desk, white in the infirmary, warm over the bunks (off whenever the interior isn't drawn,
   // so they never take a slot in the light pool from the yard)
   for (const [x, z, c, i] of [[ARC_RADIO.x - X, ARC_RADIO.z - Z, 0x9ad8ff, 2.2], [-29, -6, 0xf2f6ff, 2.4], [-13, -6, 0xffd8a8, 1.8]]) { const l = new THREE.PointLight(c, i, 22, 1.4); l.position.set(x, F + 3, z); l.userData.on = i; g.add(l); ARC_LIGHTS.push(l); }
+  fitArc(g, F);                                       // (Nov 11) the main base rebuilt: decks, mezzanine, mess, armoury, command post
   g.traverse(o => { if (o.isMesh) o.castShadow = false; });
   DECOR_ANIM.push(updArcInterior);
+}
+/* ================= (Nov 11) the main base, fitted out =================
+   Bryce: the inside of the Arc "looks like shit" — one dark, empty tube. Now it's somewhere people live and hold out: deck plating
+   laid over the floor a plate at a time (none of it quite square), a mezzanine of salvaged deck along the north wall on I-beams
+   with a stair up from the mess, the mess itself (tables of hull plate, the station's seats), a sandbagged firing point inside the
+   blast door, an armoury of lockers and racked rifles, a command post by the core (consoles, wall screens, the war table), racks
+   of stores under the catwalk, cross beams with cable trays and Kestrel's colours hung off them, and lights you can see by.
+   Built in one kit (merged per material, lit with the bounced-light materials), so it's a handful of draws. */
+function fitArc(g, F) {
+  const X = ARC.x, Z = ARC.z, K = shipKit(hkit(LOW)), lite = !LOW;
+  const col = (x, z, r) => addCol(X + x, Z + z, r), colL = (x0, z0, x1, z1, r) => addColLine(X + x0, Z + z0, X + x1, Z + z1, r);
+  const ny = (y) => Math.sqrt(Math.max(0, ARC.R * ARC.R - (y - ARC.C) ** 2));        // the hull's half-width at a height above the floor
+  K.at(htm(0, F, 0));                                       // everything below in floor coordinates: y = 0 is the deck
+  const plateC = [0x6e7274, 0x7a7e80, 0x666a6c, 0x84867e, 0x5e6264, 0x8a8478];
+  // ---- deck plating: 2.4 m plates, each its own shade, a little off true; tread strips down the walkways ----
+  for (let x = -21.6; x < ARC.LE - 1; x += 2.4) for (let z = -9.2; z < 8.6; z += 2.4) {
+    if (x > 12.6 && z > 1.8 && z < 6.4) continue;                    // the corridor's own floor
+    if (x < -18.6 && z > 1.8 && z < 6.8) continue;                   // the hallway
+    K.box('hull', 2.36, .025, 2.36, x + 1.2 + hr(-.03, .03), .012, z + 1.2 + hr(-.03, .03), 0, hr(-.012, .012), 0, tint(hpick(plateC), .05), 2.4);
+  }
+  for (let z = -2.5; z < 9.8; z += .42) K.box('metal', 2.4, .02, .34, 0, .028, z, 0, hr(-.01, .01), 0, 0x7a7e80);          // tread from the door up the middle
+  for (let k = 0; k < 18; k++) K.box('plain', .45, .006, .3, -4 + k * .47, .045, 9.2, 0, .5, 0, k % 2 ? 0x1e1e1e : 0xd9a32a);   // hazard band inside the blast door
+  // path lights let into the deck: door → mess, door → command post
+  for (let z = -1.6; z < 8.6; z += 1.4) for (const sx of [-1.35, 1.35]) K.box('glow', .22, .02, .06, sx, .045, z, 0, 0, 0, 0xffa848);
+  for (let x = 2; x < 17; x += 1.6) K.box('glow', .22, .02, .06, x, .045, -.6, 0, HP, 0, 0x7ad0ff);
+
+  // ---- the mezzanine: deck on I-beams along the north wall, x -22 → 10, 3.4 m up; a stair up from the mess ----
+  const MY = 3.4, mz0 = -10.4, mz1 = -5, mx0 = -22, mx1 = 10;
+  for (let x = mx0; x < mx1 - .01; x += 1.6) K.box('hull', 1.58, .12, mz1 - mz0, x + .8, MY - .06, (mz0 + mz1) / 2, 0, 0, hr(-.004, .004), tint(hpick(plateC), .05), 1.6);
+  K.box('metal', mx1 - mx0, .3, .16, (mx0 + mx1) / 2, MY - .27, mz1, 0, 0, 0, 0xc8c6be);                                   // the edge beam, station white
+  for (let x = mx0 + 1.2; x < mx1; x += 3.2) K.box('metal', .14, .24, mz1 - mz0, x, MY - .24, (mz0 + mz1) / 2, 0, 0, 0, 0x55585a);   // joists
+  for (const x of [-19, -14, -9, -4, 1, 5.6, 9.6]) { K.box('metal', .26, MY - .3, .08, x, (MY - .3) / 2, mz1 - .07, 0, 0, 0, 0x55585a); K.box('metal', .08, MY - .3, .22, x, (MY - .3) / 2, mz1, 0, 0, 0, 0x55585a); K.box('metal', .26, MY - .3, .08, x, (MY - .3) / 2, mz1 + .07, 0, 0, 0, 0x55585a); col(x, mz1, .22); }
+  // railing: posts, a mid rail, a yellow top rail (gap where the stair lands at the west end)
+  for (let x = -19.4; x < mx1; x += 1.5) K.box('metal', .05, 1.05, .05, x, MY + .52, mz1 + .03, 0, 0, 0, 0x4a4c4e);
+  K.box('metal', mx1 + 19.4, .05, .05, (mx1 - 19.4) / 2, MY + .55, mz1 + .03, 0, 0, 0, 0x4a4c4e); K.box('plain', mx1 + 19.4, .07, .07, (mx1 - 19.4) / 2, MY + 1.05, mz1 + .03, 0, 0, 0, 0xd9a32a);
+  for (let x = mx1 - .05, k = 0; k < 1; k++) { K.box('metal', .05, 1.05, mz1 - mz0, x, MY + .52, (mz0 + mz1) / 2, 0, 0, 0, 0x4a4c4e); }
+  // the landing at the stair head, west end
+  K.box('hull', 2.6, .12, 2.7, -20.7, MY - .06, -3.75, 0, 0, 0, 0x6e7274, 1.6);
+  addFloor(X + (mx0 + mx1) / 2, Z + (mz0 + mz1) / 2, 0, (mx1 - mx0) / 2, (mz1 - mz0) / 2, H0 + ARC.C + F + MY);
+  addFloor(X - 20.7, Z - 3.75, 0, 1.3, 1.35, H0 + ARC.C + F + MY);
+  // the stair: treads on two stringers, rising west from the mess
+  { const x0 = -12, x1 = -19.4, zc = -3.5, hw = 1.05, n = 16, L = x0 - x1;
+    for (let i = 0; i < n; i++) K.box('metal', L / n + .03, .05, hw * 2, x0 - (i + .5) * L / n, (i + 1) * MY / n, zc, 0, 0, 0, i % 4 === 0 ? 0xd9a32a : 0x5a5e60);
+    for (const sz of [-hw, hw]) K.box('metal', Math.hypot(L, MY), .26, .08, (x0 + x1) / 2, MY / 2 - .1, zc + sz, 0, 0, -Math.atan2(MY, L), 0x3a3c3e);
+    for (const sz of [-hw - .05, hw + .05]) { K.box('plain', Math.hypot(L, MY), .06, .06, (x0 + x1) / 2, MY / 2 + 1, zc + sz, 0, 0, -Math.atan2(MY, L), 0xd9a32a); for (let i = 1; i < 5; i++) K.box('metal', .04, 1, .04, x0 - i * L / 5, i * MY / 5 + .5, zc + sz, 0, 0, 0, 0x4a4c4e); }
+    FLOORS.push({ cx: X + (x0 + x1) / 2, cz: Z + zc, c: 1, s: 0, hw: L / 2, hd: hw, y: H0 + ARC.C + F + MY / 2, slope: -MY / L });
+    colL(-12.6, zc + hw + .32, -19.4, zc + hw + .32, .22); colL(-14.2, zc - hw - .32, -19.2, zc - hw - .32, .22); }
+  // up top: bedrolls and kit for the night watch, crates, a lookout desk with a radio set, a lamp
+  for (let i = 0; i < 5; i++) { const x = -16 + i * 2.6; K.box('cloth', .8, .12, 1.9, x, MY + .06, -8.1, 0, hr(-.15, .15), 0, tint(hpick(CLOTHC))); K.box('cloth', .45, .12, .3, x, MY + .14, -8.9, 0, 0, 0, 0xd8d4c8); if (hp(.6)) sack(K, x + .5, MY, -7.2, .7); }
+  for (let i = 0; i < 4; i++) crate(K, 2 + i * .7, MY, -9.4 + (i % 2) * .5, hr(-.2, .2), 1, 0x5a6a4a);
+  K.box('metal', 1.6, .06, .7, 7.6, MY + .8, -8.4, 0, 0, 0, 0x5a5e60); for (const [dx, dz] of [[-.7, -.3], [.7, -.3], [-.7, .3], [.7, .3]]) K.box('metal', .05, .8, .05, 7.6 + dx, MY + .4, -8.4 + dz, 0, 0, 0, 0x3a3c3e);
+  K.box('metal', .5, .3, .3, 7.3, MY + .98, -8.5, 0, .2, 0, 0x3a4a3a); K.box('glow', .2, .06, .01, 7.3, MY + 1.02, -8.34, 0, .2, 0, 0x8aff7a);
+
+  // ---- the mess: two long tables of hull plate on I-beam trestles, the station's seats either side ----
+  { const T = [-16.2, -11]; for (const tx of T) { K.box('hull', 3, .07, 1, tx, .78, 1.4, 0, hr(-.02, .02), 0, tint(0xc4c2ba, .05), 1.5);
+      for (const ex of [-1.2, 1.2]) { K.box('metal', .08, .75, .7, tx + ex, .38, 1.4, 0, 0, 0, 0x3a3c3e); K.box('metal', .1, .06, .9, tx + ex, .04, 1.4, 0, 0, 0, 0x3a3c3e); }
+      for (let k = 0; k < 5; k++) { K.cyl('plain', .13, .13, .02, 10, tx + hr(-1.3, 1.3), .82, 1.4 + hr(-.3, .3), 0, 0, 0, 0xa8a49a); if (hp(.5)) K.cyl('metal', .045, .04, .12, 8, tx + hr(-1.3, 1.3), .87, 1.4 + hr(-.3, .3), 0, 0, 0, hpick([0x6a7a8a, 0x8a5a3a])); }
+      colL(tx - 1.4, 1.4, tx + 1.4, 1.4, .55); }
+    npInst(g, 'chairs-x4', T.flatMap(tx => [[tx, F, 2.35, Math.PI, 1], [tx, F, .45, 0, 1]]), false);
+    for (const tx of T) { colL(tx - 1.3, 2.4, tx + 1.3, 2.4, .32); colL(tx - 1.3, .4, tx + 1.3, .4, .32); }
+    // the galley against the mezzanine: the kitchen props on a steel counter, a water drum, a ration board
+    K.box('metal', 3.6, .9, .7, -15, .45, -4.2 + .05, 0, 0, 0, 0x6a6e70); K.box('shiny', 3.7, .05, .75, -15, .92, -4.15, 0, 0, 0, 0x9a9e9e);
+    hput(g, hpart('props/kitchen', n => /Cylinder\.00[2-6]_|^Vert_kitchen|Cube\.002_/.test(n), .55, 'x'), -16.2, F + .95, -4.2);
+    hput(g, hpart('props/kitchen', n => /Cylinder\.00[78]_|Vert\.002_/.test(n), .3, 'y'), -14.6, F + .95, -4.2, .6);
+    barrel(K, -12.8, 0, -4.3, 0x3a5a7a); K.poster(0, .55, .7, -13.9, 1.8, -4.53, 0); colL(-16.8, -4.15, -12.6, -4.15, .45); }
+
+  // ---- inside the blast door: a sandbagged firing point either side of the way in, a rack of spare rifles ----
+  for (const sd of [-1, 1]) { for (let i = 0; i < 4; i++) for (let r = 0; r < 3; r++) { const sg = new THREE.BoxGeometry(.75, .26, .42); K.geo('cloth', sg, htm(sd * (2.2 + i * .62 + (r % 2) * .3), .14 + r * .26, 5.6 + Math.sin(i * .7) * .25, 0, hr(-.08, .08), 0), tint(0x5a5242)); } colL(sd * 2, 5.6, sd * 4.6, 5.8, .4); }
+  { const rx = -6.4, rz = 8.6; K.box('metal', 2.4, .08, .3, rx, .5, rz, 0, 0, 0, 0x3a3c3e); K.box('metal', 2.4, .06, .14, rx, 1.6, rz + .08, 0, 0, 0, 0x3a3c3e);
+    ['gun-night', 'gun-desert', 'gun-night', 'gun-desert'].forEach((r, i) => { const m = hmodel(r, .95, 'z'); if (!m) return; m.rotation.set(-HP + .12, 0, 0); m.position.set(rx - .9 + i * .6, F + 1.05, rz - .05); g.add(m); }); col(rx, rz, .5); }
+
+  // ---- the armoury, under the mezzanine east of the lockers: racked rifles, ammo crates, a bench ----
+  { const ax = 6.6; K.box('metal', 4.6, .08, .26, ax, 1.02, -9.55, 0, 0, 0, 0x3a3c3e); K.box('metal', 4.6, .06, .14, ax, 2.2, -9.65, 0, 0, 0, 0x3a3c3e);
+    ['gun-night', 'sniper', 'gun-desert', 'gun-night', 'gun-desert', 'sniper'].forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-HP + .12, r === 'sniper' ? -HP : 0, 0); m.position.set(ax - 2 + i * .8, F + 1.6, -9.5); g.add(m); });
+    for (let i = 0; i < 5; i++) { const m = modelCopy('ammo-crate', .4); if (!m) break; m.position.set(ax - 2 + i * .9, F + (i % 2) * .4, -7.4 + (i % 3) * .3); m.rotation.y = hr(-.3, .3); g.add(m); }
+    K.box('metal', 2, .06, .8, ax + .4, .92, -6.1, 0, 0, 0, 0x5a5e60); K.box('metal', 1.9, .86, .7, ax + .4, .45, -6.1, 0, 0, 0, 0x3a3e40); colL(ax - .6, -6.1, ax + 1.4, -6.1, .45);
+    npInst(g, 'walkie-talkie', [[ax - .1, F + .95, -6.1, .3, 1, -HPI], [ax + .2, F + .95, -6.0, -.2, 1, -HPI]], false); }
+
+  // ---- the command post, east of the core: consoles facing the wall screens, the war table ----
+  { npInst(g, 'wall-screen', [[18.7, F + 2.1, -9.85, 0, .9], [21.6, F + 2.3, -9.7, 0, .8]], false);
+    npInst(g, 'computer-console', [[18.6, F, -7.2, 0, .85], [21.4, F, -7.1, -.06, .85]], false); col(18.6, -7.2, .8); col(21.4, -7.1, .8);
+    npInst(g, 'chairs-x4', [[20, F, -4.7, Math.PI, .8]], false); colL(19, -4.7, 21, -4.7, .3);
+    npInst(g, 'server-tower', [0, 1, 2].map(k => [23 - k * .2, F, -8.6 + k * .66, -HPI]), false); colL(23, -9, 22.6, -7, .4);
+    // the war table: a plate on trestles with Kestrel's map, markers and a lamp
+    const tx = 7.4, tz = -1.6; K.box('hull', 2.6, .07, 1.6, tx, .9, tz, 0, .08, 0, 0x7a7e80, 2); for (const [dx, dz] of [[-1.1, -.6], [1.1, -.6], [-1.1, .6], [1.1, .6]]) K.box('metal', .07, .88, .07, tx + dx, .44, tz + dz, 0, .08, 0, 0x3a3c3e);
+    { const pg = new THREE.PlaneGeometry(1.5, 1.1), uv = pg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, .5 + uv.getX(i) / 4, uv.getY(i) / 2); K.geo('paper', pg, htm(tx, .94, tz, -HP, .08, 0), 0xffffff); }
+    for (let i = 0; i < 7; i++) K.cyl('plain', .03, .03, .08, 6, tx + hr(-.6, .6), .98, tz + hr(-.45, .45), 0, 0, 0, hpick([0xc0392b, 0x2e86c1, 0xd9a32a]));
+    colL(tx - 1.2, tz, tx + 1.2, tz, .75); }
+
+  // ---- stores under the catwalk: steel racks of crates, drums and sacks along the south wall ----
+  for (const [x0, x1] of [[-9.6, -5.8], [6, 12.4], [14, 21.6]]) { const n = Math.floor((x1 - x0) / 2.1);
+    for (let k = 0; k < n; k++) { const rx = x0 + 1.05 + k * 2.1, rz = 8.6;
+      for (const y of [.05, .9, 1.75]) K.box('metal', 2, .05, .75, rx, y, rz, 0, 0, 0, 0x4a4c4e); for (const ex of [-1, 1]) K.box('metal', .06, 2.5, .75, rx + ex, 1.25, rz, 0, 0, 0, 0x3a3c3e);
+      for (const y of [.1, .95, 1.8]) for (let j = 0; j < 3; j++) { const r = hrnd(); if (r < .4) crate(K, rx - .62 + j * .62, y, rz, hr(-.1, .1), .85); else if (r < .7) sack(K, rx - .62 + j * .62, y, rz, .75); else if (r < .9) barrel(K, rx - .62 + j * .62, y, rz, hpick([0x3a5a7a, 0x8a2a22, 0x4a5a3a]), .7); } }
+    colL(x0, 8.6, x1, 8.6, .5); }
+  npInst(g, 'fuel-cell', [[12.8, F, 7.6], [13.4, F, 7.9, 1]], false);
+
+  // ---- overhead: cross beams spanning the hull, cable trays, Kestrel's colours hung from them, lamps on chains ----
+  const BY = 10.6, bw = ny(BY) - .3;
+  for (const x of [-20, -8.6, 2.4, 13.6]) { K.box('metal', .26, .34, bw * 2, x, BY, 0, 0, 0, 0, 0xc8c6be); K.box('metal', .3, .06, bw * 2, x, BY + .19, 0, 0, 0, 0, 0x8a8c8a); K.box('metal', .3, .06, bw * 2, x, BY - .19, 0, 0, 0, 0, 0x8a8c8a);
+    // a lamp hung from each, and a banner on two of them
+    K.cyl('metal', .006, .006, 3.2, 3, x, BY - 1.8, -1, 0, 0, 0, 0x2a2a28); K.cyl('metal', .35, .2, .25, 10, x, BY - 3.5, -1, 0, 0, 0, 0x3a3c3e); K.cyl('glow', .3, .3, .02, 10, x, BY - 3.63, -1, 0, 0, 0, 0xfff0d0);
+    if (x === -8.6 || x === 13.6) { const bg = new THREE.PlaneGeometry(1.6, 3.2, 2, 4); const bp = bg.attributes.position; for (let i = 0; i < bp.count; i++) bp.setZ(i, Math.sin(bp.getY(i) * 2) * .06); bg.computeVertexNormals(); K.geo('cloth', bg, htm(x + .2, BY - 1.8, 3, 0, HP, 0), 0xf0a640); K.box('cloth', .02, .3, 1.6, x + .21, BY - 1.2, 3, 0, 0, 0, 0x2a2a28); } }
+  for (const sz of [-1, 1]) { const y = 6.2, z = sz * (ny(y) - .45); K.box('metal', ARC.LW + ARC.LE - 4, .08, .4, (ARC.LE - ARC.LW) / 2, y, z, 0, 0, 0, 0x4a4c4e); for (let k = 0; k < 3; k++) K.cyl('plain', .03, .03, ARC.LW + ARC.LE - 4.5, 5, (ARC.LE - ARC.LW) / 2, y + .08, z + (k - 1) * .1, 0, 0, HP, hpick([0x1e1e1e, 0x8a2a22, 0x2a4a6a])); }
+  // cables sagging from the trays down to the consoles and the galley
+  wireBetween(K, new THREE.Vector3(19, 6.2, -ny(6.2) + .45), new THREE.Vector3(19.5, 1.3, -8.4), .3, 0x1e1e1e, .02);
+  wireBetween(K, new THREE.Vector3(-14, 6.2, -ny(6.2) + .45), new THREE.Vector3(-14.5, 1.2, -4.4), .3, 0x1e1e1e, .02);
+  // the inside of the south wall either side of the door: lining panels, a stencil, a fire point
+  for (let x = -ARC.LW + 3; x < ARC.LE - 1.5; x += 2.2) if (Math.abs(x) > ARC.DOOR + 1.6) { K.box('hull', 2.15, 2.6, .05, x, 1.4, 9.35, 0, Math.PI, hr(-.006, .006), tint(hpick([0xc4c2ba, 0xb4b2aa, 0xa8b4b0]), .04), 2); }
+  stencil(K, 0, 1.6, .8, -8, 2.2, 9.3, Math.PI); stencil(K, 3, 1.4, .6, ARC.DOOR + 1.3, 2.9, 9.3, Math.PI); stencil(K, 3, 1.4, .6, -ARC.DOOR - 1.3, 2.9, 9.3, Math.PI);
+  K.box('plain', .3, .5, .2, 9, 1.4, 9.2, 0, 0, 0, 0xb8392e);
+  K.at(null);
+  K.build(g, false, true);
+  // room lights: the mess, the command post, the mezzanine (off whenever the interior isn't drawn)
+  for (const [x, y, z, c, i, r] of [[-13, 5, 1, 0xffd8a8, 2.4, 26], [20.5, 3.2, -5.5, 0x9ad8ff, 1.8, 16], [0, 3, 6, 0xffe0b8, 1.6, 18], [-6, 6.4, -7.6, 0xffd0a0, 1.2, 16]]) {
+    const l = new THREE.PointLight(c, i, r, 1.4); l.position.set(x, F + y, z); l.userData.on = i; g.add(l); ARC_LIGHTS.push(l); }
 }
 // a plain metal table (drawn), returns its top height
 function shopKitTable(g, x, y, z, w, d) {
@@ -361,4 +478,44 @@ function buildArches() {
   // what's under them: a sealed stone chest in the middle arch, a buried crate further back
   { const [x, z] = npL2W(A.x, A.z, ry, -1.5, 2.2); cache(g, x, z, ry, 'pry', 'ruin', { id: 'arches_chest', name: 'Stone chest under the arches', big: 1, rolls: 3, refill: 5 }); }
   { const [x, z] = npL2W(A.x, A.z, ry, 11, -7); cache(g, x, z, ry + 1, 'none', 'ruin', { id: 'arches_cache', name: 'Half-buried crate', rolls: 1, refill: 3 }); }
+}
+
+/* ================= (Nov 11) the underground places, furnished from the same props =================
+   The Mountain's quarters, mess, clinic, checkpoint, office, armory and reactor hall; Hesper's mess and dorm; the Brightwater
+   lab and archive. Props face the way they do elsewhere: lockers and bunks open to +x, screens, consoles and seats to +z, at yaw 0. */
+function dressPockets() {
+  const put = (pk, name, h, lx, lz, ry = 0, y = 0) => { const [x, z] = pw(pk, lx, lz); return xModel(pk.g, 'props/' + name, h, x, pk.y + y, z, ry); };
+  const M = POCKETS.mtn;
+  if (M) {
+    for (let i = 0; i < 6; i++) { put(M, 'locker', 1.73, -19.3, 17.2 + i * 1.4, Math.PI); } xSolid(M, -19.8, 16.4, -18.5, 25.4);                      // quarters: lockers down the east wall
+    for (const z of [24, 28, 32]) { for (const [x, s] of [[35.6, -1], [40.4, -1], [35.6, 1], [40.4, 1]]) put(M, 'chairs-x4', .88, x, z + s * 1, s < 0 ? 0 : Math.PI); xSolid(M, 34, z - 1.35, 42, z + 1.35); }   // the mess
+    put(M, 'wall-screen', 2, 5, 23.3, 0, 2.6);                                                                                                       // the concourse board
+    for (const x of [-14, 14]) { put(M, 'chairs-x4', .88, x, 25, 0); xSolid(M, x - 1.36, 24.6, x + 1.36, 25.4); }
+    put(M, 'computer-console', 1.1, 6.4, 12, -HP); xSolid(M, 5.9, 11.4, 6.9, 12.6);                                                                   // the checkpoint desk
+    put(M, 'computer-console', 1.1, 16.4, 40, -HP); xSolid(M, 15.9, 39.4, 16.9, 40.6); for (const z of [41, 43]) put(M, 'medkit-small', .4, 17.9, z, -HP, 1.3);   // clinic
+    put(M, 'medkit-case', .18, 16.4, 40.6, 0, 1.12);
+    for (let i = 0; i < 2; i++) put(M, 'server-rack', 2, 23.2, 48 + i * 1.4, HP); xSolid(M, 22.6, 47.2, 23.8, 50.2);                                  // the captain's office
+    put(M, 'wall-screen', 1.6, 28, 55.8, Math.PI, 1.4);
+    for (let i = 0; i < 4; i++) put(M, 'locker', 1.73, 30.4 + i * 1.34, 45.4, HP); xSolid(M, 29.6, 44.8, 35.6, 46);                                   // armory
+    for (let i = 0; i < 3; i++) put(M, 'fuel-cell', .75, 38 + i * .9, 45.2, i);
+    for (let i = 0; i < 8; i++) put(M, 'server-tower', 2.09, -39.4, 43.4 + i * .7, HP); xSolid(M, -39.8, 43, -38.9, 49);                                // reactor hall: racks and the panels
+    for (let i = 0; i < 4; i++) put(M, 'wall-4', 2, -19.2, 44 + i * 1.5, Math.PI); xSolid(M, -19.6, 43.2, -18.6, 50);
+    put(M, 'computer-console', 1.1, -22.2, 44, -HP); xSolid(M, -22.7, 43.4, -21.7, 44.6);
+    for (let i = 0; i < 3; i++) put(M, 'gas-bottle', 1.44, 40 + i * .5, 72.6, i, -5);                                                                // maintenance level
+  }
+  const Hs = POCKETS.hesper;
+  if (Hs) {
+    put(Hs, 'wall-screen', 1.4, 8, 9.15, 0, 1.4);
+    put(Hs, 'computer-console', 1.1, 8.6, 27.2, Math.PI); put(Hs, 'walkie-talkie', .36, 6.4, 25.5, .4, .82);                                          // the colonel's office
+    for (let i = 0; i < 4; i++) put(Hs, 'gas-bottle', 1.44, -1 + i * .55, 37.3, i);                                                                    // armory
+  }
+  const L = POCKETS.lab;
+  if (L) {
+    for (const x of [4.2, 8.4, 12.6]) { put(L, 'computer-console', 1.1, x, 13.2, 0); xSolid(L, x - .6, 12.7, x + .6, 13.8); }                         // lab A terminals
+    put(L, 'wall-screen', 1.6, 9, 12.15, 0, 1.6);
+    for (let i = 0; i < 3; i++) put(L, 'server-rack', 2, 5.3, 31 + i * 1.4, -HP); xSolid(L, 4.7, 30.2, 5.9, 35.2);                                      // the archive
+    for (let i = 0; i < 4; i++) put(L, 'server-tower', 2.09, -.4, 31 + i * .7, HP); xSolid(L, -.9, 30.6, .1, 33.6);
+    for (const z of [14, 16]) put(L, 'medkit-small', .4, 15.85, z, -HP, 1.3);
+    put(L, 'locker', 1.73, -11.3, 13.4, 0); put(L, 'locker', 1.73, -11.3, 14.8, 0); xSolid(L, -11.8, 12.6, -10.6, 15.6);                               // lab B: suit lockers
+  }
 }

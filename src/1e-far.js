@@ -30,7 +30,7 @@ async function buildFarTerrain() {
       const sl = Math.hypot(farH(x + 6, z) - h, farH(x, z + 6) - h) / 6;
       terrainColor(x, z, h, sl, c);
       // hillsides that carry forest read darker from a distance, the way a real conifer slope does
-      const dens = fbm(x * .018 + 5, z * .018 + 11), fk = smooth(.3, .6, dens) * (1 - smooth(110, 138, h)) * (1 - smooth(1, 1.5, sl)) * (Math.hypot(x, z) < CAMP_R + 12 ? 0 : 1);
+      const dens = fbm(x * .018 + 5, z * .018 + 11), fk = smooth(.3, .6, dens) * (1 - smooth(110, 138, h)) * (1 - smooth(1, 1.5, sl)) * (campD(x, z) < CAMP_R + 12 ? 0 : 1);
       c.lerp(fir, fk * .6);
       col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
     }
@@ -57,7 +57,7 @@ async function buildFarTerrain() {
 
 /* the far forest: same density rules as the real trees, so the silhouettes line up with what you'll find when you get there */
 function farTreeOK(x, z) {
-  const d = Math.hypot(x, z); if (d < CAMP_R + 12 || d > WORLD + 120) return false;
+  const d = Math.hypot(x, z); if (campD(x, z) < CAMP_R + 12 || d > WORLD + 120) return false;
   if (MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 30) || OUT_MEADOWS.some(m => Math.hypot(x - m.x, z - m.z) < 45)) return false;
   if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r0 + 6)) return false;
   if (inCity(x, z, 30) || inBase(x, z, 12)) return false;

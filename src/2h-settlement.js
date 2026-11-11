@@ -45,7 +45,7 @@ const SET_LEVELS = ['Landing camp', 'Settlement', 'Fortified', 'Town'];
 function setS() { return G.flags.set ||= { ros: [], morale: 55, proj: {}, cur: null, stores: {}, lost: 0, saved: 0, lastWin: 1, why: [], seq: 0, lone: {} }; }
 const setLevel = () => { const n = Object.values(setS().proj).filter(p => p.done).length; return n >= 7 || (G.day > 100 && n >= 5) ? 3 : n >= 4 || G.flags.held100 ? 2 : n >= 1 || setS().ros.length > 8 ? 1 : 0; };
 const projDone = id => !!(setS().proj[id] && setS().proj[id].done);
-const housing = () => 10 + (projDone('housing') ? 6 : 0) + PLACED.filter(p => BUILD_DEF[p.k] && BUILD_DEF[p.k].rest && Math.hypot(p.x, p.z) < CAMP_R + 120).length;
+const housing = () => 10 + (projDone('housing') ? 6 : 0) + PLACED.filter(p => BUILD_DEF[p.k] && BUILD_DEF[p.k].rest && campD(p.x, p.z) < CAMP_R + 120).length;
 const stores = () => setS().stores;
 const sCnt = id => stores()[id] || 0;
 const sAdd = (id, n) => { const S = stores(); S[id] = Math.max(0, (S[id] || 0) + n); if (!S[id]) delete S[id]; };
@@ -104,7 +104,7 @@ function buildStores() {
   g.position.set(x, y, z); world.add(g); addCol(x, z, 1.4); STORE_SPOT = { x, z };
 }
 const nearStores = () => STORE_SPOT && Math.hypot(P.x - STORE_SPOT.x, P.z - STORE_SPOT.z) < 3.4 ? STORE_SPOT : null;
-const inKestrel = () => Math.hypot(P.x, P.z) < CAMP_R + 6;
+const inKestrel = () => campD(P.x, P.z) < CAMP_R + 6;
 
 /* ---------- projects: the buildings outside the wall ---------- */
 const PROJ_PLOT = { housing: 0, smoke: 1, green: 2, infirm: 3, towers: 4, power: 5, shop: 6, barracks: 7 };

@@ -64,8 +64,8 @@ function xAvoid() {
 }
 function xFind(D, taken, AV) {
   const ok = (x, z) => {
-    const d0 = Math.hypot(x, z); if (d0 > WORLD - D.r - 60 || d0 < CAMP_R + (D.near ? 20 : 70)) return false;
-    if (D.near && d0 > CAMP_R + 70) return false;
+    const d0 = Math.hypot(x, z), dn = D.near ? campD(x, z) : d0; if (d0 > WORLD - D.r - 60 || dn < CAMP_R + (D.near ? 20 : 70)) return false;
+    if (D.near && dn > CAMP_R + 70) return false;
     if (D.kind === 'valley' && d0 > VALLEY - 40) return false;
     for (const [ax, az, ar] of AV) if (!(D.near && !ax && !az) && Math.hypot(x - ax, z - az) < ar + D.r) return false;
     for (const t of taken) if (Math.hypot(x - t.x, z - t.z) < t.r + D.r + 20) return false;
@@ -124,6 +124,7 @@ function xSites() {
 const xSegD = (px, pz, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, t = clamp(((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(px - ax - dx * t, pz - az - dz * t); };
 // keep the forest (and the boulders) off a new place, the trail and the highway
 function xClear(x, z) {
+  if (campD(x, z) < CAMP_R + 12) return true;                    // (Nov 11) the wall moved out east: nothing grows inside it
   const S = xSites();
   for (const k in S) { const s = S[k]; const r = s.hill ? s.r + 4 : s.peak ? s.r + 3 : s.r + 6; if (Math.abs(x - s.x) < r && Math.abs(z - s.z) < r && Math.hypot(x - s.x, z - s.z) < r) return true; }
   for (const c of XCAMPS) if (Math.hypot(x - c.x, z - c.z) < 9) return true;

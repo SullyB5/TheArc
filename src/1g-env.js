@@ -71,7 +71,7 @@ function envSites() {
   let best = null;
   for (let a = 0; a < 6.28; a += .13) for (const r of [84, 92, 100]) { const x = Math.cos(a) * r, z = Math.sin(a) * r; if (z > 40) continue;
     const sl = slopeAt(x, z), pd = pathDist(x, z), sc = sl * 40 - Math.min(pd, 30) + (SHELTERS.some(s => Math.hypot(s.x - x, s.z - z) < 25) ? 50 : 0) + (Math.hypot(x - 80, z + 36) < 44 || Math.hypot(x + 80, z + 24) < 36 ? 50 : 0);
-    if (pd > 15 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
+    if (pd > 15 && campD(x, z) > CAMP_R + 16 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
   if (best) S.push({ id: 'paddock', x: best.x, z: best.z, r: 16 });
   S.push({ id: 'arches', x: POI.arches.x, z: POI.arches.z, r: 34 });            // (Nov 10) the Old Arches: no pines or boulders through the ruin
   // two city blocks: the factory and the street
@@ -156,7 +156,7 @@ function propPile(parent, name, x, z, ry, n, spread, sMin = .9, sMax = 1.1, col 
 function buildEnvSites() {
   // Kestrel: against a side or back wall of Salvage, the Trading Post, the Workshop and the Gunsmith — never in a street or another house
   const inHouse = (x, z, me) => SHOP_DEFS.some(D => D !== me && Math.abs((x - D.cx) * Math.cos(D.ry) - (z - D.cz) * Math.sin(D.ry)) < D.bw / 2 + .6 && Math.abs((x - D.cx) * Math.sin(D.ry) + (z - D.cz) * Math.cos(D.ry)) < D.bd / 2 + .6);
-  const clear = (p, me, r) => streetDist(p.x, p.z) > r && !inHouse(p.x, p.z, me) && Math.hypot(p.x, p.z) < CAMP_R - 3 && !(typeof inHull === 'function' && inHull(p.x, p.z));
+  const clear = (p, me, r) => streetDist(p.x, p.z) > r && !inHouse(p.x, p.z, me) && campD(p.x, p.z) < CAMP_R - 3 && !(typeof inHull === 'function' && inHull(p.x, p.z));
   for (const [id, n] of [['salvage', 3], ['trade', 2], ['craft', 2], ['guns', 1], ['bunk', 1]]) {
     const D = SHOP[id]; if (!D) continue;
     const spots = [[D.bw / 2 + 1.1, -1.4], [-(D.bw / 2 + 1.1), -1.4], [D.bw / 2 + 1.1, 1], [-(D.bw / 2 + 1.1), 1], [-2.5, -(D.bd / 2 + 1.1)], [2.5, -(D.bd / 2 + 1.1)]].map(([lx, lz]) => ({ lx, lz, ...shopL2W(D, lx, lz) }));
@@ -192,7 +192,7 @@ function buildEnvSites() {
   // the old roads in the valley: a car left here and there
   { const car = whole('e/car'); if (car) { const L = [];
     for (const path of PATHS) for (let i = 0; i < path.length - 1; i++) { if (rnd() < .55) continue; const [ax, az] = path[i], [bx, bz] = path[i + 1], t = rr(.2, .8), x0 = lerp(ax, bx, t), z0 = lerp(az, bz, t), ry = Math.atan2(bx - ax, bz - az), off = (rnd() < .5 ? -1 : 1) * rr(3.5, 6);
-      const x = x0 + Math.cos(ry) * off, z = z0 - Math.sin(ry) * off; if (Math.hypot(x, z) < CAMP_R + 20 || waterAt(x, z) > -1e8 || envKeepClear(x, z)) continue;
+      const x = x0 + Math.cos(ry) * off, z = z0 - Math.sin(ry) * off; if (campD(x, z) < CAMP_R + 20 || waterAt(x, z) > -1e8 || envKeepClear(x, z)) continue;
       L.push(envM(x, heightAt(x, z) - .1, z, ry + rr(-.6, .6), 1, rr(-.05, .05), rr(-.08, .08))); addCol(x, z, 1.6, 1.6); }
     instParts(world, car.parts, L); } }
   // Greyhold Station: the bunker entrance, dug into the slope behind the station

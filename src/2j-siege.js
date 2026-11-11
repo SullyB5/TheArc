@@ -39,7 +39,7 @@ function siegeRaider(e) {
 function siegeBreach() {
   const W = facRaidWeights(); let best = 'thorn', bw = -1; for (const f in W) if (W[f] > bw) { bw = W[f]; best = f; }
   const C = FAC[best].cap(); let a = C ? Math.atan2(C.x, C.z) : Math.PI; if (Math.abs(angWrap(a)) < GATE_HALF * 3) a += .5;   // not the gate itself
-  SIEGE.breachA = a; const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R, y = heightAt(x, z);
+  SIEGE.breachA = a; const { x, z } = wallPt(a), y = heightAt(x, z);
   sfx('boom'); puff(x, y + 2, z, 0x6a6058, 30, 8, .3, 1.6, -2); puff(x, y + 2, z, 0xff8a3a, 16, 6, .2, .6, -2);
   const g = new THREE.Group(); g.position.set(x, y, z); world.add(g); SIEGE.breachG = g;
   for (let i = 0; i < 14; i++) { const m = mesh(new THREE.BoxGeometry(rr(.4, 1.6), rr(.2, .7), rr(.4, 1.2)), new THREE.MeshLambertMaterial({ map: texWood, color: 0x3a2a1e }), rr(-3, 3), rr(.1, .8), rr(-2, 2), g); m.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3)); }
@@ -61,8 +61,8 @@ function douse(F) { F.out = true; world.remove(F.g); const i = SMOKES.indexOf(F.
 function siegeGrab(e, dt) {
   const p = e.p;
   if (e.carry) {
-    const d0 = Math.hypot(e.x, e.z), a = Math.atan2(e.x, e.z), tx = Math.sin(a) * 150, tz = Math.cos(a) * 150;
-    if (d0 < CAMP_R + 1 && d0 > CAMP_R - 2.5) { e.x = Math.sin(a) * (CAMP_R + 1.8); e.z = Math.cos(a) * (CAMP_R + 1.8); }   // over the wall with them
+    const d0 = campD(e.x, e.z), a = Math.atan2(e.x, e.z), tx = Math.sin(a) * 180, tz = Math.cos(a) * 180;
+    if (d0 < CAMP_R + 1 && d0 > CAMP_R - 2.5) { const w = wallPt(a, 1.8); e.x = w.x; e.z = w.z; }   // over the wall with them
     const v = moveEnt(e, tx, tz, e.speed * .85, dt); e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
     e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
     if (d0 > 128) { // gone
@@ -79,7 +79,7 @@ function siegeGrab(e, dt) {
     e.prey = b;
   }
   const o = e.prey; if (!o) return false;
-  if (Math.hypot(e.x, e.z) > CAMP_R + .5 && !e.climbing) return false;   // let the usual raid code get them over the wall
+  if (campD(e.x, e.z) > CAMP_R + .5 && !e.climbing) return false;   // let the usual raid code get them over the wall
   const d = Math.hypot(o.x - e.x, o.z - e.z);
   if (d < 1.5) { e.carry = o; o.grabbed = e; o.g.visible = false; SIEGE.grabbed.push(o);
     const bun = mesh(new THREE.BoxGeometry(.5, .5, 1.3), M(0x5a6a7a), .3, 1.6, 0, e.g); e.bundle = bun;
@@ -110,7 +110,7 @@ function updSiege(dt) {
   for (const F of SIEGE.fires) if (!F.out) { F.t += dt; F.l.intensity = 2 + Math.sin(G.t * 9) * .4; for (const f of F.flames) f.scale.y = 1 + Math.sin(G.t * 12 + f.position.x) * .25 + Math.min(1, F.t / 60); if (F.t > 75 && !F.gutted) { F.gutted = true; toast(`The ${F.D.sign.toLowerCase()} is gutted`, 3); } }
   // people getting hurt on the wall and in the yard
   if (st >= 0) { SIEGE.hurtT -= dt; if (SIEGE.hurtT <= 0) { SIEGE.hurtT = rr(30, 50);
-    const pool = ents.filter(o => o.type === 'npc' && !o.dead && !o.downed && !o.grabbed && o.g.visible && (o.guard || o.name === 'watch' || o.settler) && !inHull(o.x, o.z) && Math.hypot(o.home.x, o.home.z) < CAMP_R);
+    const pool = ents.filter(o => o.type === 'npc' && !o.dead && !o.downed && !o.grabbed && o.g.visible && (o.guard || o.name === 'watch' || o.settler) && !inHull(o.x, o.z) && campD(o.home.x, o.home.z) < CAMP_R);
     if (pool.length) { const o = pick(pool); o.downed = true; o.dieT = 90; o.siegeHurt = true; o.route = null; toast(`${o.shopName || (o.name === 'watch' ? 'One of the watch' : 'Someone')} is down — get a bandage into them!`, 4); } } }
   // anyone whose taker died is free
   for (const o of [...SIEGE.grabbed]) { const e = o.grabbed; if (e && (e.dead || !ents.includes(e)) && !o.dead) { o.grabbed = null; o.g.visible = true; o.x = e.x; o.z = e.z; SIEGE.grabbed.splice(SIEGE.grabbed.indexOf(o), 1); toast(`${o.shopName || 'They'} broke free!`, 2.6); } }

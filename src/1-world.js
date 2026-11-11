@@ -84,6 +84,28 @@ const HALF = 2400;                          // half-size of the terrain square
 const IN_HALF = 800;                        // the fine heightmap covers the valley; the outlands use a coarser one
 const CAMP_R = 64;
 const GATE_HALF = 4.7 / CAMP_R;
+/* (Nov 11) Kestrel's wall isn't a circle any more: it was put up a stretch at a time, so it runs in straight, uneven lengths
+   round whatever the settlers needed — tight behind the Arc and to the west, and out a long way to the east, where the
+   workshops, salvage and the munitions shed spread. CAMP_R is still the gate's distance (the wall crosses the road square
+   at z = 64); wallR(a) is the wall's distance at angle a (x = sin a, z = cos a, as everywhere else), campD(x, z) is "how far
+   out" a point is, scaled so the wall sits at CAMP_R in every direction: compare it with CAMP_R where you'd have compared
+   Math.hypot(x, z). */
+const WALL_PTS = [[8, 64], [28, 61], [50, 55], [72, 42], [90, 22], [96, -2], [90, -26], [70, -44], [46, -57], [20, -65], [-10, -67], [-36, -62], [-55, -46], [-64, -20], [-63, 8], [-56, 34], [-36, 55], [-8, 64]]
+  .map(([x, z]) => ({ x, z, a: (Math.atan2(x, z) + Math.PI * 2) % (Math.PI * 2) }));
+const CAMP_RMAX = 97;
+const WALL_LUT = (() => {
+  const N = 1440, L = new Float32Array(N + 1), P = WALL_PTS, n = P.length;
+  for (let k = 0; k <= N; k++) {
+    const a = k / N * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a); let r = CAMP_R;
+    for (let i = 0; i < n; i++) { const A = P[i], B = P[(i + 1) % n], ex = B.x - A.x, ez = B.z - A.z, den = dx * ez - dz * ex; if (Math.abs(den) < 1e-9) continue;
+      const t = (A.x * ez - A.z * ex) / den, s = (A.x * dz - A.z * dx) / den; if (t > 0 && s >= -1e-6 && s <= 1 + 1e-6) { r = t; break; } }
+    L[k] = r;
+  }
+  return L;
+})();
+function wallR(a) { const N = WALL_LUT.length - 1; let u = (a / (Math.PI * 2)) % 1; if (u < 0) u += 1; const f = u * N, i = Math.floor(f); return WALL_LUT[i] + (WALL_LUT[Math.min(N, i + 1)] - WALL_LUT[i]) * (f - i); }
+const campD = (x, z) => Math.hypot(x, z) * CAMP_R / wallR(Math.atan2(x, z));
+const wallPt = (a, off = 0) => { const r = wallR(a) + off; return { x: Math.sin(a) * r, z: Math.cos(a) * r }; };
 const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14;
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
@@ -285,6 +307,7 @@ function waterAt(x, z) {                   // water surface at (x,z), or -1e9 wh
 }
 function prepFlats() {
   addFlat(0, 0, 80, 118);
+  { const H = FLATS[FLATS.length - 1].h; addFlat(52, -2, 58, 92, H); }      // (Nov 11) the east side of Kestrel, level with the rest
   addFlat(POI.village.x, POI.village.z, 22, 40);
   addFlat(POI.pod.x, POI.pod.z, 8, 22);
   addFlat(POI.vault.x, POI.vault.z + 12, 10, 22);

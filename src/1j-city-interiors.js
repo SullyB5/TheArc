@@ -317,7 +317,9 @@ function cityBuild(Q, root) {
   }
   weakFloors(Q);
 }
-function cityFinish(Q) { Q.KE.build(Q.g, true, false); Q.KI.build(Q.gi, true, true); }
+// (Nov 11) Bryce's props in the rooms: collected per building (local x/z, floor y, local yaw), instanced into the inside group
+function cprop(Q, name, lx, y, lz, ry = 0, sc = 1) { if (!npHas(name)) return false; const [x, z] = Q.W(lx, lz); ((Q.props ||= {})[name] ||= []).push([x, y, z, Q.yaw + ry, sc]); return true; }
+function cityFinish(Q) { Q.KE.build(Q.g, true, false); Q.KI.build(Q.gi, true, true); for (const n in Q.props || {}) if (n === '_bed') npInst(Q.gi, Q._bedP, Q.props[n], false); else npInst(Q.gi, n, Q.props[n], false); }
 
 /* ---------- rooms ---------- */
 function furnish(Q, k, ci, ri) {
@@ -346,17 +348,27 @@ function furnish(Q, k, ci, ri) {
     for (const ox of [-1, 1]) { const x = (a + b) / 2 + ox * (b - a) * .22, z = (c + d) / 2 + sz * (d - c) * .2; solid('board', 1.4, .75, .7, x, z, 0x6a5a48);
       K.box('plain', .5, .34, .06, x, y + 1.0, z, 0, 0, 0, 0x2a2c2e); K.box('glow', .44, .26, .01, x, y + 1.0, z + .035, 0, 0, 0, 0x0e1612); }
     const [x, z] = at(.5, .6, -sx, -sz); solid('metal', .5, 1.35, .6, x, z, 0x6a7072);
+    { const [tx, tz] = at(.6, .6, sx, -sz); if (cprop(Q, 'server-tower', tx, y, tz, 0)) { cprop(Q, 'server-tower', tx + (sx < 0 ? .65 : -.65), y, tz, 0); cbox(Q, tx, tz, .65, .3, y, y + 2); } }
+    if (Q.style === 'office' || Q.style === 'ctl' || Q.style === 'police') { const [cx, cz] = at(1.4, .9, -sx, sz); if (cprop(Q, 'computer-console', cx, y, cz, sz < 0 ? 0 : Math.PI, .7)) cbox(Q, cx, cz, .55, .45, y, y + 1); }
   } else if (kind === 'ward') {
-    for (const ox of [-1, 1]) { const [x, z] = at(.95, 2, ox, sz); solid('metal', .95, .55, 2, x, z, 0xb8bcbc); K.box('cloth', .85, .14, 1.9, x, y + .62, z, 0, 0, 0, 0xd8d8d0, 1); K.cyl('metal', .02, .02, 1.7, 5, x + ox * -.6, y + .85, z - .7, 0, 0, 0, 0x8a8e90); }
+    for (const ox of [-1, 1]) { const [x, z] = at(.95, 2, ox, sz); const bed = npHas('medbay-pack') && npPiece('medbay-pack', n => n.startsWith('Enf_Camilla'))[0];
+      if (bed) { const [wx, wz] = Q.W(x, z); ((Q.props ||= {})._bed ||= []).push([wx, y, wz, Q.yaw]); Q._bedP = bed; cbox(Q, x, z, .48, 1, y, y + .6); }
+      else { solid('metal', .95, .55, 2, x, z, 0xb8bcbc); K.box('cloth', .85, .14, 1.9, x, y + .62, z, 0, 0, 0, 0xd8d8d0, 1); }
+      K.cyl('metal', .02, .02, 1.7, 5, x + ox * -.6, y + .85, z - .7, 0, 0, 0, 0x8a8e90); }
+    { const [mx, mz] = at(.2, .3, -1, -sz); cprop(Q, 'medkit-small', mx, y + 1.3, mz, 0); }
     K.box('cloth', .04, 1.9, 2.4, (a + b) / 2, y + 1.3, (c + d) / 2, 0, 0, 0, 0x9ab0b4, 1);
   } else if (kind === 'locker') {
-    const [x, z] = at(2.4, .5, sx, sz); for (let i = 0; i < 4; i++) solid('metal', .58, 1.9, .5, x - .9 + i * .6, z, tint(0x5a6a6e, .08)); K.box('board', 2, .45, .4, (a + b) / 2, y + .22, (c + d) / 2 + sz * .4, 0, 0, 0, 0x6a5a48, 1);
+    const [x, z] = at(2.7, .8, sx, sz);
+    if (npHas('locker')) { cprop(Q, 'locker', x - .67, y, z, sz < 0 ? -HP : HP); cprop(Q, 'locker', x + .67, y, z, sz < 0 ? -HP : HP); cbox(Q, x, z, 1.35, .4, y, y + 1.8); }
+    else for (let i = 0; i < 4; i++) solid('metal', .58, 1.9, .5, x - .9 + i * .6, z, tint(0x5a6a6e, .08));
+    K.box('board', 2, .45, .4, (a + b) / 2, y + .22, (c + d) / 2 + sz * .4, 0, 0, 0, 0x6a5a48, 1);
   } else if (kind === 'cells') {
     for (let i = 0; i < 9; i++) K.cyl('metal', .025, .025, CFH - .4, 5, a + .3 + i * (b - a - .6) / 8, y + (CFH - .4) / 2, (c + d) / 2 + .6, 0, 0, 0, 0x4a4e50);
     cwall(Q, a, (c + d) / 2 + .6, (a + b) / 2 - .5, (c + d) / 2 + .6, y, y + 3); cwall(Q, (a + b) / 2 + .5, (c + d) / 2 + .6, b, (c + d) / 2 + .6, y, y + 3);
     const [x, z] = at(1.8, .7, sx, -1); solid('metal', 1.8, .4, .7, x, z, 0x6a6e70); bones(K, (a + b) / 2 + sx * 1.2, y, c + .4, Math.PI, 1);
   } else if (kind === 'lobby') {
     const [x, z] = at(2.6, .7, sx, -1); solid('board', 2.6, 1.05, .7, x, z, Q.style === 'hospital' ? 0xc8c4bc : 0x5a4a3a);
+    { const [cx, cz] = at(2.8, .7, -sx, 1); if (cprop(Q, 'chairs-x4', cx, y, cz, Math.PI)) cbox(Q, cx, cz, 1.36, .3, y, y + .9); }
   }
 }
 function shopFloor(Q) {
