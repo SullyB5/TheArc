@@ -100,6 +100,7 @@ const INTERACT = [
   { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
   { id: 'hulldoor', at: () => inHull(P.x, P.z) ? ARC_DOOR_IN : ARC_DOOR_OUT, r: 4.2, label: () => hullDoor.hp <= 0 ? (night.active ? 'The Arc’s doors are wrecked' : null) : hullDoor.open ? 'Seal the Arc’s blast doors' : 'Open the Arc’s blast doors', act: () => { if (hullDoor.hp <= 0) return; hullDoor.open = !hullDoor.open; sfx('gate'); toast(hullDoor.open ? 'Blast doors open' : `Blast doors sealed · ${Math.round(hullDoor.hp)} / ${hullDoor.max}`, 2); } },
+  { id: 'fogheal', at: () => nearDowned(), r: 2.6, label: () => { const e = nearDowned(), id = FOG_MEDS.find(k => cnt(k) > 0); return `${e.shopName || 'Settler'} is down — ` + (id ? `treat them (${nameOf(id).toLowerCase()})` : 'you need a bandage or a medkit'); }, act: () => healDowned(nearDowned()) },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
@@ -278,22 +279,64 @@ function endNight(won) {
 }
 
 /* ================= the Rust (red fog) ================= */
+/* (Nov 10) the Rust comes every 7–10 days. In Kestrel the only cover is the Arc: the horn goes, everyone runs for the
+   blast doors. One or two always get caught out — they go down in the fog, and unless you get a bandage or a medkit into
+   them they don't get up. Outside the walls the road shelters still count. */
+function rustDue() { return G.day + 7 + Math.floor(rnd() * 4); }
 function startRust(scripted) {
-  rust.state = 'warn'; rust.t = 22 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);
+  rust.state = 'warn'; rust.t = 40 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);
+  G.flags.rustDay = rustDue(); P.fogT = 0;
+  // who gets caught out: one or two of the settlers and townsfolk, late off the mark and slow
+  const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && Math.hypot(e.home.x, e.home.z) < CAMP_R);
+  for (const e of pool) { e.straggler = false; e.rescued = false; e.fogDose = 0; }
+  for (let i = 0, n = 1 + (rnd() < .5 ? 1 : 0); i < n && pool.length; i++) pool.splice(Math.floor(rnd() * pool.length), 1)[0].straggler = true;
   horn(110, 3, .22, 0); setTimeout(() => horn(110, 3, .22, 0), 3600);
-  say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get under a roof, NOW." : 'Mast horn — the Rust is coming. Find cover.']]);
+  say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get under a roof, NOW." : 'Mast horn — the Rust is coming. Everyone into the Arc!']]);
 }
-function nearestShelter() { let b = null, bd = 1e9; for (const s of SHELTERS) { const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } if (Math.hypot(P.x, P.z) - CAMP_R < bd) return { x: 0, z: 0, camp: true }; return b; }
-function inShelter() { if (Math.hypot(P.x, P.z) < CAMP_R - 2 || inHull(P.x, P.z)) return true; return SHELTERS.some(s => Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
+function nearestShelter() { let b = null, bd = 1e9; for (const s of SHELTERS) { if (s.hull) continue; const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } if (Math.hypot(ARC_DOOR_OUT.x - P.x, ARC_DOOR_OUT.z - P.z) < bd) return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp: true }; return b; }
+function inShelter() { if (inHull(P.x, P.z)) return true; return SHELTERS.some(s => s.r > 0 && Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
+/* townsfolk in the fog: where to go, and what it does to them if they're out in it. Returns a move target or null. */
+function fogNPC(e, dt) {
+  if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
+  if (e.downed) {
+    e.dieT -= dt; if (rnd() < dt * .6) puff(e.x, e.y + .4, e.z, 0x9a3a22, 1, .6, .1, .5, 1.5);
+    if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — the Rust got them.`, 4); sfx('no'); }
+    return { x: e.x, z: e.z, spd: 0 };
+  }
+  const on = rust.state === 'warn' || rust.state === 'active';
+  if (!on) { e.fogSpot = null; return null; }
+  if (e.shop && !e.settler) return { x: e.home.x, z: e.home.z, spd: 3 };       // shopkeepers bar themselves in behind the counter
+  if (!e.fogSpot) e.fogSpot = rnd() < .7 ? { x: ARC.x + rr(-24, 10), z: ARC.z + rr(-6, 5) } : (() => { const p = WING.pts[8 + Math.floor(rnd() * (WING.pts.length - 12))], o = rr(-4, 4); return { x: p.x + p.nx * o, z: p.z + p.nz * o }; })();
+  const out = !inHull(e.x, e.z);
+  if (rust.state === 'active' && out && e.name !== 'watch' && !e.rescued) {
+    e.fogDose = (e.fogDose || 0) + dt * (e.straggler ? 1.6 : 1);
+    if (rnd() < dt * 1.2 && Math.hypot(e.x - P.x, e.z - P.z) < 18) sfx('cough', .6);
+    if (e.fogDose > 9) { e.downed = true; e.dieT = 70; e.route = null; toast(`${e.shopName || 'Someone'} is down in the fog — get a bandage or a medkit into them!`, 4.5); return { x: e.x, z: e.z, spd: 0 }; }
+  }
+  // stragglers dither until the fog's on them, then stumble
+  if (e.straggler && !e.rescued && rust.state === 'warn') return { x: e.x, z: e.z, spd: 0 };
+  return { x: e.fogSpot.x, z: e.fogSpot.z, spd: Math.hypot(e.fogSpot.x - e.x, e.fogSpot.z - e.z) > .8 ? (e.straggler && !e.rescued ? 1.7 : 3.8) : 0 };
+}
+const nearDowned = () => { for (const e of ents) if (e.downed && Math.hypot(e.x - P.x, e.z - P.z) < 2.6) return e; return null; };
+const FOG_MEDS = ['rust_med', 'medkit', 'blood_bag', 'iv', 'surgical_kit', 'bandage', 'herb_bandage', 'painkiller'];
+function healDowned(e) {
+  const id = FOG_MEDS.find(k => cnt(k) > 0);
+  if (!id) { sfx('no'); toast('You need something to treat them — a bandage, a medkit or Rust medicine', 3); return; }
+  take(id, 1); e.downed = false; e.rescued = true; e.fogDose = 0; e.straggler = false; sfx('pickup');
+  toast(`You patched ${e.shopName || 'them'} up (${nameOf(id).toLowerCase()}) — they're heading for the Arc`, 3.5);
+}
 function updRust(dt) {
   if (rust.state === 'none') {
-    if ((G.chapterDone || G.day > 1) && !night.active && G.tod > .3 && G.tod < .68) { rust.next -= dt; if (rust.next <= 0) { rust.next = rr(220, 360); startRust(false); } }
+    if (G.flags.rustDay == null) G.flags.rustDay = rustDue();
+    if ((G.chapterDone || G.day > 1) && !night.active && G.day >= G.flags.rustDay && G.tod > .36 && G.tod < .62) startRust(false);
     if (G.step === 8 && !G.flags.rustDone && Math.hypot(P.x, P.z) > 85) { G.flags.rustDone = 1; startRust(true); }
-  } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 32; } }
+  } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 60; } }
   else if (rust.state === 'active') {
     rust.t -= dt; rust.k = lerp(rust.k, 1, dt * .8);
     P.safe = inShelter();
-    const fr = fogResist(); if (!P.safe && !P.dead && fr < 1) { P.dose = (P.dose || 0) + dt * 1.2 * (1 - fr); P.hp -= 7 * dt * (1 - fr); P.coughT -= dt; if (P.coughT <= 0) { P.coughT = rr(1.2, 2.2); sfx('cough'); hud.hurt.style.opacity = .5; } }
+    // it burns harder the longer you're out in it: ~5 hp/s at first, ~15 after twenty seconds
+    P.fogT = P.safe ? Math.max(0, (P.fogT || 0) - dt * 2) : (P.fogT || 0) + dt;
+    const fr = fogResist(); if (!P.safe && !P.dead && fr < 1) { P.dose = (P.dose || 0) + dt * 1.6 * (1 - fr); P.hp -= (5 + Math.min(10, P.fogT * .5)) * dt * (1 - fr); P.coughT -= dt; if (P.coughT <= 0) { P.coughT = rr(1.2, 2.2); sfx('cough'); hud.hurt.style.opacity = .5; } }
     if (rust.t <= 0) { rust.state = 'clear'; rust.t = 8; say([['Radio', 'Fog is lifting. Breathe easy.']]); }
   } else if (rust.state === 'clear') { rust.t -= dt; rust.k = lerp(rust.k, 0, dt * .6); if (rust.t <= 0) { rust.state = 'none'; rust.k = 0; } }
 }
@@ -446,10 +489,11 @@ function updNPC(e, dt) {
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
   if (night.active && !e.follow && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
+  { const f = fogNPC(e, dt); if (e.dead) return; if (f) { tx = f.x; tz = f.z; spd = f.spd; } }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
-  if (!v && dp < 6 && !cine) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
+  if (!v && dp < 6 && !cine && !e.downed) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
   e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 2.5), v);
-  { const gy = heightAt(e.x, e.z), fy = floorAt(e.x, e.z, e.y ?? gy); e.y = Math.max(gy, fy); } e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+  { const gy = heightAt(e.x, e.z), fy = floorAt(e.x, e.z, e.y ?? gy); e.y = Math.max(gy, fy); } e.g.position.set(e.x, e.y + (e.downed ? .25 : 0), e.z); e.g.rotation.y = e.yaw; e.g.rotation.x = e.downed ? -1.45 : 0;
 }
 function updTowers(dt) {
   for (const T of towers) {
@@ -671,6 +715,7 @@ function villageGuards() {
 /* ================= time + atmosphere ================= */
 const isNight = () => G.tod > .8 || G.tod < .22;
 const DAY_LEN = 420;
+let hullFogK = 0;
 function updTime(dt) {
   if (night.active) { G.tod = lerp(G.tod, .92, dt * .2); }
   else if (G.todTarget != null) { G.tod = lerp(G.tod, G.todTarget, dt * .08); }
@@ -686,13 +731,15 @@ function updTime(dt) {
   }
   if (G.step === 10) { night.prep -= dt; G.tod = lerp(.74, .8, 1 - night.prep / 75); if (night.prep <= 0) startNight(); }
   const s = todSample(G.tod);
-  // rust tint
-  const rk = rust.k;
+  // rust tint — (Nov 10) the red fog stays outside the Arc: inside the hull (and its east wing) it clears, and the
+  // ordinary haze thins too, so you can see from one end to the other
+  hullFogK = lerp(hullFogK, inHull(P.x, P.z) ? 1 : 0, Math.min(1, dt * 4));
+  const rk = rust.k * (1 - hullFogK);
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
   let far = s.far;
   if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
-  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk);
+  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60;
   skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
   skyU.sunDir.value.copy(sd);
@@ -756,8 +803,8 @@ function updHUD(dt) {
   hud.gunn.textContent = w.name + (w.g ? ` · ${Math.round(w.g.d / w.g.max * 100)}%` : '');
   renderTool();
   let alert = '';
-  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get under a roof`;
-  else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = 'Red fog — get under a roof!';
+  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get inside the Arc`;
+  else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = Math.hypot(P.x, P.z) < CAMP_R + 20 ? 'Red fog — get inside the Arc!' : 'Red fog — get under a roof!';
   else if (night.active) alert = `${night.final ? 'NIGHT 100' : 'Hold Kestrel'} · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
   else if (P.bleed > 0) alert = 'Bleeding — bandage it (5)';

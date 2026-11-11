@@ -602,7 +602,7 @@ function shopHouse(D) {
     K.box('metal', .6, .8, .6, 3.6, .4, 2, 0, 0, 0, 0x2a2a28); K.box('glow', .25, .15, .02, 3.6, .3, 2.31, 0, 0, 0, 0xff6a1a); stovepipe(K, 3.6, .8, 1.9, Hs.HT + .9);
     for (let i = 0; i < 6; i++) K.box('plain', .12, .15, .28, -1 + i * .25, .3, BD / 2 - .5, 0, hr(-.3, .3), 0, hpick([0x3a2a1e, 0x4a3a2a, 0x2a2a28]));
     hput(inner, hmodel('props/radiator', .8, 'y'), BW / 2 - .25, .25, .6, -Math.PI / 2);
-    const bl = shopL2W(D, 0, -2.4); addColLine(shopL2W(D, -5, -2.4).x, bl.z, shopL2W(D, 5, -2.4).x, shopL2W(D, 5, -2.4).z, .9);
+    const b0 = shopL2W(D, -5, -2.4), b1 = shopL2W(D, 5, -2.4); addColLine(b0.x, b0.z, b1.x, b1.z, .9);
   } else if (id === 'salvage') {
     // heaps of scrap out front, the scale (the station), a chain hoist on an A-frame, Bryce's rusty pipe rig, wheels and panels stacked
     for (let i = 0; i < 3; i++) { const px = hr(-4, 4), pz = BD / 2 + hr(1.6, 3.4);

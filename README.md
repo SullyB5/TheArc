@@ -33,6 +33,10 @@ Kestrel: the wall is 64 m out. The Arc (the main hull) is walk-in — E at its d
 
 Start: you wake at the dropsite (south-west, ~400 m out) beside a section of the Arc torn off on the way down — loot the wreck, then follow the old road north-east to Kestrel, or dig in and build there. Kestrel's night raids start once you've reached it.
 
+The Arc (Nov 10): the hull is dented, wavy and patched, with bent and snapped ribs; its east end carries on through a buckled joint into the east wing, which bends round to the south and is walk-in too (`WING`, `inWing`, `hullOff` in `1c-camp.js`). The streets and buildings sit a little off square.
+
+The Rust (red fog, Nov 10): every 7–10 days. In Kestrel the only cover is the Arc (outlands: road shelters); the fog clears inside the hull. It hurts more the longer you're out (~5 hp/s rising to ~15). Townsfolk run for the Arc, shopkeepers bar themselves in; one or two get caught, go down, and die ~70 s later unless you treat them (E, uses a bandage / medkit / Rust medicine). `fogNPC` in `3-game.js`.
+
 Open world: no chapters. Tier keys: clan insignia (2), Arc ID chip (3), Greyhold card (4), Dr. Arden's notebook (5), Gate Stone codes (6). Nights bring raids (clans, then Ironjaw from night 6, Greyhold from night 20); night 100 is the big one. Dying drops your bag where you fell.
 
 Movement has momentum (accelerate/brake over a fraction of a second, slide along trees, steep climbs slow you), jump buffering + coyote time, and a stamina-limited sprint (bar above health; run it dry and you're winded until a third comes back).
