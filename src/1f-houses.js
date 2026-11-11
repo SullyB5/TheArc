@@ -445,8 +445,11 @@ function raiseHouse(D, S) {
     const half = Math.asin(ACH / 2 / AR), L = BW + ov * 2 + .1, rc = tint(hpick(S.roofPal || [0xd0cec6, 0xbcbab2, 0xc8c4b8]), .05);
     const sg = new THREE.CylinderGeometry(AR, AR, L, 18, Math.max(2, Math.round(L / 1.2)), true, HP - half, half * 2);
     { const pa = sg.attributes.position, uv = sg.attributes.uv; for (let i = 0; i < pa.count; i++) { const y = pa.getY(i), x = pa.getX(i), z = pa.getZ(i), k = 1 + (Math.sin(y * 1.7 + x * 2.3) * .012 + Math.sin(y * .6) * .01); pa.setX(i, x * k); pa.setZ(i, z * k); } for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * AR * half * 2 / 2, uv.getY(i) * L / 2); }
-    sg.rotateZ(HP); sg.computeVertexNormals(); K.geo('hull', sg, htm(0, AY0, 0), rc);
-    const ig = sg.clone(); ig.scale(1, .985, .985); K.geo('hull', ig, htm(0, AY0 - .05, 0), tint(0x8a8c8a, .05));     // the underside, so it reads from inside
+    sg.rotateZ(HP); sg.computeVertexNormals();
+    // the underside, so it reads from inside: a copy taken before the shell is moved into place (K.geo moves the geometry
+    // itself), mirrored front-to-back so its faces turn inward
+    const ig = sg.clone(); ig.scale(1, .985, -.985); ig.computeVertexNormals();
+    K.geo('hull', sg, htm(0, AY0, 0), rc); K.geo('hull', ig, htm(0, AY0 - .05, 0), tint(0x8a8c8a, .05));
     // patches welded on, a stencil, the ribs over the top
     for (let i = 0; i < 3; i++) { const pz = hr(-BD / 2, BD / 2), px = hr(-BW / 2 + 1, BW / 2 - 1), sl = Math.atan2(-pz, Math.sqrt(AR * AR - pz * pz)); K.box('plate', hr(.8, 1.8), .03, hr(.6, 1.4), px, archY(pz) + .04, pz, -sl, 0, hr(-.1, .1), hpick([0x8a5a3a, 0x7a7e80, 0x9a948a])); }
     for (let x = -BW / 2 + .6; x < BW / 2; x += hr(2.1, 2.8)) { const rg = new THREE.TorusGeometry(AR + .08, .09, 4, 22, half * 2); rg.rotateZ(HP - half); rg.rotateY(HP); K.geo('metal', rg, htm(x, AY0, 0), tint(0xc8c6be, .05)); K.box('metal', .14, .14, .22, x, archY(0) + .14, 0, 0, 0, 0, 0x6a6e70); }
