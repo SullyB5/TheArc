@@ -195,8 +195,8 @@ function shoot() {
   if (!R.auto) input.fire = false;
   if (w.g) wearTool(w.g, 1);
   camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
-  if (R.cls === 'bow') { fireProj(R, w.key); sfx(R.flare ? 'shot' : 'whoosh'); if (magOf(w) === 0 && ammoLeft(w) > 0) setTimeout(reload, 120); return; }
-  sfx('shot'); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 40);
+  if (R.cls === 'bow') { aiNoise(P.x, P.z, 12); fireProj(R, w.key); sfx(R.flare ? 'shot' : 'whoosh'); if (magOf(w) === 0 && ammoLeft(w) > 0) setTimeout(reload, 120); return; }
+  sfx('shot'); aiNoise(P.x, P.z, 85); flash.visible = true; flash.rotation.z = rnd() * 6; flashLight.intensity = 3; setTimeout(() => { flash.visible = false; flashLight.intensity = 0; }, 40);
   const mz = new THREE.Vector3(); muzzle.getWorldPosition(mz);
   let hitAny = false, head = false;
   for (let p = 0; p < (R.pellets || 1); p++) {
@@ -226,9 +226,10 @@ function swing(w) {
     for (const e of ents) { if (e.dead || e.type === 'npc') continue; const dx = e.x - P.x, dz = e.z - P.z, d = Math.hypot(dx, dz); if (d > bd || Math.abs(e.y - P.y) > 2.5) continue; if ((dx * fx + dz * fz) / (d || 1) < .45) continue; bd = d; best = e; }
     if (best) {
       const at = new THREE.Vector3(best.x, best.y + 1.2, best.z), sneak = best.state === 'idle' || best.state === 'graze' || best.state === 'root';
-      damage(best, R.dmg * (sneak ? 2 : 1), true, at); sfx('hit'); if (R.stun) best.stun = Math.max(best.stun || 0, R.stun);
+      const td = sneak && best.type === 'clan' && P.crouch && behindOf(best) && !best.boss;   // (Nov 11) silent takedown
+      damage(best, R.dmg * (td ? 8 : sneak ? 2 : 1), true, at); sfx('hit'); if (R.stun) best.stun = Math.max(best.stun || 0, R.stun); if (td) { toast('Silent takedown', 1.2); } else aiNoise(P.x, P.z, 6);
       if (w.g) wearTool(w.g, 1); hud.hitm.classList.add('on'); setTimeout(() => hud.hitm.classList.remove('on'), 90);
-      if (sneak) toast('Sneak attack ×2', 1);
+      if (sneak && !td) toast('Sneak attack ×2', 1);
     } else { const n = nearNode(); if (n && w.g && ['stone_axe', 'metal_axe', 'hatchet', 'war_axe', 'pickaxe', 'stone_pick'].includes(w.g.id)) sfx('thud'); }
   }, 130);
 }
@@ -327,6 +328,7 @@ function gunnerShoot(e) {
 }
 function updGunner(e, dt, dp) {
   // keep a fighting distance, strafe, shoot when there's a clear line
+  { const cv = aiCover(e, dt, dp); if (cv) return cv; }   // (Nov 11) hurt gunners break for cover — 2l-combat.js
   const p = e.p; let tx = e.x, tz = e.z, spd = 0;
   const want = e.fac === 'grey' ? 20 : 15;
   if (dp > want + 8) { tx = P.x; tz = P.z; spd = e.speed; }

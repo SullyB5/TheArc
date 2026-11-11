@@ -58,7 +58,7 @@ function toggleWear(g) {
 function hurtWear(n) { for (const t of wornAll()) if (GEAR_DEFS[t.id].prot) wearTool(t, n); }
 
 /* ---------- carry weight ---------- */
-const carryCap = () => G.flags.dev ? 1e9 : 45 + wearStat('cap');
+const carryCap = () => G.flags.dev ? 1e9 : 45 + wearStat('cap') + (typeof compCarry === 'function' ? compCarry() : 0);
 function carryLoad() {
   let w = 0;
   for (const [id, n] of Object.entries(INV.items)) w += (ITEMS[id]?.w ?? .2) * n;
@@ -225,7 +225,7 @@ function updStatus(dt) {
 }
 const statusTags = () => [P.bleed > 0 && ['Bleeding', '#e0573d'], P.frac > 0 && ['Fractured leg', '#e0a040'], P.sick > 0 && ['Sick', '#a8c050'], P.dose > 20 && ['Rust poisoning', '#c0603a'],
   P.fed > 0 && ['Well fed', '#7fc4b8'], ...Object.keys(BUFF_DEF).map(k => P.buffs && P.buffs[k] > 0 && [BUFF_DEF[k].n, BUFF_DEF[k].c]), P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
-const stealthK = () => Math.max(.35, 1 - wearStat('stealth') - (P.paint > 0 ? .3 : 0));
+const stealthK = () => Math.max(.2, (1 - wearStat('stealth') - (P.paint > 0 ? .3 : 0)) * (P.crouch ? .5 : 1));
 
 /* ---------- gathering: trees, rocks, undergrowth, water ---------- */
 const RCELL = 6, RGRID = new Map(), RDEPL = new Map();

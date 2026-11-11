@@ -476,7 +476,7 @@ function buildExplore() {
   // the lamp you carry under the ground: a flashlight if you've got one, otherwise a lighter
   UG.lamp = new THREE.PointLight(0xffe0b0, 0, 10, 0); camera.add(UG.lamp); UG.lamp.position.set(.25, -.1, -.3);
   buildXHud();
-  window.__X = { XPLOTS, sim: (n, dt = 1 / 30, pre) => { for (let i = 0; i < n; i++) { if (pre) pre(); G.t += dt; updPlayer(dt); updXplore(dt); if (typeof updChan === "function") updChan(dt); if (window.__simEnts) for (const e of [...ents]) if (e.type === "clan" && Math.hypot(e.x - P.x, e.z - P.z) < 300) updClan(e, dt); } }, xGoNow, XSITES, XCROSS, XCAMPS, XSTASH, POCKETS, UG, LOGS, XNOTES, XUSE, xGo, openLog, closeLog, pkValid };
+  window.__X = { XPLOTS, sim: (n, dt = 1 / 30, pre) => { for (let i = 0; i < n; i++) { if (pre) pre(); G.t += dt; updPlayer(dt); updXplore(dt); if (typeof updChan === "function") updChan(dt); if (window.__simEnts) for (const e of [...ents]) if (Math.hypot(e.x - P.x, e.z - P.z) < 300) { if (e.type === "clan") updClan(e, dt); else if (e.type === "npc" && window.__simEnts > 1) updNPC(e, dt); } } }, xGoNow, XSITES, XCROSS, XCAMPS, XSTASH, POCKETS, UG, LOGS, XNOTES, XUSE, xGo, openLog, closeLog, pkValid };
   seed = s0;
 }
 function bakeExplore() {

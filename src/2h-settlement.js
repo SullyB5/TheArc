@@ -76,6 +76,7 @@ const survEnt = R => { const e = SROS[R.id]; return e && !e.dead && ents.include
 // updNPC hook: outdoor jobs leave in the morning and come home at dusk; indoor jobs keep to their building
 function setNPC(e, dt) {
   if (!e.sid) return false;
+  if (e.comp) return compUpd(e, dt);   // the companion out with you — 2l-combat.js
   const R = setS().ros.find(x => x.id === e.sid); if (!R) { e.g.visible = true; return false; }
   if (R.held) { e.g.visible = false; return true; }
   const J = JOBS[R.job] || JOBS.idle, workHours = G.tod > .33 && G.tod < .66 && !night.active && rust.state === 'none' && !e.downed && !e.follow;
@@ -156,6 +157,7 @@ function setDay(quiet) {
   for (let i = 0; i < arrive; i++) { const R = newSurvivor('rescued'); spawnSurvivor(R, { x: 0, z: CAMP_R - 3 }); names.push(R.n); S.saved++; }
   for (const P2 of pend) { const R = newSurvivor('found', P2.n); R.trait = P2.trait || R.trait; R.job = TRAIT_JOB[R.trait] || 'gather'; spawnSurvivor(R, { x: 0, z: CAMP_R - 3 }); names.push(R.n); S.saved++; }
   if (names.length && !quiet) setTimeout(() => say([['Kade', `${names.join(' and ')} ${names.length > 1 ? 'have' : 'has'} come to Kestrel. Find them something to do.`]]), 5500);
+  if (names.includes('Mina') && !quiet) setTimeout(() => say([['Mina', 'If you go out again, take me with you. I can shoot. (Bag → Settlement → Bring along.)']]), 12000);
   // the dead and the gone
   for (const R of [...S.ros]) { const e = SROS[R.id]; if (e && e.dead) { S.ros.splice(S.ros.indexOf(R), 1); S.lost++; why.push(`${R.n} died`); } }
   // morale
@@ -226,6 +228,7 @@ function settlementHTML() {
     const tr = (TRAITS.find(t => t[0] === R.trait) || ['', ''])[1], e = survEnt(R), st = e && e.away ? 'out working' : e && e.downed ? 'down in the fog' : e ? '' : 'missing';
     h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${R.n}</b> <small style="opacity:.7">${tr}${R.origin !== 'kestrel' ? ' · ' + (R.origin === 'rescued' ? 'rescued' : 'found') + ' day ' + R.joined : ''}${st ? ' · ' + st : ''}</small><div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">`;
     for (const j in JOBS) h += `<button data-sj="${j}" data-sid="${R.id}" class="${R.job === j ? 'on' : home ? '' : 'dis'}" title="${JOBS[j].d}">${JOBS[j].n}</button>`;
+    { const isC = (G.flags.comp || {}).id === R.id; h += `<button data-sc="${isC ? '-' : R.id}" class="${isC ? 'on' : home && e && !R.held ? '' : 'dis'}" style="margin-left:auto">${isC ? 'With you · send home' : 'Bring along'}</button>`; }
     h += `</div></div>`;
   }
   h += `</div><h4>Projects · outside the wall</h4><div class="jn">`;
@@ -243,6 +246,7 @@ function settlementHTML() {
 }
 function setAction(d, shift) {
   const S = setS();
+  if (d.sc) { if (d.sc === '-') compSet(null); else { if (!inKestrel()) { sfx('no'); return; } compSet(d.sc); } save(); return; }
   if (d.sj) { if (!inKestrel()) { sfx('no'); return; } const R = S.ros.find(x => x.id === d.sid); if (R) { R.job = d.sj; sfx('pickup'); } }
   else if (d.sp) { const Pj = PROJECTS[d.sp]; if (S.cur || !inKestrel() || !Object.entries(Pj.cost).every(([k, n]) => sCnt(k) >= n)) { sfx('no'); return; } for (const [k, n] of Object.entries(Pj.cost)) sAdd(k, -n); S.proj[d.sp] = { pts: 0 }; S.cur = d.sp; buildProject(d.sp, 1); sfx('buy'); toast(`${Pj.n} started · put people on Building to finish it`, 3); }
   else if (d.st) { if (!nearStores()) return; const n = shift ? sCnt(d.st) : Math.min(sCnt(d.st), 5); sAdd(d.st, -n); give(d.st, n); sfx('pickup'); }

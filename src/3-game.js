@@ -454,7 +454,8 @@ function updClan(e, dt) {
   if (e.stun > 0) { e.stun -= dt; p.body.rotation.z = Math.sin(e.t * 20) * .1; e.g.position.set(e.x, e.y, e.z); return; }
   if (e.blind > 0) e.blind -= dt;
   if (e.grab && siegeGrab(e, dt)) return;
-  if (facUpd(e, dt)) return;   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
+  if (facUpd(e, dt)) return;
+  if (aiUpd(e, dt)) return;   // hearing, flanking, fleeing, bosses — 2l-combat.js   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
   const hullP = inHull(P.x, P.z), hullE = inHull(e.x, e.z);
@@ -625,6 +626,7 @@ function die() {
 }
 function damage(e, n, byPlayer, at) {
   if (e.dead) return;
+  n = aiDamageMod(e, n, byPlayer);
   e.hp -= n;
   if (byPlayer && e.type === 'clan') facHurt(e);
   puff(at.x, at.y, at.z, e.type === 'clan' ? 0x6a1a12 : 0x6a1a12, 5, 2, .08, .4);
@@ -686,7 +688,7 @@ function updPlayer(dt) {
     if (ml < .15) P.runToggle = false;                            // the RUN button lets go when you stop
     const wl = UG.at ? -1e9 : waterAt(P.x, P.z), depth = wl - P.y;   // (Nov 11) under the ground: no water, no terrain, the pocket's own rooms
     P.swim = depth > 1.25;
-    const wantRun = !(P.frac > 0) && !P.over && (input.sprint || (isTouch && ml > .96) || P.runToggle) && my > .3 && !shopOpen && !input.ads && !input.fire && !P.swim && depth < .5;
+    const wantRun = !(P.frac > 0) && !P.over && !P.crouch && (input.sprint || (isTouch && ml > .96) || P.runToggle) && my > .3 && !shopOpen && !input.ads && !input.fire && !P.swim && depth < .5;
     if (P.stam <= 0) P.winded = true; else if (P.winded && P.stam > 35) P.winded = false;
     sprint = wantRun && !P.winded;
     const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
@@ -694,7 +696,7 @@ function updPlayer(dt) {
     // slope along where you're heading
     let slopeK = 1;
     if (ml > .05 && P.onGround && !UG.at) { const wl2 = Math.hypot(wx, wz), dx = wx / wl2, dz = wz / wl2, gr = (heightAt(P.x + dx * 1.6, P.z + dz * 1.6) - heightAt(P.x, P.z)) / 1.6; slopeK = clamp(1 - Math.max(0, gr - .22) * 1.1, .38, 1) * (gr < -.25 ? 1.06 : 1); }
-    const spd = (sprint ? 9.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * slopeK * (P.frac > 0 ? .62 : 1) * (P.over ? .65 : 1) * (1 + wearStat('mob'));
+    const spd = (sprint ? 9.6 : 5.4) * (P.crouch && !sprint ? .55 : 1) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * slopeK * (P.frac > 0 ? .62 : 1) * (P.over ? .65 : 1) * (1 + wearStat('mob'));
     wx *= spd; wz *= spd;
     const acc = P.swim ? 9 : !P.onGround ? 7 : ml > .05 ? 42 : 30;
     let dvx = wx - P.vx, dvz = wz - P.vz; const dl = Math.hypot(dvx, dvz);
@@ -752,7 +754,7 @@ function updPlayer(dt) {
   const latV = P.vx * rx + P.vz * rz;
   P.roll = lerp(P.roll, -latV * .0045 + Math.cos(P.bob) * .006 * bk * P.runK, Math.min(1, dt * 8));   // no roll from turning: the head stays level when you look side to side
   P.sway = 0;
-  camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
+  camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : P.crouch ? 1.05 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
   camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
   // (Nov 10, Bryce: "like Elyra") aiming zooms the view and the gun stays at your side; only the snipers look through a scope
   if (P.ads < .1) P.scopeLvl = 0;
@@ -1032,7 +1034,7 @@ $('inv').addEventListener('click', e => {
   else if (d.cat) craftCat = d.cat;
   else if (d.log) { toggleInv(false); openLog(d.log); return; }
   else if (d.fa) facAction(d);
-  else if (d.sj || d.sp || d.st || d.sg) setAction(d, e.shiftKey);
+  else if (d.sj || d.sp || d.st || d.sg || d.sc) setAction(d, e.shiftKey);
   else if (d.sjt || d.sjx || d.sjh) sideAction(d);
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
@@ -1098,6 +1100,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyP' && !cine) { setPause(true); return; }
   if (cine && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { skipCine(); return; }
   if (e.code === 'KeyE' && !e.repeat) { if (shopOpen) closeShop(); else useInteract(); }
+  if (e.code === 'KeyC' && !e.repeat && !P.fly) setCrouch(!P.crouch);   // (Nov 11) crouch — 2l-combat.js
+  if (e.code === 'KeyZ' && !e.repeat) compCmd();
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
@@ -1254,7 +1258,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updEvents(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updEvents(dt); updCombat(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1524,7 +1528,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); eventsRestore(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); eventsRestore(); combatRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
@@ -1605,7 +1609,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
