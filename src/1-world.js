@@ -20,20 +20,38 @@ THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\nvarying float vFogDepth;\nv
 THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\nvFogDepth = - mvPosition.z;\nvFogWorld = (inverse(viewMatrix) * mvPosition).xyz;\n#endif';
 THREE.ShaderChunk.fog_pars_fragment = '#ifdef USE_FOG\nuniform vec3 fogColor;\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\nuniform float fogNear;\nuniform float fogFar;\n#endif';
 THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
-  float fogDist = max(0.0, length(vFogWorld - cameraPosition) - fogNear);
+  float fogWallU = floor(fogNear / 1000.0), fogWall = fogWallU * 10.0;   // view-distance wall, packed into fogNear (see packFogNear)
+  float fogCamD = length(vFogWorld - cameraPosition);
+  float fogDist = max(0.0, fogCamD - (fogNear - fogWallU * 1000.0));
   float fogHy = max(0.0, (vFogWorld.y + cameraPosition.y) * .5 - 12.0);
   float fogDen = (3.0 / max(fogFar, 1.0)) * (.2 + .8 * exp(-fogHy * .0055));
   float fogFactor = 1.0 - exp(-fogDist * fogDen);
+  if (fogWall > 0.0) fogFactor = max(fogFactor, smoothstep(fogWall * .72, fogWall, fogCamD));   // nothing shows past the view distance, peaks included
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor, 0.0, 1.0));
 #endif`;
 
 const $ = id => document.getElementById(id);
+const packFogNear = near => near + (VIEW_M > 0 ? Math.round(VIEW_M / 10) * 1000 : 0);
 /* controls follow the device: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops. */
 const isTouch = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   || (matchMedia('(pointer:coarse)').matches && !matchMedia('(any-pointer:fine)').matches);
 try { localStorage.removeItem('arc-controls'); } catch (e) {}   // clear the old title-screen override
 const LOW = isTouch;                       // phones: fewer trees/grass, smaller textures, cheaper post
-const SFX = LOW ? 'phone' : 'pc';
+/* ---------- graphics settings (Nov 10): Textures low/med/high and View distance near/med/far/max, saved in localStorage.
+   Textures apply on load (the page reloads when you change them); view distance applies live.
+   View distance is a hard limit: past it everything sits inside the fog wall, and terrain, forest, props and districts
+   past it aren't built or drawn — the GPU only works on what you can actually see. */
+const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc' } };
+const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
+const GFX = (() => {
+  let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
+  const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
+  return { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+})();
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify(GFX)); } catch (e) {} }
+const TEXQ = TEX_LEVELS[GFX.tex];
+let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
+const SFX = TEXQ.file;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -342,12 +360,12 @@ addEventListener('resize', resize);
 resize();
 
 /* ---------- sky, clouds, light ---------- */
-const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() } };
+const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() }, haze: { value: VIEW_LEVELS[GFX.view].haze } };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
-  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust; varying vec3 vP;
-    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16, vP.y));
+  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust,haze; varying vec3 vP;
+    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16 + haze * .22, vP.y));
       float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06) * (.35 + .65*smoothstep(-.05,.1,vP.y));
       c = mix(c, vec3(.42,.14,.07), rust);
       gl_FragColor = vec4(c,1.);
@@ -443,7 +461,7 @@ const texLoader = new THREE.TextureLoader();
 function loadTex(name, srgb = true) {
   const t = texLoader.load(`assets/tex/${name}-${SFX}.jpg`);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = LOW ? 2 : 8;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = TEXQ.aniso;
   return t;
 }
 const TX = {
@@ -611,7 +629,7 @@ const CLIPS = {};                                      // animations that came w
 /* phones: the model kit's textures are mostly 1024² (some 2048²) — ~640 MB on the GPU plus Safari's decoded copy, more than an
    iPhone tab is allowed, so iOS kills the page while it loads. Redraw every model texture at most TEX_CAP (detail maps TEX_CAP_DETAIL) wide before it's uploaded
    (a quarter of the memory per step down) and let the full-size original go. */
-const TEX_CAP = 512, TEX_CAP_DETAIL = 256, SHRUNK = new WeakSet();   // colour maps keep 512; normal/roughness/metal/AO maps drop to 256
+const TEX_CAP = TEXQ.cap, TEX_CAP_DETAIL = TEXQ.capD, SHRUNK = new WeakSet();   // colour maps keep 512; normal/roughness/metal/AO maps drop to 256
 function shrinkTextures(root) {
   root.traverse(o => {
     if (!o.isMesh) return;
@@ -634,7 +652,7 @@ function shrinkTextures(root) {
 async function loadModels(names, quiet) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    if (LOW) shrinkTextures(g.scene);
+    if (TEX_CAP) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));

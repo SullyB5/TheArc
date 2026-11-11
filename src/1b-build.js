@@ -31,7 +31,7 @@ const slopeAt = (x, z) => { const h = heightAt(x, z); return Math.hypot(heightAt
 const CH = 160, NCH = Math.ceil(HALF * 2 / CH), TSEG = LOW ? 40 : 64;
 let terrMat = null, terrIdx = null, chunkJob = null;
 const CHUNKS = new Map();
-const T_LOAD = 470, T_DROP = 700;
+let T_LOAD = 470, T_DROP = 700;   // set from the view distance (setViewDist)
 const chunkRectD = (ci, cj, px, pz) => { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(Math.max(x0 - px, 0, px - x0 - CH), Math.max(z0 - pz, 0, pz - z0 - CH)); };
 function chunkExists(ci, cj) { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(x0 + CH / 2, z0 + CH / 2) <= HALF + 120; }
 function startChunk(ci, cj) {
@@ -277,7 +277,7 @@ function growCell(ci, cj) {
   }
   OCOLS.add(key); world.add(g); OCELLS.set(key, g);
 }
-const FOR_SHOW = 430, FOR_DROP = 900;
+let FOR_SHOW = 430, FOR_DROP = 900;
 let farT = 0;
 function updForest(px, pz, dt) {
   farT -= dt; if (farT > 0) return; farT = .25;

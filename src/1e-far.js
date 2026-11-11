@@ -159,7 +159,10 @@ function buildBirds() {
 }
 const _bm = new THREE.Object3D(), _bq = new THREE.Quaternion(), _bf = new THREE.Vector3(0, 0, 1);
 function updFar(dt, t, px, pz) {
+  if (horizonMesh) horizonMesh.visible = !VIEW_M;                        // the 9 km ranges only exist at Max view distance
+  if (farTrees) for (const im of farTrees) { const c = im.boundingSphere.center; im.visible = !VIEW_M || (VIEW_M > FAR_TREE_NEAR && Math.hypot(c.x - px, c.z - pz) - im.boundingSphere.radius < VIEW_M); }
   for (const S of FAR_SMOKE) {
+    S.sp.visible = !VIEW_M || Math.hypot(S.x - px, S.z - pz) < VIEW_M + 150;
     const k = (S.k + t * .012) % 1, h = k * 230;
     S.sp.position.set(S.x + Math.sin(S.ph + t * .05) * 8 + k * k * 180, S.y0 + 8 + h, S.z + k * k * 70);
     const sc = 24 + k * 130; S.sp.scale.set(sc, sc * .85, 1); S.sp.material.opacity = .3 * smooth(0, .1, k) * (1 - smooth(.55, 1, k));

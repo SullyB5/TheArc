@@ -20,20 +20,38 @@ THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\nvarying float vFogDepth;\nv
 THREE.ShaderChunk.fog_vertex = '#ifdef USE_FOG\nvFogDepth = - mvPosition.z;\nvFogWorld = (inverse(viewMatrix) * mvPosition).xyz;\n#endif';
 THREE.ShaderChunk.fog_pars_fragment = '#ifdef USE_FOG\nuniform vec3 fogColor;\nvarying float vFogDepth;\nvarying vec3 vFogWorld;\nuniform float fogNear;\nuniform float fogFar;\n#endif';
 THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
-  float fogDist = max(0.0, length(vFogWorld - cameraPosition) - fogNear);
+  float fogWallU = floor(fogNear / 1000.0), fogWall = fogWallU * 10.0;   // view-distance wall, packed into fogNear (see packFogNear)
+  float fogCamD = length(vFogWorld - cameraPosition);
+  float fogDist = max(0.0, fogCamD - (fogNear - fogWallU * 1000.0));
   float fogHy = max(0.0, (vFogWorld.y + cameraPosition.y) * .5 - 12.0);
   float fogDen = (3.0 / max(fogFar, 1.0)) * (.2 + .8 * exp(-fogHy * .0055));
   float fogFactor = 1.0 - exp(-fogDist * fogDen);
+  if (fogWall > 0.0) fogFactor = max(fogFactor, smoothstep(fogWall * .72, fogWall, fogCamD));   // nothing shows past the view distance, peaks included
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor, 0.0, 1.0));
 #endif`;
 
 const $ = id => document.getElementById(id);
+const packFogNear = near => near + (VIEW_M > 0 ? Math.round(VIEW_M / 10) * 1000 : 0);
 /* controls follow the device: phones/tablets get touch controls, computers get keyboard + mouse — even touchscreen laptops. */
 const isTouch = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   || (matchMedia('(pointer:coarse)').matches && !matchMedia('(any-pointer:fine)').matches);
 try { localStorage.removeItem('arc-controls'); } catch (e) {}   // clear the old title-screen override
 const LOW = isTouch;                       // phones: fewer trees/grass, smaller textures, cheaper post
-const SFX = LOW ? 'phone' : 'pc';
+/* ---------- graphics settings (Nov 10): Textures low/med/high and View distance near/med/far/max, saved in localStorage.
+   Textures apply on load (the page reloads when you change them); view distance applies live.
+   View distance is a hard limit: past it everything sits inside the fog wall, and terrain, forest, props and districts
+   past it aren't built or drawn — the GPU only works on what you can actually see. */
+const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc' } };
+const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
+const GFX = (() => {
+  let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
+  const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
+  return { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+})();
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify(GFX)); } catch (e) {} }
+const TEXQ = TEX_LEVELS[GFX.tex];
+let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
+const SFX = TEXQ.file;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -342,12 +360,12 @@ addEventListener('resize', resize);
 resize();
 
 /* ---------- sky, clouds, light ---------- */
-const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() } };
+const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color() }, rust: { value: 0 }, fogC: { value: new THREE.Color() }, haze: { value: VIEW_LEVELS[GFX.view].haze } };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
-  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust; varying vec3 vP;
-    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16, vP.y));
+  fragmentShader: `uniform vec3 top,hor,sunDir,sunCol,fogC; uniform float rust,haze; varying vec3 vP;
+    void main(){ float h = max(vP.y,0.); vec3 c = mix(hor, top, pow(h,.45)); c = mix(fogC, c, smoothstep(-.02, .16 + haze * .22, vP.y));
       float s = max(dot(vP, sunDir), 0.); c += sunCol*(pow(s,900.)*6. + pow(s,14.)*.3 + pow(s,3.)*.06) * (.35 + .65*smoothstep(-.05,.1,vP.y));
       c = mix(c, vec3(.42,.14,.07), rust);
       gl_FragColor = vec4(c,1.);
@@ -443,7 +461,7 @@ const texLoader = new THREE.TextureLoader();
 function loadTex(name, srgb = true) {
   const t = texLoader.load(`assets/tex/${name}-${SFX}.jpg`);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = LOW ? 2 : 8;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = TEXQ.aniso;
   return t;
 }
 const TX = {
@@ -611,7 +629,7 @@ const CLIPS = {};                                      // animations that came w
 /* phones: the model kit's textures are mostly 1024² (some 2048²) — ~640 MB on the GPU plus Safari's decoded copy, more than an
    iPhone tab is allowed, so iOS kills the page while it loads. Redraw every model texture at most TEX_CAP (detail maps TEX_CAP_DETAIL) wide before it's uploaded
    (a quarter of the memory per step down) and let the full-size original go. */
-const TEX_CAP = 512, TEX_CAP_DETAIL = 256, SHRUNK = new WeakSet();   // colour maps keep 512; normal/roughness/metal/AO maps drop to 256
+const TEX_CAP = TEXQ.cap, TEX_CAP_DETAIL = TEXQ.capD, SHRUNK = new WeakSet();   // colour maps keep 512; normal/roughness/metal/AO maps drop to 256
 function shrinkTextures(root) {
   root.traverse(o => {
     if (!o.isMesh) return;
@@ -634,7 +652,7 @@ function shrinkTextures(root) {
 async function loadModels(names, quiet) {
   let done = 0;
   await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
-    if (LOW) shrinkTextures(g.scene);
+    if (TEX_CAP) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
   }).catch(e => console.warn('model', n, e && e.message))));
@@ -682,7 +700,7 @@ const slopeAt = (x, z) => { const h = heightAt(x, z); return Math.hypot(heightAt
 const CH = 160, NCH = Math.ceil(HALF * 2 / CH), TSEG = LOW ? 40 : 64;
 let terrMat = null, terrIdx = null, chunkJob = null;
 const CHUNKS = new Map();
-const T_LOAD = 470, T_DROP = 700;
+let T_LOAD = 470, T_DROP = 700;   // set from the view distance (setViewDist)
 const chunkRectD = (ci, cj, px, pz) => { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(Math.max(x0 - px, 0, px - x0 - CH), Math.max(z0 - pz, 0, pz - z0 - CH)); };
 function chunkExists(ci, cj) { const x0 = -HALF + ci * CH, z0 = -HALF + cj * CH; return Math.hypot(x0 + CH / 2, z0 + CH / 2) <= HALF + 120; }
 function startChunk(ci, cj) {
@@ -928,7 +946,7 @@ function growCell(ci, cj) {
   }
   OCOLS.add(key); world.add(g); OCELLS.set(key, g);
 }
-const FOR_SHOW = 430, FOR_DROP = 900;
+let FOR_SHOW = 430, FOR_DROP = 900;
 let farT = 0;
 function updForest(px, pz, dt) {
   farT -= dt; if (farT > 0) return; farT = .25;
@@ -3019,7 +3037,10 @@ function buildBirds() {
 }
 const _bm = new THREE.Object3D(), _bq = new THREE.Quaternion(), _bf = new THREE.Vector3(0, 0, 1);
 function updFar(dt, t, px, pz) {
+  if (horizonMesh) horizonMesh.visible = !VIEW_M;                        // the 9 km ranges only exist at Max view distance
+  if (farTrees) for (const im of farTrees) { const c = im.boundingSphere.center; im.visible = !VIEW_M || (VIEW_M > FAR_TREE_NEAR && Math.hypot(c.x - px, c.z - pz) - im.boundingSphere.radius < VIEW_M); }
   for (const S of FAR_SMOKE) {
+    S.sp.visible = !VIEW_M || Math.hypot(S.x - px, S.z - pz) < VIEW_M + 150;
     const k = (S.k + t * .012) % 1, h = k * 230;
     S.sp.position.set(S.x + Math.sin(S.ph + t * .05) * 8 + k * k * 180, S.y0 + 8 + h, S.z + k * k * 70);
     const sc = 24 + k * 130; S.sp.scale.set(sc, sc * .85, 1); S.sp.material.opacity = .3 * smooth(0, .1, k) * (1 - smooth(.55, 1, k));
@@ -3053,7 +3074,7 @@ async function buildFar() {
 
 const FAR_GROUPS = [];                         // whole districts hidden when you're far away
 function farGroup(x, z, r) { const g = new THREE.Group(); world.add(g); FAR_GROUPS.push({ g, x, z, r }); return g; }
-function updFarGroups(px, pz) { for (const F of FAR_GROUPS) F.g.visible = Math.hypot(px - F.x, pz - F.z) < F.r + 480; }
+function updFarGroups(px, pz) { for (const F of FAR_GROUPS) F.g.visible = Math.hypot(px - F.x, pz - F.z) < F.r + (VIEW_M ? Math.min(480, VIEW_M) : 480); }
 
 /* facade: windows and floor lines drawn in the shader from world position, so one material fits every tower size */
 function facadeMat() {
@@ -6784,9 +6805,9 @@ function updTime(dt) {
   const rk = rust.k * (1 - hullFogK);
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
-  let far = s.far;
+  let far = VIEW_M ? Math.min(s.far, VIEW_M) : s.far;
   if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
-  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60;
+  scene.fog.far = lerp(far, 24, rk); scene.fog.near = packFogNear(lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60);
   skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
   skyU.sunDir.value.copy(sd);
@@ -6892,7 +6913,7 @@ function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
   const T = [['bag', 'Bag'], ['craft', 'Craft']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
-  const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button class="xb" data-x="1">✕</button></div>`;
+  const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
   const load = carryLoad(), cap = carryCap();
   const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div><span>Load</span><div class="bar"><i style="width:${Math.min(100, load / cap * 100)}%;background:${load > cap ? '#e0573d' : '#7fc4b8'}"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
@@ -6957,6 +6978,7 @@ function toggleInv(v = !invOpen) {
 }
 $('inv').addEventListener('click', e => {
   const b = e.target.closest('button');
+  if (b && b.dataset.gfx) { toggleInv(false); openGfx(); return; }
   if (!b) { if (!e.target.closest('#invp')) toggleInv(false); return; }
   e.stopPropagation(); const d = b.dataset, g = u => INV.tools.find(t => t.u === +u);
   if (d.x) return toggleInv(false);
@@ -7001,13 +7023,14 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
+  if (e.code === 'KeyO') { if (gfxOpen) closeGfx(); else openGfx(); }
   if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
   if (e.code === 'KeyG') throwNext();
   if (e.code === 'KeyB') { if (has('binoc')) { P.binoc = !P.binoc; toast(P.binoc ? 'Binoculars' : 'Binoculars away', 1); } }
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
-  if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
+  if (e.code === 'Escape') { if (gfxOpen) closeGfx(); if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function keyMove() {
@@ -7277,7 +7300,7 @@ function updCull(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = .2;
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
     if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
   }
 }
@@ -7434,14 +7457,42 @@ function startGame(fresh) {
 }
 function menu() {
   const s = load();
-  $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
+  $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button><button class="sec" id="bGfx">Settings</button>`;
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound · O settings';
   $('bNew').onclick = () => { if (s && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
+  $('bGfx').onclick = () => openGfx();
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
 }
 let newArmed = false;
 function confirmNew() { if (newArmed) return true; newArmed = true; $('bNew').textContent = 'Tap again to wipe save'; setTimeout(() => { newArmed = false; if ($('bNew')) $('bNew').textContent = 'New game'; }, 2500); return false; }
+
+/* ================= settings (Nov 10): Textures + View distance ================= */
+function setViewDist(k) {
+  GFX.view = k; const L = VIEW_LEVELS[k]; VIEW_M = L.m; skyU.haze.value = L.haze;
+  T_LOAD = VIEW_M ? Math.min(470, VIEW_M + 60) : 470; T_DROP = T_LOAD + 230;          // ground streamed only as far as you can see
+  FOR_SHOW = VIEW_M ? Math.min(430, VIEW_M + 20) : 430; FOR_DROP = FOR_SHOW + 470;      // same for the forest
+  cullT = 0;
+}
+setViewDist(GFX.view);
+let gfxOpen = false;
+function renderGfx() {
+  const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
+    `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
+  $('gfxb').innerHTML = '<h3>Settings</h3>'
+    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones.' : ''}`)
+    + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
+    + '<button class="xb" data-close="1">Done</button>';
+}
+function openGfx() { gfxOpen = true; renderGfx(); $('gfx').classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
+function closeGfx() { gfxOpen = false; $('gfx').classList.remove('on'); }
+$('gfx').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
+  if (b.dataset.close) { closeGfx(); return; }
+  if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
+  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); location.reload(); }
+});
 
 async function boot() {
   try { await Promise.race([document.fonts.load('900 70px "Big Shoulders Stencil Display"'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}

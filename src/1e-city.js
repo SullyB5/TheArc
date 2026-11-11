@@ -6,7 +6,7 @@
 
 const FAR_GROUPS = [];                         // whole districts hidden when you're far away
 function farGroup(x, z, r) { const g = new THREE.Group(); world.add(g); FAR_GROUPS.push({ g, x, z, r }); return g; }
-function updFarGroups(px, pz) { for (const F of FAR_GROUPS) F.g.visible = Math.hypot(px - F.x, pz - F.z) < F.r + 480; }
+function updFarGroups(px, pz) { for (const F of FAR_GROUPS) F.g.visible = Math.hypot(px - F.x, pz - F.z) < F.r + (VIEW_M ? Math.min(480, VIEW_M) : 480); }
 
 /* facade: windows and floor lines drawn in the shader from world position, so one material fits every tower size */
 function facadeMat() {

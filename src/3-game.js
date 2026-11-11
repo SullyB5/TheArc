@@ -765,9 +765,9 @@ function updTime(dt) {
   const rk = rust.k * (1 - hullFogK);
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
-  let far = s.far;
+  let far = VIEW_M ? Math.min(s.far, VIEW_M) : s.far;
   if (isNight() && Math.hypot(P.x, P.z) < CAMP_R + 30) far += UP.light * 45;
-  scene.fog.far = lerp(far, 24, rk); scene.fog.near = lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60;
+  scene.fog.far = lerp(far, 24, rk); scene.fog.near = packFogNear(lerp(Math.min(40, far * .05), 2, rk) + hullFogK * 60);
   skyU.fogC.value.copy(fogC); skyU.top.value.copy(s.top); skyU.hor.value.copy(s.hor).lerp(_ca.set(0x7a3220), rk * .8); skyU.sunCol.value.copy(s.sun); skyU.rust.value = rk * .7;
   const ang = (G.tod - .25) * Math.PI * 2, sd = new THREE.Vector3(Math.cos(ang) * .8, Math.sin(ang), .35).normalize();
   skyU.sunDir.value.copy(sd);
@@ -873,7 +873,7 @@ function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
   const T = [['bag', 'Bag'], ['craft', 'Craft']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
-  const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button class="xb" data-x="1">✕</button></div>`;
+  const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
   const load = carryLoad(), cap = carryCap();
   const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div><span>Load</span><div class="bar"><i style="width:${Math.min(100, load / cap * 100)}%;background:${load > cap ? '#e0573d' : '#7fc4b8'}"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
@@ -938,6 +938,7 @@ function toggleInv(v = !invOpen) {
 }
 $('inv').addEventListener('click', e => {
   const b = e.target.closest('button');
+  if (b && b.dataset.gfx) { toggleInv(false); openGfx(); return; }
   if (!b) { if (!e.target.closest('#invp')) toggleInv(false); return; }
   e.stopPropagation(); const d = b.dataset, g = u => INV.tools.find(t => t.u === +u);
   if (d.x) return toggleInv(false);
@@ -982,13 +983,14 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
+  if (e.code === 'KeyO') { if (gfxOpen) closeGfx(); else openGfx(); }
   if (e.code === 'KeyM') { if (invOpen) toggleInv(false); toggleMap(); }
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
   if (e.code === 'KeyG') throwNext();
   if (e.code === 'KeyB') { if (has('binoc')) { P.binoc = !P.binoc; toast(P.binoc ? 'Binoculars' : 'Binoculars away', 1); } }
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
-  if (e.code === 'Escape') { if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
+  if (e.code === 'Escape') { if (gfxOpen) closeGfx(); if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function keyMove() {
@@ -1258,7 +1260,7 @@ function updCull(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = .2;
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
     if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
   }
 }
@@ -1415,14 +1417,42 @@ function startGame(fresh) {
 }
 function menu() {
   const s = load();
-  $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound';
+  $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button><button class="sec" id="bGfx">Settings</button>`;
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound · O settings';
   $('bNew').onclick = () => { if (s && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
+  $('bGfx').onclick = () => openGfx();
   $('bMute').onclick = () => { setMute(!muted); $('bMute').textContent = `Sound: ${muted ? 'off' : 'on'}`; };
 }
 let newArmed = false;
 function confirmNew() { if (newArmed) return true; newArmed = true; $('bNew').textContent = 'Tap again to wipe save'; setTimeout(() => { newArmed = false; if ($('bNew')) $('bNew').textContent = 'New game'; }, 2500); return false; }
+
+/* ================= settings (Nov 10): Textures + View distance ================= */
+function setViewDist(k) {
+  GFX.view = k; const L = VIEW_LEVELS[k]; VIEW_M = L.m; skyU.haze.value = L.haze;
+  T_LOAD = VIEW_M ? Math.min(470, VIEW_M + 60) : 470; T_DROP = T_LOAD + 230;          // ground streamed only as far as you can see
+  FOR_SHOW = VIEW_M ? Math.min(430, VIEW_M + 20) : 430; FOR_DROP = FOR_SHOW + 470;      // same for the forest
+  cullT = 0;
+}
+setViewDist(GFX.view);
+let gfxOpen = false;
+function renderGfx() {
+  const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
+    `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
+  $('gfxb').innerHTML = '<h3>Settings</h3>'
+    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones.' : ''}`)
+    + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
+    + '<button class="xb" data-close="1">Done</button>';
+}
+function openGfx() { gfxOpen = true; renderGfx(); $('gfx').classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
+function closeGfx() { gfxOpen = false; $('gfx').classList.remove('on'); }
+$('gfx').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
+  if (b.dataset.close) { closeGfx(); return; }
+  if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
+  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); location.reload(); }
+});
 
 async function boot() {
   try { await Promise.race([document.fonts.load('900 70px "Big Shoulders Stencil Display"'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
