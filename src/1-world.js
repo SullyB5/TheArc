@@ -46,9 +46,20 @@ const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'M
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
   const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
-  return { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  const g = { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  /* (Nov 11) crash guard: boot() marks 'arc-boot' when it starts and clears it once the world has loaded. If the mark is still
+     there, the last load died (a phone running out of graphics memory on High kills the page mid-load, and with High saved it
+     would die every time) — so step textures down a level, save it, and say so on the title screen. */
+  let died = null; try { died = localStorage.getItem('arc-boot'); } catch (e) {}
+  if (died && g.tex !== 'low') {
+    const from = g.tex; g.tex = g.tex === 'high' ? 'med' : 'low'; g.dropped = from;
+    try { o.tex = g.tex; localStorage.setItem('arc-gfx', JSON.stringify(o)); } catch (e) {}
+  }
+  try { localStorage.setItem('arc-boot', g.tex); } catch (e) {}
+  return g;
 })();
-function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify(GFX)); } catch (e) {} }
+function bootDone() { try { localStorage.removeItem('arc-boot'); } catch (e) {} }
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
 const SFX = TEXQ.file;

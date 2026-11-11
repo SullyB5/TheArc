@@ -46,9 +46,20 @@ const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'M
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
   const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
-  return { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  const g = { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  /* (Nov 11) crash guard: boot() marks 'arc-boot' when it starts and clears it once the world has loaded. If the mark is still
+     there, the last load died (a phone running out of graphics memory on High kills the page mid-load, and with High saved it
+     would die every time) — so step textures down a level, save it, and say so on the title screen. */
+  let died = null; try { died = localStorage.getItem('arc-boot'); } catch (e) {}
+  if (died && g.tex !== 'low') {
+    const from = g.tex; g.tex = g.tex === 'high' ? 'med' : 'low'; g.dropped = from;
+    try { o.tex = g.tex; localStorage.setItem('arc-gfx', JSON.stringify(o)); } catch (e) {}
+  }
+  try { localStorage.setItem('arc-boot', g.tex); } catch (e) {}
+  return g;
 })();
-function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify(GFX)); } catch (e) {} }
+function bootDone() { try { localStorage.removeItem('arc-boot'); } catch (e) {} }
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
 const SFX = TEXQ.file;
@@ -13384,7 +13395,7 @@ function renderGfx() {
   const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
     `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
   $('gfxb').innerHTML = '<h3>Settings</h3>'
-    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones.' : ''}`)
+    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones — if it does, the next load drops back a level on its own.' : ''}`)
     + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
     + '<button class="xb" data-close="1">Done</button>';
 }
@@ -13395,7 +13406,7 @@ $('gfx').addEventListener('click', e => {
   if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
   if (b.dataset.close) { closeGfx(); return; }
   if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
-  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); location.reload(); }
+  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); bootDone(); location.reload(); }
 });
 
 async function boot() {
@@ -13427,7 +13438,8 @@ async function boot() {
   ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
-  menu();
+  menu(); bootDone();
+  if (GFX.dropped) $('menu').insertAdjacentHTML('afterbegin', `<div class="load">THE LAST LOAD CRASHED ON ${TEX_LEVELS[GFX.dropped].label.toUpperCase()} TEXTURES — NOW ${TEXQ.label.toUpperCase()}</div>`);
   requestAnimationFrame(frame);
   // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here
   loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });

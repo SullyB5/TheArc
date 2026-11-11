@@ -1598,7 +1598,7 @@ function renderGfx() {
   const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
     `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
   $('gfxb').innerHTML = '<h3>Settings</h3>'
-    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones.' : ''}`)
+    + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones — if it does, the next load drops back a level on its own.' : ''}`)
     + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
     + '<button class="xb" data-close="1">Done</button>';
 }
@@ -1609,7 +1609,7 @@ $('gfx').addEventListener('click', e => {
   if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
   if (b.dataset.close) { closeGfx(); return; }
   if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
-  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); location.reload(); }
+  if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); bootDone(); location.reload(); }
 });
 
 async function boot() {
@@ -1641,7 +1641,8 @@ async function boot() {
   ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
-  menu();
+  menu(); bootDone();
+  if (GFX.dropped) $('menu').insertAdjacentHTML('afterbegin', `<div class="load">THE LAST LOAD CRASHED ON ${TEX_LEVELS[GFX.dropped].label.toUpperCase()} TEXTURES — NOW ${TEXQ.label.toUpperCase()}</div>`);
   requestAnimationFrame(frame);
   // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here
   loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });
