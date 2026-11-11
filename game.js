@@ -5969,6 +5969,8 @@ function healDowned(e) {
 function updRust(dt) {
   if (rust.state === 'none') {
     if (G.flags.rustDay == null) G.flags.rustDay = rustDue();
+    // (Nov 10) the first fog: about 45 s after you first walk into Kestrel (and once on older saves that are already there)
+    if (G.flags.reached && !G.flags.firstRust && !night.active) { G.flags.firstRustT = (G.flags.firstRustT ?? 60) - dt; if (G.flags.firstRustT <= 0) { G.flags.firstRust = 1; delete G.flags.firstRustT; startRust(false); } }
     if ((G.chapterDone || G.day > 1) && !night.active && G.day >= G.flags.rustDay && G.tod > .36 && G.tod < .62) startRust(false);
     if (G.step === 8 && !G.flags.rustDone && Math.hypot(P.x, P.z) > 85) { G.flags.rustDone = 1; startRust(true); }
   } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 60; } }
@@ -6879,7 +6881,7 @@ const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x
 function checkRegions() {
   const seen = G.flags.seen = G.flags.seen || {};
   if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
-    G.flags.reached = 1; save();
+    G.flags.reached = 1; G.flags.firstRustT = 45; save();
     say([['Kade', 'You made it. We’ve got a wall, a fire and not much else.'], ['Kade', 'The shops are open — trade, craft, eat. I’ll be at the bench.'], ['Juno', 'Come see me when you get hurt. You will.']]);
   }
   for (const R of REGIONS) {
