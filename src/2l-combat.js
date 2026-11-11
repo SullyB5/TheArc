@@ -16,8 +16,7 @@
 
 /* ---------- hearing, helping, cover, flanking, fleeing ---------- */
 function aiNoise(x, z, r) {
-  if (UG.at) return;
-  for (const e of ents) { if (e.type !== 'clan' || e.dead || e.mode === 'raid' || e.mode === 'ally') continue; const d = Math.hypot(e.x - x, e.z - z); if (d > r) continue;
+  for (const e of ents) { if (e.type !== 'clan' || e.dead || e.mode === 'raid' || e.mode === 'ally' || (e.pk || null) !== UG.at) continue; const d = Math.hypot(e.x - x, e.z - z); if (d > r) continue;
     if (e.state === 'idle') { if (d < r * .3 && facHostileE(e)) { e.state = 'chase'; alertNear(e); } else e.inv = { x: x + rr(-5, 5), z: z + rr(-5, 5), t: 10 }; } }
 }
 let aiHelpT = 0;
@@ -49,6 +48,7 @@ function aiMove(e, tx, tz, spd, dt) { const p = e.p, v = moveEnt(e, tx, tz, spd,
 function aiUpd(e, dt) {
   if (e.mode === 'ally' || e.mode === 'raid' && !e.boss) return false;
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp), gun = e.kind === 'gunner' || e.kind === 'soldier';
+  if (e.fac === 'grey') trooperUpd(e, dt, dp);
   if (e.boss && e.state === 'chase' && bossUpd(e, dt, dp)) return true;
   // running for it
   if (e.flee > 0) { e.flee -= dt; const a = Math.atan2(-dxp, -dzp); aiMove(e, e.x + Math.sin(a) * 10, e.z + Math.cos(a) * 10, e.speed * 1.15, dt); if (e.flee <= 0) { e.state = 'idle'; e.home = { x: e.x, z: e.z }; } return true; }

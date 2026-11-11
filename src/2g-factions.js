@@ -286,7 +286,7 @@ function facCleanup() {
 /* ================= raids: who comes at night ================= */
 function facRaidWeights() {
   const W = {};
-  for (const f of FAC_IDS) { const F = FAC[f], S = facS(f); if (!F.rw) continue; if (!(night.final || G.day >= F.since)) continue; if (!facHostile(f) && !(night.final && S.rep < 0 && !S.allied && !(S.cease > G.day))) continue;
+  for (const f of FAC_IDS) { const F = FAC[f], S = facS(f); if (!F.rw) continue; if (F.s2 && !G.flags.s2 && G.day <= 100) continue; if (!(night.final || G.day >= F.since)) continue; if (!facHostile(f) && !(night.final && S.rep < 0 && !S.allied && !(S.cease > G.day))) continue;
     let w = F.rw * (S.depot > G.day ? .4 : 1) * (S.lead > G.day ? .5 : 1) * (S.revenge && S.revenge <= G.day && S.revenge > G.day - 3 ? 2.2 : 1);
     W[f] = w; }
   return W;
@@ -301,7 +301,7 @@ function facRaider() {
 }
 const facAnyRaider = () => Object.values(facRaidWeights()).some(w => w > 0);
 function facRaidScale() {
-  const W = facRaidWeights(); if (!Object.values(W).some(w => w > 0)) return 0; const base = FAC_IDS.reduce((a, f) => a + (FAC[f].rw && (night.final || G.day >= FAC[f].since) ? FAC[f].rw : 0), 0) || 1, now = Object.values(W).reduce((a, b) => a + b, 0);
+  const W = facRaidWeights(); if (!Object.values(W).some(w => w > 0)) return 0; const base = FAC_IDS.reduce((a, f) => a + (FAC[f].rw && !(FAC[f].s2 && !G.flags.s2 && G.day <= 100) && (night.final || G.day >= FAC[f].since) ? FAC[f].rw : 0), 0) || 1, now = Object.values(W).reduce((a, b) => a + b, 0);
   const held = OUTPOSTS.filter(O => postOwner(O) === 'kestrel').length;
   return clamp(now / base, .25, 1.4) * Math.max(.6, 1 - held * .05) * (projDone('towers') ? .9 : 1);
 }
@@ -323,7 +323,7 @@ function facDay() {
   // pushing on each other's outposts
   for (const O of OUTPOSTS) {
     const cur = own[O.id], far = Math.hypot(P.x - O.x, P.z - O.z) > 220; if (!far) continue;
-    const near = facNearestCap(O.x, O.z), rivals = FAC_IDS.filter(g => g !== 'arc' && g !== cur && (cur === 'kestrel' ? facHostile(g) : atWar(g, cur)) && Math.hypot(FAC[g].cap().x - O.x, FAC[g].cap().z - O.z) < 1100);
+    const near = facNearestCap(O.x, O.z), rivals = FAC_IDS.filter(g => g !== 'arc' && g !== cur && !FAC[g].mute && FAC[g].cap() && (cur === 'kestrel' ? facHostile(g) : atWar(g, cur)) && Math.hypot(FAC[g].cap().x - O.x, FAC[g].cap().z - O.z) < 1100);
     if (!rivals.length) continue;
     const g = rivals.includes(near) ? near : pick(rivals), S = facS(g);
     const chance = (cur === 'kestrel' ? .07 : .06) * (S.depot > G.day ? .3 : 1) * (S.lead > G.day ? .4 : 1) * (cur && FAC[cur] && facS(cur).depot > G.day ? 2 : 1);
@@ -341,6 +341,7 @@ function facDay() {
   save();
 }
 function facNewJob(f) {
+  if (FAC[f].mute) return null;
   const foes = FAC_IDS.filter(g => g !== 'arc' && atWar(f, g)), t = rnd();
   const held = PRISONERS.find(p => p.of === f && !((G.flags.freed || {})[p.id] && G.day - G.flags.freed[p.id] < 12));
   if (held && t < .3) return { t: 'free', id: held.id, txt: `Free ${held.name} from the ${FAC[held.holder].n}` };
@@ -402,7 +403,7 @@ function factionsHTML() {
     h += `<div style="border:1px solid #fff2;border-left:4px solid ${F.c};padding:8px 10px;border-radius:3px;background:#0002"><b>${F.n}</b> · <span style="color:${facHostile(f) ? '#e0573d' : S.rep >= 20 ? '#7fc4b8' : '#efe9dc'}">${st}</span> <small style="opacity:.6">${Math.round(S.rep)}</small>
       <div class="bar" style="height:5px;margin:4px 0;background:#0005"><i style="display:block;height:100%;width:${w}%;background:${F.c}"></i></div><small style="opacity:.75">${lead}${tags ? ' · ' + tags : ''}</small>`;
     if (S.job && !(f === 'grey' && S.rep < -40)) h += `<div style="margin-top:4px"><small>Contract: ${S.job.txt}${S.job.t === 'hunt' ? ` (${S.job.n}/${S.job.need})` : S.job.t === 'bring' ? ` (${Math.min(cnt(S.job.id), S.job.need)}/${S.job.need})` : ''}${jobDone(S.job) ? ' · <b style="color:#7fc4b8">ready</b>' : ''} · reward: standing, 40 scrap</small></div>`;
-    const can = ctx && (ctx.radio || here === f), inPerson = ctx && here === f, B = [];
+    const can = ctx && (ctx.radio || here === f) && !F.mute, inPerson = ctx && here === f, B = [];
     if (can && f !== 'grey' || can && S.rep > -60) {
       B.push(`<button data-fa="gift" data-f="${f}"${INV.scrap >= 25 && S.gift !== G.day ? '' : ' class="dis"'}>Gift 25 scrap</button>`);
       if (facHostile(f) && !(S.cease > G.day)) B.push(`<button data-fa="cease" data-f="${f}"${INV.scrap >= 60 && S.rep >= -60 ? '' : ' class="dis"'}>Ceasefire, 7 days · 60 scrap${S.rep < -60 ? ' (they won’t yet)' : ''}</button>`);

@@ -186,7 +186,7 @@ const LOGS = {
   cp2: { at: 'A scout’s camp', kind: 'map', t: 'A scavenger’s map', by: 'Ironjaw', b: 'A hand-drawn map, mostly crossings-out. Three of the marks have the same sign beside them — three short bars — and one is circled: “stash, not ours, didn’t touch it.”', mark: 'stash1' },
   cp3: { at: 'A camp under the pines', kind: 'carve', t: 'An offering stone', by: 'Thornkin', b: 'A flat stone with feathers, a bone bead and a clan mark pressed into clay. The mark means “we were here and we left in peace.” Somebody keeps the feathers fresh.' },
   cp4: { at: 'An old campsite', kind: 'photo', t: 'A photo tucked into a boot', by: '', b: 'A family in front of a tent — this tent — waving. The date on the back is three days before the sky went green.' },
-  cp5: { at: 'A camp in the open', kind: 'note', t: 'A field report, half burned', by: 'Greyhold patrol', b: 'Sweep 14. Two specimens collected from the lake shore, both tolerant. Thornkin scouts sighted; avoided. Fog window closes at dawn. Recommend we bring the Reavers next time — the clans don’t run from us any more.' },
+  cp5: { at: 'A camp in the open', kind: 'note', t: 'A field report, half burned', by: 'Greyhold patrol', b: 'Sweep 14. Two specimens collected from the lake shore, both tolerant. Thornkin scouts sighted; avoided. Fog window closes at dawn. Recommend we bring the Hollowed next time — they’ll go where we point them — the clans don’t run from us any more.' },
   cp6: { at: 'A drover’s camp', kind: 'note', t: 'A tally board', by: 'A drover', b: 'Cattle counted every night, marks in rows of five. The rows stop at forty-one. Then, in a different hand: wolves.' },
   cp7: { at: 'A lookout camp', kind: 'note', t: 'A note in a tin', by: 'Rook, Kestrel', b: 'If you’re reading this you came the long way. The tunnel through the east rim — the Coldwater Line — cuts two hours off. Bring a light. And a fuse, if you can spare one.' },
   // the mark: the stash sign
@@ -303,7 +303,7 @@ function xTent(parent, x, z, yaw, col = 0x6a5a3a, burnt = false) {
 const POCKETS = {};
 const UG = { at: null, fadeEl: null, tagEl: null, lamp: null, standT: 0 };
 // slots out in the far corners of the map, past the edge of the walkable world
-const PK_SLOT = { cellar: [1990, 1990], cave: [2130, 1990], hesper: [2270, 2010], lab: [1990, 2150], tunnel: [-2370, -2110], survey: [-2360, -1960], site9: [-2360, -2300] };
+const PK_SLOT = { cellar: [1990, 1990], cave: [2130, 1990], hesper: [2270, 2010], lab: [1990, 2150], tunnel: [-2370, -2110], survey: [-2360, -1960], site9: [-2360, -2300], mtn: [2010, -2380], hollow: [-2360, 1990] };
 function mkPocket(id, name, o = {}) {
   const [ox, oz] = PK_SLOT[id], g = new THREE.Group(); g.visible = false; scene.add(g);
   const pk = { id, name, ox, oz, y: UG_Y, g, rects: [], obst: [], hz: [], weak: [], surf: o.surf || 'metal', fog: o.fog || 70, hemi: (o.hemi ?? .22) + .2, hemiC: o.hemiC || 0x8a9098, power: !!o.power, lamps: [], plamps: [], dyn: new Set(), bounds: [1e9, 1e9, -1e9, -1e9] };
@@ -368,8 +368,8 @@ function xDoor(pk, id, lx, lz, axis, width, o = {}) {
   const setOpen = (v, quiet) => { D.open = v; B.on = !v; lamp.material.color.set(v ? 0x5aff7a : 0xff3a2a); if (!quiet) { sfx('gate'); (G.flags.xd ||= {})[id] = 1; save(); } };
   D.setOpen = setOpen;
   XANIM.push((t, dt) => { D.t = clamp(D.t + (D.open ? dt : -dt) * .8, 0, 1); slab.position.y = h / 2 + D.t * (h - .3); });
-  const canOpen = () => !D.need || (D.need === 'power' ? pk.powered : cnt(D.need) > 0 || (GEAR_DEFS[D.need] && has(GEAR_DEFS[D.need].kind)));
-  const why = () => D.need === 'power' ? 'no power' : `needs ${nameOf(D.need).toLowerCase()}`;
+  const canOpen = () => !D.need || (typeof D.need === 'function' ? D.need() : D.need === 'power' ? pk.powered : cnt(D.need) > 0 || (GEAR_DEFS[D.need] && has(GEAR_DEFS[D.need].kind)));
+  const why = () => o.why || (D.need === 'power' ? 'no power' : `needs ${nameOf(D.need).toLowerCase()}`);
   for (const s of [-1, 1]) { const ux = x + (axis === 'x' ? 0 : s * 1.1), uz = z + (axis === 'x' ? s * 1.1 : 0);
     xUse({ x: ux, y, z: uz, r: 1.8, pocket: pk, label: () => D.open ? null : canOpen() ? `Open ${D.label}` : `${D.label[0].toUpperCase() + D.label.slice(1)} · ${why()}`,
       act: () => { if (D.open) return; if (!canOpen()) { sfx('no'); toast(D.need === 'power' ? 'Dead. Nothing has power down here.' : `Locked — ${why()}`, 2.6); return; } setOpen(true); toast(`${D.label[0].toUpperCase() + D.label.slice(1)} grinds open`, 2.2); if (o.onOpen) o.onOpen(); } }); }
