@@ -3936,6 +3936,167 @@ function buildArches() {
   { const [x, z] = npL2W(A.x, A.z, ry, -1.5, 2.2); cache(g, x, z, ry, 'pry', 'ruin', { id: 'arches_chest', name: 'Stone chest under the arches', big: 1, rolls: 3, refill: 5 }); }
   { const [x, z] = npL2W(A.x, A.z, ry, 11, -7); cache(g, x, z, ry + 1, 'none', 'ruin', { id: 'arches_cache', name: 'Half-buried crate', rolls: 1, refill: 3 }); }
 }
+/* ================= (Nov 11, Part 3) weather =================
+   Clear, cloudy, fog, rain and thunderstorms drift across the valley on their own schedule. Weather changes what you can
+   see and what the clans can see — it never hurts you:
+   · fog and rain pull the haze in (never closer than WX_MIN_FAR), and dim the daylight; nights don't get any darker
+   · the clans spot you from less far away in fog, rain and storms (wxSight → updClan), so bad weather is cover
+   · rain fills pots, canteens and water collectors, and the fish bite more (wxFishK)
+   · lightning is only light and sound — it never strikes you
+   The red fog owns the sky while it's out: weather clears for it. Inside the Arc the rain and haze stay outside.
+   Hooks (3-game.js): updWeather(dt) after updTime, wxSight() in updClan, wxSave() in save(), wxLoad(s) in startGame. */
+
+const WX = {
+  //        far: haze distance ×   light: daylight ×   grey: sky/fog to grey   cloud: extra cloud cover   rain   wind   sight: clan spotting ×   bolt: strikes / min   fish: bite bonus   dur: seconds [min, max]
+  clear:  { n: 'Clear',        far: 1,   light: 1,   grey: 0,   cloud: 0,   rain: 0,   wind: 0,   sight: 1,   bolt: 0, fish: 0,   dur: [260, 520] },
+  cloudy: { n: 'Overcast',     far: .85, light: .82, grey: .35, cloud: .4,  rain: 0,   wind: .3,  sight: .95, bolt: 0, fish: .03, dur: [160, 320] },
+  fog:    { n: 'Fog',          far: .3,  light: .85, grey: .6,  cloud: .2,  rain: 0,   wind: 0,   sight: .55, bolt: 0, fish: .06, dur: [150, 260] },
+  rain:   { n: 'Rain',         far: .55, light: .68, grey: .6,  cloud: .65, rain: .6,  wind: .5,  sight: .7,  bolt: 0, fish: .1,  dur: [160, 300] },
+  storm:  { n: 'Thunderstorm', far: .42, light: .5,  grey: .8,  cloud: .85, rain: 1,   wind: 1,   sight: .6,  bolt: 4, fish: .1,  dur: [100, 200] },
+};
+// what tends to follow what (weights)
+const WX_NEXT = {
+  clear: { clear: 2, cloudy: 4, fog: 1.2 },
+  cloudy: { clear: 3, rain: 2.5, fog: 1, storm: .8 },
+  fog: { clear: 3, cloudy: 2 },
+  rain: { cloudy: 3, storm: 1.5, clear: 1 },
+  storm: { rain: 3, cloudy: 1.5 },
+};
+const WX_MIN_FAR = 75;                       // weather never closes the view in tighter than this (metres)
+const WX_MSG = {
+  clear: 'The sky clears',
+  cloudy: 'Clouds rolling in',
+  fog: 'Fog settling over the valley · the clans will struggle to spot you',
+  rain: 'Rain · the clans see less · pots and collectors fill · the fish are biting',
+  storm: 'Thunderstorm · the clans can barely see in this — good cover',
+};
+const WX_KEYS = ['far', 'light', 'grey', 'cloud', 'rain', 'wind', 'sight', 'bolt', 'fish'];
+const wx = { id: 'clear', t: 300, cur: {}, flash: 0, boltT: 12, slowT: 0, quiet: true };
+for (const k of WX_KEYS) wx.cur[k] = WX.clear[k];
+
+function wxPick(from) {
+  const W = WX_NEXT[from] || WX_NEXT.clear; let tot = 0; for (const k in W) tot += W[k];
+  // mornings are foggier
+  let r = Math.random() * tot; if (G.tod > .2 && G.tod < .34 && from !== 'fog' && Math.random() < .3) return 'fog';
+  for (const k in W) { r -= W[k]; if (r <= 0) return k; } return 'clear';
+}
+function wxSet(id, quiet) {
+  if (!WX[id]) return; wx.id = id; const d = WX[id].dur; wx.t = d[0] + Math.random() * (d[1] - d[0]);
+  if (!quiet && G.mode === 'play' && !cine) toast(WX_MSG[id], 3.2);
+  if (id === 'storm') wx.boltT = 6 + Math.random() * 8;
+}
+const wxRustOut = () => rust.state !== 'none' || rust.k > .05;
+const wxSight = () => wx.cur.sight;
+const wxFishK = () => wx.cur.fish;
+const wxRaining = () => wx.cur.rain > .3 && !wxRustOut() && !inHull(P.x, P.z);
+
+/* ---------- rain: streaks in a box that travels with the camera (all the motion is in the vertex shader) ---------- */
+const RAIN_N = LOW ? 1400 : 3200, RAIN_B = 26, RAIN_H = 22;
+const rainU = { uT: { value: 0 }, uCam: { value: new THREE.Vector3() }, uWind: { value: new THREE.Vector2() }, uOp: { value: 0 }, uCol: { value: new THREE.Color(.75, .8, .86) } };
+const rainMesh = (() => {
+  const pos = new Float32Array(RAIN_N * 6), end = new Float32Array(RAIN_N * 2);
+  for (let i = 0; i < RAIN_N; i++) { const x = Math.random(), y = Math.random(), z = Math.random(); for (let j = 0; j < 2; j++) { pos.set([x, y, z], i * 6 + j * 3); end[i * 2 + j] = j; } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aEnd', new THREE.BufferAttribute(end, 1));
+  const m = new THREE.LineSegments(g, new THREE.ShaderMaterial({
+    uniforms: rainU, transparent: true, depthWrite: false, fog: false,
+    vertexShader: `attribute float aEnd; uniform float uT; uniform vec3 uCam; uniform vec2 uWind; varying float vE;
+      void main(){ const float B = ${RAIN_B}.0, H = ${RAIN_H}.0, SP = 19.0;
+        float x = mod(position.x * 2.0 * B - uCam.x + uT * uWind.x, 2.0 * B) - B;
+        float z = mod(position.z * 2.0 * B - uCam.z + uT * uWind.y, 2.0 * B) - B;
+        float y = mod(position.y * H - uT * SP, H) - H * .45;
+        vec3 p = uCam + vec3(x, y, z) - normalize(vec3(uWind.x, -SP, uWind.y)) * aEnd * .75;
+        vE = aEnd; gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0); }`,
+    fragmentShader: `uniform float uOp; uniform vec3 uCol; varying float vE; void main(){ gl_FragColor = vec4(uCol, uOp * (1.0 - vE * .7)); }`,
+  }));
+  m.frustumCulled = false; m.visible = false; m.renderOrder = 5; scene.add(m); return m;
+})();
+
+/* ---------- lightning: a short jagged bolt far off, a flash of light, thunder that arrives late ---------- */
+const boltMat = new THREE.LineBasicMaterial({ color: 0xe8f0ff, transparent: true, opacity: 0, fog: false, depthWrite: false });
+const boltLine = new THREE.Line(new THREE.BufferGeometry(), boltMat); boltLine.frustumCulled = false; boltLine.visible = false; scene.add(boltLine);
+let boltLife = 0;
+function wxStrike() {
+  const a = P.yaw + Math.PI + (Math.random() - .5) * 2.4, r = 260 + Math.random() * 420;   // mostly somewhere you can see
+  const bx = P.x + Math.sin(a) * r, bz = P.z + Math.cos(a) * r, gy = heightAt(bx, bz), top = gy + 320;
+  const pts = []; let x = bx + (Math.random() - .5) * 40, z = bz + (Math.random() - .5) * 40;
+  for (let i = 0; i <= 14; i++) { const k = i / 14; pts.push(new THREE.Vector3(x, top + (gy - top) * k, z)); x += (Math.random() - .5) * 26 * (1 - k * .5); z += (Math.random() - .5) * 26 * (1 - k * .5); if (i === 14) { pts[i].x = bx; pts[i].z = bz; } }
+  boltLine.geometry.dispose(); boltLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  boltLine.visible = true; boltLife = .22; wx.flash = 1;
+  // thunder: ~340 m/s, so the far ones arrive seconds later and quieter
+  if (AC && !muted) { const dl = Math.min(3.5, r / 340), v = clamp(1.1 - r / 900, .3, .9); noiseBurst(.35, 900, .7, .18 * v, 'lowpass', dl); noiseBurst(3.2, 140, .5, .55 * v, 'lowpass', dl + .1); noiseBurst(2.2, 70, .4, .5 * v, 'lowpass', dl + .5); }
+}
+
+/* ---------- rain on the roof: a looped noise bed, louder the harder it rains (quiet inside the Arc) ---------- */
+let rainGain = null;
+function wxAudio(rain, inside) {
+  if (!AC) return;
+  if (!rainGain) {
+    const s = AC.createBufferSource(); s.buffer = AC.noiseBuf; s.loop = true;
+    const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
+    const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+    rainGain = AC.createGain(); rainGain.gain.value = 0; s.connect(hp).connect(lp).connect(rainGain).connect(master); s.start();
+  }
+  rainGain.gain.value = rain * (inside ? .025 : .085);
+  if (windGain) windGain.gain.value += wx.cur.wind * (inside ? .02 : .08);
+}
+
+/* ---------- per frame, after updTime has set the day's sky (this only tints what it set) ---------- */
+const _wxA = new THREE.Color(), _wxB = new THREE.Color();
+function updWeather(dt) {
+  if (G.mode !== 'play') { rainMesh.visible = false; return; }
+  const rustOut = wxRustOut();
+  if (!rustOut) { wx.t -= dt; if (wx.t <= 0) wxSet(wxPick(wx.id), wx.quiet); wx.quiet = false; }
+  const T = rustOut ? WX.clear : WX[wx.id], ease = 1 - Math.exp(-dt / (rustOut ? 3 : 9));
+  for (const k of WX_KEYS) wx.cur[k] += (T[k] - wx.cur[k]) * ease;
+  const c = wx.cur, inside = hullFogK, out = 1 - inside;
+  // daylight only: weather doesn't make the night any darker
+  const dayK = clamp(sun.intensity / 1.2, 0, 1), dim = 1 - (1 - c.light) * dayK * out;
+  sun.intensity *= dim; hemi.intensity *= 1 - (1 - c.light) * dayK * .7 * out;
+  // haze closes in (never tighter than WX_MIN_FAR), and the fog/sky go grey
+  const far0 = scene.fog.far, far = Math.max(Math.min(far0, WX_MIN_FAR), far0 * (1 - (1 - c.far) * out));
+  if (far < far0) { const n = scene.fog.near, code = n - (n % 1000); scene.fog.far = far; scene.fog.near = code + (n % 1000) * far / far0; }
+  const gk = c.grey * out;
+  if (gk > .01) {
+    const L = scene.fog.color.r * .3 + scene.fog.color.g * .55 + scene.fog.color.b * .15;
+    _wxA.setRGB(L * .97, L, L * 1.03); scene.fog.color.lerp(_wxA, gk); skyU.fogC.value.copy(scene.fog.color);
+    skyU.hor.value.lerp(_wxA, gk * .8); skyU.top.value.lerp(_wxB.setRGB(L * .8, L * .83, L * .88), gk * .7);
+    stars.material.opacity *= 1 - c.cloud;
+  }
+  for (const C of CLOUDS) { C.u.op.value = Math.min(1, C.u.op.value + c.cloud * .6); C.u.col.value.multiplyScalar(1 - c.cloud * .45); C.u.haze.value.copy(scene.fog.color); }
+  // lightning
+  if (c.bolt > .5 && !rustOut && wx.id === 'storm') { wx.boltT -= dt; if (wx.boltT <= 0) { wx.boltT = 60 / c.bolt * (.4 + Math.random() * 1.2); wxStrike(); } }
+  if (boltLife > 0) { boltLife -= dt; boltMat.opacity = boltLife > .12 ? 1 : boltLife > .07 ? .2 : boltLife > 0 ? .9 : 0; if (boltLife <= 0) boltLine.visible = false; }
+  if (wx.flash > .01) {
+    const f = wx.flash * (boltLife > .07 && boltLife < .12 ? .3 : 1) * out;
+    hemi.intensity += f * 2.2; skyU.hor.value.lerp(_wxA.setRGB(.85, .88, 1), f * .5); skyU.top.value.lerp(_wxA, f * .3);
+    wx.flash = Math.max(0, wx.flash - dt * 3.2);
+  }
+  // rain streaks: off inside the Arc; lit by the sky so they don't glow at night
+  const ra = c.rain * out * (rustOut ? 0 : 1);
+  rainMesh.visible = ra > .02;
+  if (rainMesh.visible) {
+    rainU.uT.value = G.t; rainU.uCam.value.copy(camera.position); rainU.uWind.value.set(Math.sin(G.t * .05) * 3 * c.wind + 1.5 * c.wind, 2 * c.wind);
+    rainU.uOp.value = .28 * ra; rainU.uCol.value.setRGB(.7, .75, .82).multiplyScalar(.35 + dayK * .65 + wx.flash * .5);
+    rainMesh.geometry.setDrawRange(0, Math.ceil(RAIN_N * Math.min(1, ra * 1.1)) * 2);
+  }
+  wxAudio(ra, inside > .5);
+  // once a second: rain fills placed water collectors faster
+  wx.slowT -= dt;
+  if (wx.slowT <= 0) { wx.slowT = 1; if (ra > .3) for (const p of PLACED) { const B = BUILD_DEF[p.k]; if (B && B.make && B.make[0] === 'water_rain' && p.rec) p.rec.t = (p.rec.t || 0) + 3 * ra; } }
+}
+
+/* ---------- save: its own key, so the main save format is untouched and old saves just start clear ---------- */
+const WX_SAVE = 'the-arc-wx-v1';
+function wxSave() { try { localStorage.setItem(WX_SAVE, JSON.stringify({ id: wx.id, t: wx.t, buffs: P.buffs || {} })); } catch (e) {} }
+function wxLoad(s) {
+  let w = null; if (s) try { w = JSON.parse(localStorage.getItem(WX_SAVE) || 'null'); } catch (e) {}
+  P.buffs = (w && w.buffs) || {};
+  wxSet(w && WX[w.id] ? w.id : 'clear', true); if (w && w.t > 0) wx.t = w.t;
+  for (const k of WX_KEYS) wx.cur[k] = WX[wx.id][k];
+  wx.quiet = true; wx.flash = 0;
+  if (s) survLoad(); else G.flags.durK = DUR_K;     // fresh games start with the new durability already
+}
+window.__WX = { set(id, snap) { wxSet(id); if (snap) for (const k of WX_KEYS) wx.cur[k] = WX[id][k]; }, get: () => ({ id: wx.id, t: Math.round(wx.t), ...wx.cur }), strike: wxStrike };
 
 /* ================= people ================= */
 const PAL = {
@@ -4939,6 +5100,28 @@ const GEAR_DEFS = {
 };
 const WEAR_SLOTS = ['head', 'body', 'arms', 'feet', 'pack'];
 
+/* (Nov 11, Part 3) gentler survival — the knobs live here so they're easy to tune.
+   The food bar is hunger and thirst together (water tops it up too). It used to empty in ~20 min of walking; now ~65.
+   Starving no longer kills: it wears you down to a floor and stops. */
+const SURV = {
+  drain: .025, sprintK: 1.5, swimK: 1.4,       // food per second while walking (was .08), × while sprinting / swimming
+  starveHp: .25, starveFloor: 12,               // an empty food bar drains health to this floor, never below
+  regenAbove: 35,                               // natural healing once you're this fed (was 45)
+  sickFood: .04, doseFood: .03,                 // what sickness / Rust poisoning cost the food bar per second
+  protCut: .2,                                  // 'Hardy' buff: damage taken × (1 − this)
+  rainCatch: 40, rainCap: 8,                    // in the rain with a pot/canteen: +1 rainwater every N s, up to this many
+};
+/* buffs from cooked food — each lasts for the seconds given in FOOD (2b-craft.js) */
+const BUFF_DEF = {
+  stam: { n: 'Energised', c: '#e0c060', note: 'stamina lasts longer' },
+  heal: { n: 'Mending', c: '#80d0a0', note: 'healing over time' },
+  prot: { n: 'Hardy', c: '#d09060', note: 'less damage, resists the red fog a little' },
+};
+/* longer-lasting gear: every tool, weapon and piece of wear lasts this many times longer (packs/canteens never wore out).
+   Gear in old saves is stretched to match the first time they load (survLoad). */
+const DUR_K = 2.5;
+for (const id in GEAR_DEFS) if (GEAR_DEFS[id].dur < 999) GEAR_DEFS[id].dur = Math.round(GEAR_DEFS[id].dur * DUR_K);
+
 /* recipes · at: station (fire · cook · rack · bench · forge · lab · filter) · tool: a tool kind you must carry (wears once) */
 const R_ = (o, i, cat, t, extra = {}) => ({ o, i, cat, t, ...extra });
 const RECIPES = [
@@ -5024,6 +5207,7 @@ const RECIPES = [
   R_('dried_meat', { meat: 2 }, 'food', 1, { n: 2, at: 'rack' }), R_('smoked_fish', { fish: 2 }, 'food', 1, { n: 2, at: 'rack', alt2: { lake_fish: 2 } }),
   R_('oil', { fat: 2 }, 'food', 2, { at: 'fire' }), R_('oil', { corn: 3 }, 'food', 2, { at: 'cook', alt: 1 }), R_('flour', { wheat: 3 }, 'food', 2, { tool: 'hammer' }),
   R_('bread', { flour: 2, water_boiled: 1 }, 'food', 2, { n: 2, at: 'cook' }), R_('water_filtered', { water_dirty: 3, charcoal: 1 }, 'food', 2, { n: 3 }),
+  R_('purify_tab', { charcoal: 1, herb: 1 }, 'med', 1, { n: 2 }), R_('water_filtered', { water_rain: 2 }, 'food', 1, { n: 2, alt: 1 }),
   R_('water_filtered', { water_dirty: 1 }, 'food', 2, { at: 'filter', alt: 1 }),
   R_('seed_corn', { corn: 1 }, 'food', 2, { n: 3, tool: 'knife' }), R_('seed_potato', { potato: 1 }, 'food', 2, { n: 2, tool: 'knife' }), R_('seed_wheat', { wheat: 1 }, 'food', 2, { n: 3 }),
   R_('seed_bean', { beans: 1 }, 'food', 2, { n: 3 }), R_('seed_squash', { squash: 1 }, 'food', 2, { n: 4, tool: 'knife' }), R_('seed_carrot', { carrot: 1 }, 'food', 2, { n: 2 }),
@@ -5161,6 +5345,7 @@ const bestTool = kind => { let b = null; for (const t of INV.tools) { const D = 
 let lastTool = null;
 function wearTool(t, n = 1) {
   if (!t) return; t.d -= n; if (GEAR_DEFS[t.id].kind !== 'wear') lastTool = t;
+  if (t.d > 0 && t.d <= t.max * .15 && !t.warned) { t.warned = 1; toast(`${GEAR_DEFS[t.id].n} is wearing out — repair it from the bag (E)`, 3); }
   if (t.d <= 0) { INV.tools.splice(INV.tools.indexOf(t), 1); unequip(t); sfx('no'); toast(`${QUAL[t.q].n} ${GEAR_DEFS[t.id].n.toLowerCase()} broke`, 2.6); if (lastTool === t) lastTool = null; if (typeof onGearBroke === 'function') onGearBroke(t); }
 }
 const has = kind => !!bestTool(kind);
@@ -5251,12 +5436,13 @@ function craft(r, times = 1) {
 
 /* ---------- food: variety matters, raw/dirty things can make you sick ---------- */
 const FOOD = {
-  ration: { f: 0, h: 0, k: 'meat', ration: 1 }, dried_meat: { f: 42, h: 10, k: 'meat' }, roast: { f: 60, h: 16, k: 'meat' }, meat: { f: 14, h: 0, k: 'meat', risk: .45 },
-  cooked_fish: { f: 32, h: 10, k: 'fish' }, smoked_fish: { f: 38, h: 10, k: 'fish' }, fish: { f: 10, h: 0, k: 'fish', risk: .4 }, lake_fish: { f: 10, h: 0, k: 'fish', risk: .4 }, shellfish: { f: 12, h: 2, k: 'fish', risk: .25 },
+  // (Part 3) cooked food gives buffs — b: { stam | heal | prot: seconds } (BUFF_DEF in 2a-data.js); raw food still risks sickness
+  ration: { f: 0, h: 0, k: 'meat', ration: 1, b: { prot: 180 } }, dried_meat: { f: 42, h: 10, k: 'meat', b: { prot: 180 } }, roast: { f: 60, h: 16, k: 'meat', b: { prot: 300, heal: 120 } }, meat: { f: 14, h: 0, k: 'meat', risk: .35 },
+  cooked_fish: { f: 32, h: 10, k: 'fish', b: { stam: 240 } }, smoked_fish: { f: 38, h: 10, k: 'fish', b: { stam: 240 } }, fish: { f: 10, h: 0, k: 'fish', risk: .3 }, lake_fish: { f: 10, h: 0, k: 'fish', risk: .3 }, shellfish: { f: 12, h: 2, k: 'fish', risk: .2 },
   berries: { f: 8, h: 2, k: 'plant' }, blueberries: { f: 8, h: 3, k: 'plant' }, nuts: { f: 12, h: 2, k: 'plant' }, greens: { f: 7, h: 3, k: 'plant' }, roots: { f: 10, h: 1, k: 'plant', risk: .08 },
-  mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant' },
-  stew: { f: 46, h: 22, k: 'meal' }, veg_soup: { f: 40, h: 22, k: 'meal' }, fish_soup: { f: 52, h: 24, k: 'meal' }, bread: { f: 30, h: 6, k: 'meal' }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal' },
-  water_dirty: { f: 2, h: 0, k: 'water', risk: .35 }, water_boiled: { f: 3, h: 5, k: 'water' }, water_filtered: { f: 3, h: 6, k: 'water' }, water_rain: { f: 3, h: 4, k: 'water', risk: .05 },
+  mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant', b: { heal: 120 } },
+  stew: { f: 46, h: 22, k: 'meal', b: { heal: 300, prot: 180 } }, veg_soup: { f: 40, h: 22, k: 'meal', b: { heal: 300 } }, fish_soup: { f: 52, h: 24, k: 'meal', b: { heal: 300, stam: 300 } }, bread: { f: 30, h: 6, k: 'meal', b: { stam: 300 } }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal', b: { stam: 120 } },
+  water_dirty: { f: 4, h: 0, k: 'water', risk: .2 }, water_boiled: { f: 8, h: 5, k: 'water', b: { stam: 90 } }, water_filtered: { f: 8, h: 6, k: 'water', b: { stam: 90 } }, water_rain: { f: 7, h: 4, k: 'water' },
 };
 const DIET_N = 6;
 function eatItem(id, quiet) {
@@ -5273,8 +5459,8 @@ function eatItem(id, quiet) {
   let note = `+${f} food`;
   if (mult < .8) note += ' · same food again, less filling';
   if (hasP && hasV && hasW && !(P.fed > 0)) { P.fed = 240; note += ' · well fed'; }
-  if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 70); note = 'That was bad. You feel sick.'; sfx('cough'); }
-  else sfx('eat');
+  if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 45); note = 'That was bad. You feel sick.'; sfx('cough'); }
+  else { sfx('eat'); if (F.b) { P.buffs = P.buffs || {}; for (const k in F.b) P.buffs[k] = Math.max(P.buffs[k] || 0, F.b[k]); note += ' · ' + Object.keys(F.b).map(k => `${BUFF_DEF[k].n} (${BUFF_DEF[k].note})`).join(' · '); } }
   toast(note, 2.2);
   return true;
 }
@@ -5320,16 +5506,17 @@ function clearInjuries() { P.bleed = 0; P.frac = 0; P.sick = 0; P.dose = 0; }
 function onHurt(n, melee) {
   n *= 1 - Math.min(.8, wearStat('prot')); hurtWear(1);
   if (cnt('ember')) n *= .8;
+  if (P.buffs && P.buffs.prot > 0) n *= 1 - SURV.protCut;
   if (melee && rnd() < .22 + n / 120) { if (!(P.bleed > 0)) toast('You\'re bleeding — bandage it (slot 5)', 2.6); P.bleed = 45; }
   return n;
 }
 function onFall(dmg) { if (has('climb')) return; if (dmg >= 12 && !(P.frac > 0)) { P.frac = 1; toast('Something cracked. A splint will fix the leg (slot 5)', 3); } }
-const fogResist = () => G.flags.serum || P.immune > 0 || cnt('ember') ? 1 : Math.min(1, wearStat('fog') + (has('breather') ? .8 : 0));
+const fogResist = () => G.flags.serum || P.immune > 0 || cnt('ember') ? 1 : Math.min(1, wearStat('fog') + (has('breather') ? .8 : 0) + (P.buffs && P.buffs.prot > 0 ? .25 : 0));   // Hardy (cooked meat, stew) shrugs off some red fog too
 function updStatus(dt) {
   if (P.dead || cine) return;
   if (P.bleed > 0) { P.bleed -= dt; P.hp -= dt * .9; if (P.bleed < 1 && rnd() < .3 && !(P.sick > 0)) { P.sick = 60; toast('The wound’s gone bad — infection', 2.6); } }
-  if (P.sick > 0) { P.sick -= dt; P.food = Math.max(0, P.food - dt * .1); if (P.hp > 30) P.hp -= dt * .35; }
-  if (P.dose > 0) { if (P.dose > 40) { P.food = Math.max(0, P.food - dt * .08); if (P.hp > 20) P.hp -= dt * .25; } if (rust.state === 'none') P.dose = Math.max(0, P.dose - dt * .05); }
+  if (P.sick > 0) { P.sick -= dt; P.food = Math.max(0, P.food - dt * SURV.sickFood); if (P.hp > 30) P.hp -= dt * .35; }
+  if (P.dose > 0) { if (P.dose > 40) { P.food = Math.max(0, P.food - dt * SURV.doseFood); if (P.hp > 20) P.hp -= dt * .25; } if (rust.state === 'none') P.dose = Math.max(0, P.dose - dt * .05); }
   if (P.fed > 0) { P.fed -= dt; if (P.hp < 100 && P.hurtT <= 0 && P.food > 45) P.hp = Math.min(100, P.hp + dt * .6); }
   if (cnt('ember') && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .8);
   if (P.immune > 0) P.immune -= dt; if (P.paint > 0) P.paint -= dt;
@@ -5337,7 +5524,7 @@ function updStatus(dt) {
   if (P.hp <= 0) die();
 }
 const statusTags = () => [P.bleed > 0 && ['Bleeding', '#e0573d'], P.frac > 0 && ['Fractured leg', '#e0a040'], P.sick > 0 && ['Sick', '#a8c050'], P.dose > 20 && ['Rust poisoning', '#c0603a'],
-  P.fed > 0 && ['Well fed', '#7fc4b8'], P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
+  P.fed > 0 && ['Well fed', '#7fc4b8'], ...Object.keys(BUFF_DEF).map(k => P.buffs && P.buffs[k] > 0 && [BUFF_DEF[k].n, BUFF_DEF[k].c]), P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
 const stealthK = () => Math.max(.35, 1 - wearStat('stealth') - (P.paint > 0 ? .3 : 0));
 
 /* ---------- gathering: trees, rocks, undergrowth, water ---------- */
@@ -5396,7 +5583,9 @@ function waterAction(w) {
   const fi = bestTool('fish'), sh = bestTool('shovel'), acts = [];
   if (container()) acts.push({ l: 'Fill up (dirty water)', t: 1, fn: () => gain([['water_dirty', cnt('canteen') ? 3 : 2]]) });
   if (fi) acts.push({ l: fi.id === 'fish_rod' ? 'Cast a line' : 'Spear fish', t: fi.id === 'fish_rod' ? 3.2 : 2.4, fn: () => {
-    wearTool(fi); if (rnd() < (fi.id === 'fish_rod' ? .78 : .55)) gain([[w.lake ? 'lake_fish' : 'fish', 1], ['shellfish', rnd() < .1 ? 1 : 0]]); else { toast('Nothing bit', 1.4); sfx('splash'); } } });
+    // (Part 3) better odds, a chance of two with a rod, and fish bite more in rain and fog (wxFishK, 1k-weather.js)
+    const rod = fi.id === 'fish_rod', bite = (rod ? .85 : .65) + wxFishK();
+    wearTool(fi); if (rnd() < bite) gain([[w.lake ? 'lake_fish' : 'fish', rod && rnd() < .3 ? 2 : 1], ['shellfish', rnd() < .12 ? 1 : 0]]); else { toast('Nothing bit', 1.4); sfx('splash'); } } });
   if (sh && !w.lake) acts.push({ l: 'Dig clay from the bank', t: 1.8, fn: () => { wearTool(sh); gain([['clay', 2 + Math.floor(rnd() * 2)]]); } });
   acts.push({ l: 'Cut reeds', t: .9, fn: () => gain([['reed', 1 + Math.floor(rnd() * 2)], ['fiber', 1], ['shellfish', rnd() < .08 ? 1 : 0]]) });
   return acts;
@@ -5481,6 +5670,52 @@ function clanDrop(e) {
       : [['cloth', .3, 1, 2], ['bone', .18], ['feather', .15, 2, 2], ['rope', .1], ['herb_med', .06], ['arrows', .1, 2, 4], ['insignia', .05], ['war_paint', .05]];
   for (const [id, p, a = 1, b = a] of T) if (rnd() < p) L.push([id, a + Math.floor(rnd() * (b - a + 1))]);
   for (const [id, n] of L) give(id, n); return L;
+}
+
+/* ================= (Nov 11, Part 3) gentler survival =================
+   Called once a frame from updPlayer. The food bar (hunger + thirst) drains ~3× slower than before, starving wears you down
+   but never kills, cooked food buffs tick down here, and rain fills a pot or canteen. Tuning: SURV / BUFF_DEF in 2a-data.js. */
+let rainCatchT = 0;
+function updSurvival(dt) {
+  const warm = 1 - Math.min(.5, wearStat('warm') * (isNight() ? 1 : .4));
+  P.food = Math.max(0, P.food - dt * SURV.drain * (P.sprinting ? SURV.sprintK : 1) * (P.swim ? SURV.swimK : 1) * warm);
+  const B = P.buffs || (P.buffs = {});
+  for (const k in B) if (B[k] > 0) { B[k] -= dt; if (B[k] <= 0) { delete B[k]; toast(`${BUFF_DEF[k]?.n || k} wore off`, 1.6); } }
+  if (P.food <= 0) { if (P.hp > SURV.starveFloor) P.hp = Math.max(SURV.starveFloor, P.hp - dt * SURV.starveHp); }
+  else if (P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  if (B.heal > 0 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .9);
+  // Energised: sprinting costs half as much and stamina comes back faster (updPlayer has already spent/refilled it this frame)
+  if (B.stam > 0) { if (P.sprinting) P.stam = Math.min(100, P.stam + dt * 5.5); else if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * 10); }
+  // catching rain
+  if (wxRaining() && container() && !P.safe) {
+    rainCatchT += dt;
+    if (rainCatchT > SURV.rainCatch) { rainCatchT = 0; if (cnt('water_rain') < SURV.rainCap) { give('water_rain', 1); toast('+1 rainwater · your pot caught the rain', 1.8); } }
+  }
+}
+/* old saves: stretch the gear they already carry to the new, longer durability (once) */
+function survLoad() {
+  if ((G.flags.durK || 1) >= DUR_K) return;
+  const k0 = G.flags.durK || 1;
+  for (const t of INV.tools) { const D = GEAR_DEFS[t.id]; if (!D || D.dur >= 999) continue; const max = Math.round(D.dur * QUAL[t.q ?? 1].k); if (max > t.max) { t.d = Math.min(max, Math.round(t.d * max / t.max)); t.max = max; } }
+  G.flags.durK = DUR_K; void k0;
+}
+/* easy repairs: a repair kit restores fully anywhere; otherwise scrap (or sticks + fiber for primitive tools) patches it
+   up to 60%, or all the way at a workbench or forge */
+function repairCost(t) {
+  const D = GEAR_DEFS[t.id]; if (!D || t.d >= t.max) return null;
+  if (cnt('repair_kit')) return { l: 'Repair · kit', need: [['repair_kit', 1]], full: true };
+  const atBench = nearStation('bench') || nearStation('forge');
+  if ((D.t || 1) <= 1 && cnt('stick') >= 1 && cnt('fiber') >= 2) return { l: `Repair · stick + 2 fiber${atBench ? '' : ' (60%)'}`, need: [['stick', 1], ['fiber', 2]], full: atBench };
+  const sc = 1 + (D.t || 1);
+  if (INV.scrap >= sc) return { l: `Repair · ${sc} scrap${atBench ? '' : ' (60%)'}`, need: [['scrap', sc]], full: atBench };
+  return null;
+}
+const repairLabel = t => repairCost(t)?.l || null;
+function repairGear(t) {
+  const c = t && repairCost(t); if (!c) { sfx('no'); toast('Need a repair kit, scrap, or a stick and fiber'); return; }
+  for (const [id, n] of c.need) { if (id === 'scrap') INV.scrap -= n; else take(id, n); }
+  t.d = c.full ? t.max : Math.max(t.d, Math.min(t.max, Math.round(t.max * .6))); t.warned = 0;
+  sfx('buy'); toast(`${GEAR_DEFS[t.id].n} repaired${c.full ? '' : ' to 60% · a workbench fixes it fully'}`, 2.2); save();
 }
 
 /* ================= weapons: three slots (1–2 guns, 3 melee or bow), throwables on G =================
@@ -6508,7 +6743,7 @@ function updClan(e, dt) {
   if (e.state === 'idle') {
     if (e.t > 4) { e.t = 0; e.tx = e.home.x + rr(-10, 10); e.tz = e.home.z + rr(-10, 10); }
     tx = e.tx ?? e.x; tz = e.tz ?? e.z; spd = 1.3;
-    const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1);
+    const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1) * wxSight();
     if (dp < sees && !P.dead && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
@@ -6763,9 +6998,7 @@ function updPlayer(dt) {
   }
   P.sprinting = sprint && hs > 3;
   // survival
-  P.food = Math.max(0, P.food - dt * (P.sprinting ? .13 : .08) * (P.swim ? 1.6 : 1) * (1 - Math.min(.5, wearStat('warm') * (isNight() ? 1 : .4))));
-  if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
-  else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  updSurvival(dt);   // (Part 3) hunger, healing, food buffs, rain-catching — 2b-craft.js
   if (P.hp <= 0 && !P.dead) die();
   P.hurtT -= dt;
   // weapon
@@ -6995,7 +7228,7 @@ function renderInv() {
       if (D.kind === 'wear') b.push(`<button data-wear="${t.u}">${t.on ? 'Take off' : 'Wear'}</button>`);
       if (W && W.cls === 'gun') b.push(`<button data-eq="${t.u}" data-slot="0">Slot 1</button><button data-eq="${t.u}" data-slot="1">Slot 2</button>`);
       else if (W) b.push(`<button data-eq="${t.u}" data-slot="2">Slot 3</button>`);
-      if (cnt('repair_kit') && t.d < t.max) b.push(`<button data-fix="${t.u}">Repair</button>`);
+      { const rl = repairLabel(t); if (rl) b.push(`<button data-fix="${t.u}">${rl}</button>`); }
       return gearTile(t, b.join('')); }).join('')}</div>`;
     body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
@@ -7063,7 +7296,7 @@ $('inv').addEventListener('click', e => {
   else if (d.eq) equipTo(g(d.eq), +d.slot);
   else if (d.arc) { INV.eq[0] = 'arc'; if (P.slot === 0) selectGunView(gunId()); }
   else if (d.hunt) { INV.eq[1] = 'hunter'; G.flags.hunter = 1; if (P.slot === 1) selectGunView(gunId()); }
-  else if (d.fix) { const t = g(d.fix); take('repair_kit', 1); t.d = Math.min(t.max, t.d + Math.round(t.max * .6)); sfx('buy'); toast(`${GEAR_DEFS[t.id].n} repaired`); save(); }
+  else if (d.fix) repairGear(g(d.fix));
   else if (d.put || d.putall) storePut(d.put || d.putall, !!d.putall || e.shiftKey);
   else if (d.take || d.takeall) storeTake(d.take || d.takeall, !!d.takeall || e.shiftKey);
   else if (d.putg) storePut(+d.putg); else if (d.takeg) storeTake(+d.takeg);
@@ -7211,6 +7444,7 @@ const SAVE = 'the-arc-save-v2';
 function save() {
   if (G.mode !== 'play') return;
   try { localStorage.setItem(SAVE, JSON.stringify({ v: 3, step: G.step, day: G.day, tod: G.tod, chapterDone: true, flags: G.flags, inv: INV, up: UP, hp: P.hp, food: P.food, p: { diet: P.diet, bleed: P.bleed, frac: P.frac, sick: P.sick, dose: P.dose } })); } catch (e) {}
+  wxSave();
 }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
@@ -7270,7 +7504,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -7534,6 +7768,7 @@ function startGame(fresh) {
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
     if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
+  wxLoad(s);         // (Part 3) weather + food buffs, and stretches old saves' gear to the new durability — 1k-weather.js
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;

@@ -142,6 +142,28 @@ const GEAR_DEFS = {
 };
 const WEAR_SLOTS = ['head', 'body', 'arms', 'feet', 'pack'];
 
+/* (Nov 11, Part 3) gentler survival — the knobs live here so they're easy to tune.
+   The food bar is hunger and thirst together (water tops it up too). It used to empty in ~20 min of walking; now ~65.
+   Starving no longer kills: it wears you down to a floor and stops. */
+const SURV = {
+  drain: .025, sprintK: 1.5, swimK: 1.4,       // food per second while walking (was .08), × while sprinting / swimming
+  starveHp: .25, starveFloor: 12,               // an empty food bar drains health to this floor, never below
+  regenAbove: 35,                               // natural healing once you're this fed (was 45)
+  sickFood: .04, doseFood: .03,                 // what sickness / Rust poisoning cost the food bar per second
+  protCut: .2,                                  // 'Hardy' buff: damage taken × (1 − this)
+  rainCatch: 40, rainCap: 8,                    // in the rain with a pot/canteen: +1 rainwater every N s, up to this many
+};
+/* buffs from cooked food — each lasts for the seconds given in FOOD (2b-craft.js) */
+const BUFF_DEF = {
+  stam: { n: 'Energised', c: '#e0c060', note: 'stamina lasts longer' },
+  heal: { n: 'Mending', c: '#80d0a0', note: 'healing over time' },
+  prot: { n: 'Hardy', c: '#d09060', note: 'less damage, resists the red fog a little' },
+};
+/* longer-lasting gear: every tool, weapon and piece of wear lasts this many times longer (packs/canteens never wore out).
+   Gear in old saves is stretched to match the first time they load (survLoad). */
+const DUR_K = 2.5;
+for (const id in GEAR_DEFS) if (GEAR_DEFS[id].dur < 999) GEAR_DEFS[id].dur = Math.round(GEAR_DEFS[id].dur * DUR_K);
+
 /* recipes · at: station (fire · cook · rack · bench · forge · lab · filter) · tool: a tool kind you must carry (wears once) */
 const R_ = (o, i, cat, t, extra = {}) => ({ o, i, cat, t, ...extra });
 const RECIPES = [
@@ -227,6 +249,7 @@ const RECIPES = [
   R_('dried_meat', { meat: 2 }, 'food', 1, { n: 2, at: 'rack' }), R_('smoked_fish', { fish: 2 }, 'food', 1, { n: 2, at: 'rack', alt2: { lake_fish: 2 } }),
   R_('oil', { fat: 2 }, 'food', 2, { at: 'fire' }), R_('oil', { corn: 3 }, 'food', 2, { at: 'cook', alt: 1 }), R_('flour', { wheat: 3 }, 'food', 2, { tool: 'hammer' }),
   R_('bread', { flour: 2, water_boiled: 1 }, 'food', 2, { n: 2, at: 'cook' }), R_('water_filtered', { water_dirty: 3, charcoal: 1 }, 'food', 2, { n: 3 }),
+  R_('purify_tab', { charcoal: 1, herb: 1 }, 'med', 1, { n: 2 }), R_('water_filtered', { water_rain: 2 }, 'food', 1, { n: 2, alt: 1 }),
   R_('water_filtered', { water_dirty: 1 }, 'food', 2, { at: 'filter', alt: 1 }),
   R_('seed_corn', { corn: 1 }, 'food', 2, { n: 3, tool: 'knife' }), R_('seed_potato', { potato: 1 }, 'food', 2, { n: 2, tool: 'knife' }), R_('seed_wheat', { wheat: 1 }, 'food', 2, { n: 3 }),
   R_('seed_bean', { beans: 1 }, 'food', 2, { n: 3 }), R_('seed_squash', { squash: 1 }, 'food', 2, { n: 4, tool: 'knife' }), R_('seed_carrot', { carrot: 1 }, 'food', 2, { n: 2 }),

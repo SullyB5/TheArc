@@ -41,6 +41,7 @@ const bestTool = kind => { let b = null; for (const t of INV.tools) { const D = 
 let lastTool = null;
 function wearTool(t, n = 1) {
   if (!t) return; t.d -= n; if (GEAR_DEFS[t.id].kind !== 'wear') lastTool = t;
+  if (t.d > 0 && t.d <= t.max * .15 && !t.warned) { t.warned = 1; toast(`${GEAR_DEFS[t.id].n} is wearing out — repair it from the bag (E)`, 3); }
   if (t.d <= 0) { INV.tools.splice(INV.tools.indexOf(t), 1); unequip(t); sfx('no'); toast(`${QUAL[t.q].n} ${GEAR_DEFS[t.id].n.toLowerCase()} broke`, 2.6); if (lastTool === t) lastTool = null; if (typeof onGearBroke === 'function') onGearBroke(t); }
 }
 const has = kind => !!bestTool(kind);
@@ -131,12 +132,13 @@ function craft(r, times = 1) {
 
 /* ---------- food: variety matters, raw/dirty things can make you sick ---------- */
 const FOOD = {
-  ration: { f: 0, h: 0, k: 'meat', ration: 1 }, dried_meat: { f: 42, h: 10, k: 'meat' }, roast: { f: 60, h: 16, k: 'meat' }, meat: { f: 14, h: 0, k: 'meat', risk: .45 },
-  cooked_fish: { f: 32, h: 10, k: 'fish' }, smoked_fish: { f: 38, h: 10, k: 'fish' }, fish: { f: 10, h: 0, k: 'fish', risk: .4 }, lake_fish: { f: 10, h: 0, k: 'fish', risk: .4 }, shellfish: { f: 12, h: 2, k: 'fish', risk: .25 },
+  // (Part 3) cooked food gives buffs — b: { stam | heal | prot: seconds } (BUFF_DEF in 2a-data.js); raw food still risks sickness
+  ration: { f: 0, h: 0, k: 'meat', ration: 1, b: { prot: 180 } }, dried_meat: { f: 42, h: 10, k: 'meat', b: { prot: 180 } }, roast: { f: 60, h: 16, k: 'meat', b: { prot: 300, heal: 120 } }, meat: { f: 14, h: 0, k: 'meat', risk: .35 },
+  cooked_fish: { f: 32, h: 10, k: 'fish', b: { stam: 240 } }, smoked_fish: { f: 38, h: 10, k: 'fish', b: { stam: 240 } }, fish: { f: 10, h: 0, k: 'fish', risk: .3 }, lake_fish: { f: 10, h: 0, k: 'fish', risk: .3 }, shellfish: { f: 12, h: 2, k: 'fish', risk: .2 },
   berries: { f: 8, h: 2, k: 'plant' }, blueberries: { f: 8, h: 3, k: 'plant' }, nuts: { f: 12, h: 2, k: 'plant' }, greens: { f: 7, h: 3, k: 'plant' }, roots: { f: 10, h: 1, k: 'plant', risk: .08 },
-  mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant' },
-  stew: { f: 46, h: 22, k: 'meal' }, veg_soup: { f: 40, h: 22, k: 'meal' }, fish_soup: { f: 52, h: 24, k: 'meal' }, bread: { f: 30, h: 6, k: 'meal' }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal' },
-  water_dirty: { f: 2, h: 0, k: 'water', risk: .35 }, water_boiled: { f: 3, h: 5, k: 'water' }, water_filtered: { f: 3, h: 6, k: 'water' }, water_rain: { f: 3, h: 4, k: 'water', risk: .05 },
+  mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant', b: { heal: 120 } },
+  stew: { f: 46, h: 22, k: 'meal', b: { heal: 300, prot: 180 } }, veg_soup: { f: 40, h: 22, k: 'meal', b: { heal: 300 } }, fish_soup: { f: 52, h: 24, k: 'meal', b: { heal: 300, stam: 300 } }, bread: { f: 30, h: 6, k: 'meal', b: { stam: 300 } }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal', b: { stam: 120 } },
+  water_dirty: { f: 4, h: 0, k: 'water', risk: .2 }, water_boiled: { f: 8, h: 5, k: 'water', b: { stam: 90 } }, water_filtered: { f: 8, h: 6, k: 'water', b: { stam: 90 } }, water_rain: { f: 7, h: 4, k: 'water' },
 };
 const DIET_N = 6;
 function eatItem(id, quiet) {
@@ -153,8 +155,8 @@ function eatItem(id, quiet) {
   let note = `+${f} food`;
   if (mult < .8) note += ' · same food again, less filling';
   if (hasP && hasV && hasW && !(P.fed > 0)) { P.fed = 240; note += ' · well fed'; }
-  if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 70); note = 'That was bad. You feel sick.'; sfx('cough'); }
-  else sfx('eat');
+  if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 45); note = 'That was bad. You feel sick.'; sfx('cough'); }
+  else { sfx('eat'); if (F.b) { P.buffs = P.buffs || {}; for (const k in F.b) P.buffs[k] = Math.max(P.buffs[k] || 0, F.b[k]); note += ' · ' + Object.keys(F.b).map(k => `${BUFF_DEF[k].n} (${BUFF_DEF[k].note})`).join(' · '); } }
   toast(note, 2.2);
   return true;
 }
@@ -200,16 +202,17 @@ function clearInjuries() { P.bleed = 0; P.frac = 0; P.sick = 0; P.dose = 0; }
 function onHurt(n, melee) {
   n *= 1 - Math.min(.8, wearStat('prot')); hurtWear(1);
   if (cnt('ember')) n *= .8;
+  if (P.buffs && P.buffs.prot > 0) n *= 1 - SURV.protCut;
   if (melee && rnd() < .22 + n / 120) { if (!(P.bleed > 0)) toast('You\'re bleeding — bandage it (slot 5)', 2.6); P.bleed = 45; }
   return n;
 }
 function onFall(dmg) { if (has('climb')) return; if (dmg >= 12 && !(P.frac > 0)) { P.frac = 1; toast('Something cracked. A splint will fix the leg (slot 5)', 3); } }
-const fogResist = () => G.flags.serum || P.immune > 0 || cnt('ember') ? 1 : Math.min(1, wearStat('fog') + (has('breather') ? .8 : 0));
+const fogResist = () => G.flags.serum || P.immune > 0 || cnt('ember') ? 1 : Math.min(1, wearStat('fog') + (has('breather') ? .8 : 0) + (P.buffs && P.buffs.prot > 0 ? .25 : 0));   // Hardy (cooked meat, stew) shrugs off some red fog too
 function updStatus(dt) {
   if (P.dead || cine) return;
   if (P.bleed > 0) { P.bleed -= dt; P.hp -= dt * .9; if (P.bleed < 1 && rnd() < .3 && !(P.sick > 0)) { P.sick = 60; toast('The wound’s gone bad — infection', 2.6); } }
-  if (P.sick > 0) { P.sick -= dt; P.food = Math.max(0, P.food - dt * .1); if (P.hp > 30) P.hp -= dt * .35; }
-  if (P.dose > 0) { if (P.dose > 40) { P.food = Math.max(0, P.food - dt * .08); if (P.hp > 20) P.hp -= dt * .25; } if (rust.state === 'none') P.dose = Math.max(0, P.dose - dt * .05); }
+  if (P.sick > 0) { P.sick -= dt; P.food = Math.max(0, P.food - dt * SURV.sickFood); if (P.hp > 30) P.hp -= dt * .35; }
+  if (P.dose > 0) { if (P.dose > 40) { P.food = Math.max(0, P.food - dt * SURV.doseFood); if (P.hp > 20) P.hp -= dt * .25; } if (rust.state === 'none') P.dose = Math.max(0, P.dose - dt * .05); }
   if (P.fed > 0) { P.fed -= dt; if (P.hp < 100 && P.hurtT <= 0 && P.food > 45) P.hp = Math.min(100, P.hp + dt * .6); }
   if (cnt('ember') && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .8);
   if (P.immune > 0) P.immune -= dt; if (P.paint > 0) P.paint -= dt;
@@ -217,7 +220,7 @@ function updStatus(dt) {
   if (P.hp <= 0) die();
 }
 const statusTags = () => [P.bleed > 0 && ['Bleeding', '#e0573d'], P.frac > 0 && ['Fractured leg', '#e0a040'], P.sick > 0 && ['Sick', '#a8c050'], P.dose > 20 && ['Rust poisoning', '#c0603a'],
-  P.fed > 0 && ['Well fed', '#7fc4b8'], P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
+  P.fed > 0 && ['Well fed', '#7fc4b8'], ...Object.keys(BUFF_DEF).map(k => P.buffs && P.buffs[k] > 0 && [BUFF_DEF[k].n, BUFF_DEF[k].c]), P.immune > 0 && ['Rust-proof', '#9ad06a'], P.paint > 0 && ['War paint', '#b0b0b0'], P.over && ['Overloaded', '#e0a040']].filter(Boolean);
 const stealthK = () => Math.max(.35, 1 - wearStat('stealth') - (P.paint > 0 ? .3 : 0));
 
 /* ---------- gathering: trees, rocks, undergrowth, water ---------- */
@@ -276,7 +279,9 @@ function waterAction(w) {
   const fi = bestTool('fish'), sh = bestTool('shovel'), acts = [];
   if (container()) acts.push({ l: 'Fill up (dirty water)', t: 1, fn: () => gain([['water_dirty', cnt('canteen') ? 3 : 2]]) });
   if (fi) acts.push({ l: fi.id === 'fish_rod' ? 'Cast a line' : 'Spear fish', t: fi.id === 'fish_rod' ? 3.2 : 2.4, fn: () => {
-    wearTool(fi); if (rnd() < (fi.id === 'fish_rod' ? .78 : .55)) gain([[w.lake ? 'lake_fish' : 'fish', 1], ['shellfish', rnd() < .1 ? 1 : 0]]); else { toast('Nothing bit', 1.4); sfx('splash'); } } });
+    // (Part 3) better odds, a chance of two with a rod, and fish bite more in rain and fog (wxFishK, 1k-weather.js)
+    const rod = fi.id === 'fish_rod', bite = (rod ? .85 : .65) + wxFishK();
+    wearTool(fi); if (rnd() < bite) gain([[w.lake ? 'lake_fish' : 'fish', rod && rnd() < .3 ? 2 : 1], ['shellfish', rnd() < .12 ? 1 : 0]]); else { toast('Nothing bit', 1.4); sfx('splash'); } } });
   if (sh && !w.lake) acts.push({ l: 'Dig clay from the bank', t: 1.8, fn: () => { wearTool(sh); gain([['clay', 2 + Math.floor(rnd() * 2)]]); } });
   acts.push({ l: 'Cut reeds', t: .9, fn: () => gain([['reed', 1 + Math.floor(rnd() * 2)], ['fiber', 1], ['shellfish', rnd() < .08 ? 1 : 0]]) });
   return acts;
@@ -361,4 +366,50 @@ function clanDrop(e) {
       : [['cloth', .3, 1, 2], ['bone', .18], ['feather', .15, 2, 2], ['rope', .1], ['herb_med', .06], ['arrows', .1, 2, 4], ['insignia', .05], ['war_paint', .05]];
   for (const [id, p, a = 1, b = a] of T) if (rnd() < p) L.push([id, a + Math.floor(rnd() * (b - a + 1))]);
   for (const [id, n] of L) give(id, n); return L;
+}
+
+/* ================= (Nov 11, Part 3) gentler survival =================
+   Called once a frame from updPlayer. The food bar (hunger + thirst) drains ~3× slower than before, starving wears you down
+   but never kills, cooked food buffs tick down here, and rain fills a pot or canteen. Tuning: SURV / BUFF_DEF in 2a-data.js. */
+let rainCatchT = 0;
+function updSurvival(dt) {
+  const warm = 1 - Math.min(.5, wearStat('warm') * (isNight() ? 1 : .4));
+  P.food = Math.max(0, P.food - dt * SURV.drain * (P.sprinting ? SURV.sprintK : 1) * (P.swim ? SURV.swimK : 1) * warm);
+  const B = P.buffs || (P.buffs = {});
+  for (const k in B) if (B[k] > 0) { B[k] -= dt; if (B[k] <= 0) { delete B[k]; toast(`${BUFF_DEF[k]?.n || k} wore off`, 1.6); } }
+  if (P.food <= 0) { if (P.hp > SURV.starveFloor) P.hp = Math.max(SURV.starveFloor, P.hp - dt * SURV.starveHp); }
+  else if (P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  if (B.heal > 0 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .9);
+  // Energised: sprinting costs half as much and stamina comes back faster (updPlayer has already spent/refilled it this frame)
+  if (B.stam > 0) { if (P.sprinting) P.stam = Math.min(100, P.stam + dt * 5.5); else if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * 10); }
+  // catching rain
+  if (wxRaining() && container() && !P.safe) {
+    rainCatchT += dt;
+    if (rainCatchT > SURV.rainCatch) { rainCatchT = 0; if (cnt('water_rain') < SURV.rainCap) { give('water_rain', 1); toast('+1 rainwater · your pot caught the rain', 1.8); } }
+  }
+}
+/* old saves: stretch the gear they already carry to the new, longer durability (once) */
+function survLoad() {
+  if ((G.flags.durK || 1) >= DUR_K) return;
+  const k0 = G.flags.durK || 1;
+  for (const t of INV.tools) { const D = GEAR_DEFS[t.id]; if (!D || D.dur >= 999) continue; const max = Math.round(D.dur * QUAL[t.q ?? 1].k); if (max > t.max) { t.d = Math.min(max, Math.round(t.d * max / t.max)); t.max = max; } }
+  G.flags.durK = DUR_K; void k0;
+}
+/* easy repairs: a repair kit restores fully anywhere; otherwise scrap (or sticks + fiber for primitive tools) patches it
+   up to 60%, or all the way at a workbench or forge */
+function repairCost(t) {
+  const D = GEAR_DEFS[t.id]; if (!D || t.d >= t.max) return null;
+  if (cnt('repair_kit')) return { l: 'Repair · kit', need: [['repair_kit', 1]], full: true };
+  const atBench = nearStation('bench') || nearStation('forge');
+  if ((D.t || 1) <= 1 && cnt('stick') >= 1 && cnt('fiber') >= 2) return { l: `Repair · stick + 2 fiber${atBench ? '' : ' (60%)'}`, need: [['stick', 1], ['fiber', 2]], full: atBench };
+  const sc = 1 + (D.t || 1);
+  if (INV.scrap >= sc) return { l: `Repair · ${sc} scrap${atBench ? '' : ' (60%)'}`, need: [['scrap', sc]], full: atBench };
+  return null;
+}
+const repairLabel = t => repairCost(t)?.l || null;
+function repairGear(t) {
+  const c = t && repairCost(t); if (!c) { sfx('no'); toast('Need a repair kit, scrap, or a stick and fiber'); return; }
+  for (const [id, n] of c.need) { if (id === 'scrap') INV.scrap -= n; else take(id, n); }
+  t.d = c.full ? t.max : Math.max(t.d, Math.min(t.max, Math.round(t.max * .6))); t.warned = 0;
+  sfx('buy'); toast(`${GEAR_DEFS[t.id].n} repaired${c.full ? '' : ' to 60% · a workbench fixes it fully'}`, 2.2); save();
 }

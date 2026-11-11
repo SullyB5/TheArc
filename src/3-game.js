@@ -468,7 +468,7 @@ function updClan(e, dt) {
   if (e.state === 'idle') {
     if (e.t > 4) { e.t = 0; e.tx = e.home.x + rr(-10, 10); e.tz = e.home.z + rr(-10, 10); }
     tx = e.tx ?? e.x; tz = e.tz ?? e.z; spd = 1.3;
-    const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1);
+    const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1) * wxSight();
     if (dp < sees && !P.dead && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
@@ -723,9 +723,7 @@ function updPlayer(dt) {
   }
   P.sprinting = sprint && hs > 3;
   // survival
-  P.food = Math.max(0, P.food - dt * (P.sprinting ? .13 : .08) * (P.swim ? 1.6 : 1) * (1 - Math.min(.5, wearStat('warm') * (isNight() ? 1 : .4))));
-  if (P.food <= 0) { P.hp -= dt * 1.2; if (P.hp <= 0) die(); }
-  else if (P.food > 45 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  updSurvival(dt);   // (Part 3) hunger, healing, food buffs, rain-catching — 2b-craft.js
   if (P.hp <= 0 && !P.dead) die();
   P.hurtT -= dt;
   // weapon
@@ -955,7 +953,7 @@ function renderInv() {
       if (D.kind === 'wear') b.push(`<button data-wear="${t.u}">${t.on ? 'Take off' : 'Wear'}</button>`);
       if (W && W.cls === 'gun') b.push(`<button data-eq="${t.u}" data-slot="0">Slot 1</button><button data-eq="${t.u}" data-slot="1">Slot 2</button>`);
       else if (W) b.push(`<button data-eq="${t.u}" data-slot="2">Slot 3</button>`);
-      if (cnt('repair_kit') && t.d < t.max) b.push(`<button data-fix="${t.u}">Repair</button>`);
+      { const rl = repairLabel(t); if (rl) b.push(`<button data-fix="${t.u}">${rl}</button>`); }
       return gearTile(t, b.join('')); }).join('')}</div>`;
     body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
@@ -1023,7 +1021,7 @@ $('inv').addEventListener('click', e => {
   else if (d.eq) equipTo(g(d.eq), +d.slot);
   else if (d.arc) { INV.eq[0] = 'arc'; if (P.slot === 0) selectGunView(gunId()); }
   else if (d.hunt) { INV.eq[1] = 'hunter'; G.flags.hunter = 1; if (P.slot === 1) selectGunView(gunId()); }
-  else if (d.fix) { const t = g(d.fix); take('repair_kit', 1); t.d = Math.min(t.max, t.d + Math.round(t.max * .6)); sfx('buy'); toast(`${GEAR_DEFS[t.id].n} repaired`); save(); }
+  else if (d.fix) repairGear(g(d.fix));
   else if (d.put || d.putall) storePut(d.put || d.putall, !!d.putall || e.shiftKey);
   else if (d.take || d.takeall) storeTake(d.take || d.takeall, !!d.takeall || e.shiftKey);
   else if (d.putg) storePut(+d.putg); else if (d.takeg) storeTake(+d.takeg);
@@ -1171,6 +1169,7 @@ const SAVE = 'the-arc-save-v2';
 function save() {
   if (G.mode !== 'play') return;
   try { localStorage.setItem(SAVE, JSON.stringify({ v: 3, step: G.step, day: G.day, tod: G.tod, chapterDone: true, flags: G.flags, inv: INV, up: UP, hp: P.hp, food: P.food, p: { diet: P.diet, bleed: P.bleed, frac: P.frac, sick: P.sick, dose: P.dose } })); } catch (e) {}
+  wxSave();
 }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
@@ -1230,7 +1229,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1494,6 +1493,7 @@ function startGame(fresh) {
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
     if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
+  wxLoad(s);         // (Part 3) weather + food buffs, and stretches old saves' gear to the new durability — 1k-weather.js
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
