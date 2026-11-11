@@ -134,7 +134,7 @@ const INTERACT = [
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
-  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT, ...SGINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT, ...SGINTERACT, ...LINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
@@ -1003,7 +1003,7 @@ function renderInv() {
   } else if (invTab === 'factions') {
     body += factionsHTML();
   } else if (invTab === 'journal') {
-    body += missionsHTML() + journalHTML();
+    body += missionsHTML() + sideHTML() + journalHTML();
   } else if (invTab === 'trade') {
     const L = tradeStock(), groups = bagGroups();
     const SD = shopDef(), mk = SD.mark;
@@ -1033,6 +1033,7 @@ $('inv').addEventListener('click', e => {
   else if (d.log) { toggleInv(false); openLog(d.log); return; }
   else if (d.fa) facAction(d);
   else if (d.sj || d.sp || d.st || d.sg) setAction(d, e.shiftKey);
+  else if (d.sjt || d.sjx || d.sjh) sideAction(d);
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
   else if (d.craft5) return craft(RECIPES[+d.craft5], 5);
@@ -1253,7 +1254,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updEvents(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1523,7 +1524,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); eventsRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
@@ -1604,7 +1605,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();

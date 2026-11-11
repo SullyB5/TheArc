@@ -50,7 +50,7 @@ const XSITE_DEFS = [
 ];
 const XCAMP_T = [[-420, 380], [380, 520], [600, -250], [-560, 120], [1000, 0], [-200, 900], [-900, -200], [1250, 400]];
 const XSTASH_T = [[300, -470], [-470, 470], [700, 300], [-1000, 1300], [1450, -1250], [-1650, -500]];
-let XSITES = null, XTRAIL = [], XROAD = [], XCAMPS = [], XSTASH = [], XCROSS = {}, XPLOTS = [];
+let XSITES = null, XTRAIL = [], XROAD = [], XCAMPS = [], XSTASH = [], XCROSS = {}, XPLOTS = [], XSURVEY = { x: 0, z: 0 };
 function xAvoid() {
   const A = [[0, 0, CAMP_R + 60]];
   for (const k in POI) { const p = POI[k]; if (p && typeof p.x === 'number') A.push([p.x, p.z, k === 'lake' ? LAKES[0].R + 30 : 50]); }
@@ -111,6 +111,8 @@ function xSites() {
   // (Part 5) plots outside the wall for the settlement's new buildings — picked here so the forest keeps off them too
   for (let i = 0; i < 8; i++) { const a = [-.55, .55, -1.1, 1.1, -1.75, 1.75, -2.4, 2.4][i] + Math.PI / 2, r = 96 + (i % 3) * 7;
     const s = xFind({ tx: Math.cos(a) * r, tz: Math.sin(a) * r, r: 9, sl: .3, near: 1 }, taken, AV); const S = { id: 'plot' + i, x: s.x, z: s.z, r: 9, forced: s.forced }; XPLOTS.push(S); taken.push(S); }
+  // (Part 8) Survey Station 4: a hatch on the grey mountain's far side — resolved last so nothing placed before it moves
+  { const s = xFind({ tx: -440, tz: -440, r: 8, sl: .45 }, taken, AV); XSURVEY.x = s.x; XSURVEY.z = s.z; taken.push({ x: s.x, z: s.z, r: 8 }); }
   // the river crossings: a rope bridge over the gorge in the north, stepping stones across the shallows in the south
   const cross = (z0, z1, want) => { let b = null; for (let z = z0; z <= z1; z += 6) { const rx = riverX(z), xl = rx - RIV_HW - 7, xr2 = rx + RIV_HW + 7, hl = heightAt(xl, z), hr2 = heightAt(xr2, z), wl = riverWL(z);
     if (waterAt(xl, z) > hl - .2 || waterAt(xr2, z) > hr2 - .2) continue; const sc = want === 'high' ? Math.abs(hl - hr2) * 3 - Math.min(hl, hr2) + wl : Math.abs(hl - hr2) * 2 + Math.abs(Math.min(hl, hr2) - wl - 1.5) * 3;
@@ -126,6 +128,7 @@ function xClear(x, z) {
   for (const k in S) { const s = S[k]; const r = s.hill ? s.r + 4 : s.peak ? s.r + 3 : s.r + 6; if (Math.abs(x - s.x) < r && Math.abs(z - s.z) < r && Math.hypot(x - s.x, z - s.z) < r) return true; }
   for (const c of XCAMPS) if (Math.hypot(x - c.x, z - c.z) < 9) return true;
   for (const c of XPLOTS) if (Math.hypot(x - c.x, z - c.z) < 12) return true;
+  if (Math.hypot(x - XSURVEY.x, z - XSURVEY.z) < 10) return true;
   for (let i = 0; i < XTRAIL.length; i += 1) { const [tx, tz] = XTRAIL[i]; if (Math.abs(x - tx) < 3.6 && Math.abs(z - tz) < 3.6) return true; }
   for (let i = 0; i < XROAD.length - 1; i++) { const [ax, az] = XROAD[i], [bx, bz] = XROAD[i + 1]; if (Math.abs(x - ax) > 20 || Math.abs(z - az) > 20) continue; if (xSegD(x, z, ax, az, bx, bz) < 10) return true; }
   for (const c of Object.values(XCROSS)) if (c && Math.abs(z - c.z) < 6 && x > c.xl - 8 && x < c.xr + 8) return true;
@@ -300,7 +303,7 @@ function xTent(parent, x, z, yaw, col = 0x6a5a3a, burnt = false) {
 const POCKETS = {};
 const UG = { at: null, fadeEl: null, tagEl: null, lamp: null, standT: 0 };
 // slots out in the far corners of the map, past the edge of the walkable world
-const PK_SLOT = { cellar: [1990, 1990], cave: [2130, 1990], hesper: [2270, 2010], lab: [1990, 2150], tunnel: [-2370, -2110] };
+const PK_SLOT = { cellar: [1990, 1990], cave: [2130, 1990], hesper: [2270, 2010], lab: [1990, 2150], tunnel: [-2370, -2110], survey: [-2360, -1960], site9: [-2360, -2300] };
 function mkPocket(id, name, o = {}) {
   const [ox, oz] = PK_SLOT[id], g = new THREE.Group(); g.visible = false; scene.add(g);
   const pk = { id, name, ox, oz, y: UG_Y, g, rects: [], obst: [], hz: [], weak: [], surf: o.surf || 'metal', fog: o.fog || 70, hemi: (o.hemi ?? .22) + .2, hemiC: o.hemiC || 0x8a9098, power: !!o.power, lamps: [], plamps: [], dyn: new Set(), bounds: [1e9, 1e9, -1e9, -1e9] };
@@ -924,7 +927,8 @@ function buildBlackDoor() {
   g.position.set(S.x, y - .5, S.z); g.rotation.y = f; world.add(g);
   for (let k = -4; k <= 4; k += 1.6) { const [x, z] = F(k, -.2); addCol(x, z, .9); }
   const [kx, kz] = F(3.6, 1.2); xNote(world, 'bd_keypad', kx, heightAt(kx, kz) + .05, kz, f);
-  xUse({ x: kx, z: kz, r: 2, pocket: null, label: () => 'Try the keypad', act: () => { sfx('no'); toast('AWAITING SIGNAL. The keys don’t even click.', 3); (G.flags.blackdoor = (G.flags.blackdoor || 0) + 1); } });
+  S.doorParts = g.children.slice(1, 7); for (const o of S.doorParts) o.userData.dyn = 1; S.doorG = g;
+  xUse({ x: kx, z: kz, r: 2, pocket: null, label: () => (G.flags.lantern || 0) >= 5 ? null : 'Try the keypad', act: () => { sfx('no'); toast('AWAITING SIGNAL. The keys don’t even click.', 3); (G.flags.blackdoor = (G.flags.blackdoor || 0) + 1); } });
 }
 
 /* ---------- the river crossings ---------- */
@@ -1020,6 +1024,7 @@ function journalHTML() {
   return h;
 }
 function drawXMarks(g, S, k) {
+  if (typeof drawSideMarks === 'function') drawSideMarks(g, S, k);
   const m = G.flags.xmark || {}; g.font = `700 ${10 * k}px "Barlow Condensed",sans-serif`; g.textAlign = 'center';
   for (const id in m) { const M2 = XMARKS[id]; if (!M2) continue; const [x, y] = toMap(M2.x, M2.z, S); const done = id.startsWith('stash') && (G.flags.caches || {})['x_' + id];
     g.strokeStyle = done ? '#8a8478' : '#e8c070'; g.lineWidth = 2 * k; g.beginPath(); g.moveTo(x - 4 * k, y - 4 * k); g.lineTo(x + 4 * k, y + 4 * k); g.moveTo(x + 4 * k, y - 4 * k); g.lineTo(x - 4 * k, y + 4 * k); g.stroke();
