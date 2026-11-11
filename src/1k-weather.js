@@ -50,7 +50,7 @@ function wxSet(id, quiet) {
 const wxRustOut = () => rust.state !== 'none' || rust.k > .05;
 const wxSight = () => wx.cur.sight;
 const wxFishK = () => wx.cur.fish;
-const wxRaining = () => wx.cur.rain > .3 && !wxRustOut() && !inHull(P.x, P.z);
+const wxRaining = () => wx.cur.rain > .3 && !wxRustOut() && !inHull(P.x, P.z) && !inDropTower(P.x, P.z);
 
 /* ---------- rain: streaks in a box that travels with the camera (all the motion is in the vertex shader) ---------- */
 const RAIN_N = LOW ? 1400 : 3200, RAIN_B = 26, RAIN_H = 22;

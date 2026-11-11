@@ -330,7 +330,7 @@ function updGrass(px, pz) {
     const hx = hash(Math.round(gx / step), Math.round(gz / step)), hz = hash(Math.round(gz / step) + 7, Math.round(gx / step));
     const x = gx + (hx - .5) * step, z = gz + (hz - .5) * step;
     const dd = (x - px) ** 2 + (z - pz) ** 2; if (dd > R * R) continue;
-    const cd = campD(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
+    if (inDropTower(x, z)) continue; const cd = campD(x, z); if (cd < CAMP_R - 2 && (hx > .35 || streetDist(x, z) < .8 || inHull(x, z))) continue;
     const h = heightAt(x, z);
     if (h > 128 || waterAt(x, z) > h - .3) continue;
     const dens = fbm(x * .04, z * .04); if (hx > dens * 1.5) continue;

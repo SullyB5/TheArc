@@ -125,6 +125,7 @@ const xSegD = (px, pz, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az, t 
 // keep the forest (and the boulders) off a new place, the trail and the highway
 function xClear(x, z) {
   if (campD(x, z) < CAMP_R + 12) return true;                    // (Nov 11) the wall moved out east: nothing grows inside it
+  if (startClear(x, z)) return true;                              // (Nov 11) the pod, the first camp and the markers on the road in
   const S = xSites();
   for (const k in S) { const s = S[k]; const r = s.hill ? s.r + 4 : s.peak ? s.r + 3 : s.r + 6; if (Math.abs(x - s.x) < r && Math.abs(z - s.z) < r && Math.hypot(x - s.x, z - s.z) < r) return true; }
   for (const c of XCAMPS) if (Math.hypot(x - c.x, z - c.z) < 9) return true;

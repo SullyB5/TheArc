@@ -181,7 +181,8 @@ function buildDropsite() {
 
   /* the wreck: a section of the Arc itself, torn off the station when it came down — one end still sealed with its
      airlock, the other ripped open on a dark, gutted corridor, ribs sprung, cables hanging, a snapped truss beside it */
-  const g = new THREE.Group(); g.position.set(D.x, y0 + 2.6, D.z); g.rotation.set(0, -toCamp, -.07); world.add(g);
+  // (Nov 11) the section now stands on its nose (buildDropTower, 1l-start.js); the old lying hull is still drawn here, off the world, so the stream it draws from stays the same
+  const g = new THREE.Group(); g.position.set(D.x, y0 + 2.6, D.z); g.rotation.set(0, -toCamp, -.07);
   const R = 5, L = 22;
   const t = texPanel.clone(); t.needsUpdate = true; t.repeat.set(L / 8, 3);
   const skin = new THREE.MeshStandardMaterial({ map: t, normalMap: TX.metal2N, normalScale: new THREE.Vector2(.8, .8), color: 0xb4b2ab, metalness: .45, roughness: .66, side: THREE.DoubleSide });
@@ -215,7 +216,6 @@ function buildDropsite() {
   { const [x, z] = W(9, 13), arc = new THREE.Group(); arc.position.set(x, heightAt(x, z) - 3, z); arc.rotation.set(0, -toCamp + 1.1, .25); world.add(arc);
     const seg = mesh(new THREE.TorusGeometry(16, 1.3, 8, 18, 1.0), S(0xa8a69e, { map: TX.metal, metalness: .45 }), 0, -12, 0, arc); seg.rotation.z = Math.PI / 2 - .5;
     addCol(x, z, 2.2); }
-  for (const al of [-9, -4, 1, 6, 10]) { const [x, z] = W(al, 0); addCol(x, z, 5.2); }
   // seats, cargo and hull plates thrown clear along the furrow
   for (let i = 0; i < 18; i++) {
     const k = i / 18, [x, z] = W(lerp(-50, 4, k) + rr(-4, 4), rr(-13, 13));
@@ -244,6 +244,7 @@ function buildDropsite() {
   { const [fx, fz] = W(-16, -12), fy = heightAt(fx, fz);
     for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x6a6660), fx + Math.cos(a) * .7, fy + .1, fz + Math.sin(a) * .7, world); } }
   dressDropsite(D, toCamp, inWreck);
+  buildDropTower(D);
 }
 
 function buildLookout() {

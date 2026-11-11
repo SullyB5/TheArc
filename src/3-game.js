@@ -346,7 +346,7 @@ function startRust(scripted) {
   say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get inside the Arc or get a mask on, NOW." : 'Mast horn — the Rust is coming. Everyone into the Arc! If you’re out there, mask up.']]);
 }
 function nearestShelter() { return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp: true }; }
-function inShelter() { return inHull(P.x, P.z); }   // (Nov 10) fog gets under any roof: only the sealed hull keeps it out
+function inShelter() { return inHull(P.x, P.z) || dropSafe(); }   // (Nov 10) fog gets under any roof: only the sealed hull keeps it out
 /* townsfolk in the fog: where to go, and what it does to them if they're out in it. Returns a move target or null. */
 function fogNPC(e, dt) {
   if (e.follow || campD(e.home.x, e.home.z) > CAMP_R) return null;
@@ -856,7 +856,7 @@ function updTime(dt) {
   const s = todSample(G.tod);
   // rust tint — (Nov 10) the red fog stays outside the Arc: inside the hull (and its east wing) it clears, and the
   // ordinary haze thins too, so you can see from one end to the other
-  hullFogK = lerp(hullFogK, inHull(P.x, P.z) ? 1 : 0, Math.min(1, dt * 4));
+  hullFogK = lerp(hullFogK, inHull(P.x, P.z) || dropSafe() ? 1 : 0, Math.min(1, dt * 4));
   const rk = rust.k * (1 - hullFogK);
   const fogC = s.fog.clone().lerp(_ca.set(0x7a3220), rk);
   scene.fog.color.copy(fogC);
@@ -1377,7 +1377,7 @@ function bakeGroup(root, dyn, cellSize = 30) {
 }
 function bakeDyn() {
   const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
-    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...DROP_TOWER.dyn, ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   d.delete(undefined); d.delete(null); return d;
 }
 function bakeWorld() {
@@ -1625,7 +1625,7 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildArches();
+  buildHalvard(); buildBurn(); buildDropsite(); buildStartRoad(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildArches();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
@@ -1638,7 +1638,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } try { startLate(); } catch (err) { console.error('startLate', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu(); bootDone();
