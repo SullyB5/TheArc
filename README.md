@@ -67,7 +67,8 @@ Nov 10 (later): a countdown to the next red fog sits top-middle (`fogCountdown` 
 ## Gentler survival (Nov 11, Part 3)
 
 Survival backs up the adventure instead of interrupting it. Tuning knobs: `SURV`, `BUFF_DEF` and `DUR_K` in `2a-data.js`; logic in `updSurvival` / `repairGear` (2b-craft.js).
-- One food bar covers hunger and thirst (water tops it up). It drains ~3× slower than before (~65 min of walking from full). Starving wears health down to 12 and stops, it never kills. Natural healing starts at 35 food.
+- Food drains ~3× slower than before (~65 min of walking from full). Starving wears health down to 12 and stops, it never kills. Natural healing starts at 35 food.
+- Water is its own light bar (~45 min from full, saved with the weather): drink at any lake or river ("Drink", small chance of an upset stomach) or from water you carry (slot 4 drinks first when you're thirsty). Running dry never hurts — it just stops natural healing and halves stamina refill until you drink.
 - Cooked food gives buffs: **Energised** (fish, bread, clean water: sprinting costs half, stamina refills faster), **Mending** (stews, soups, honey, roast: heal over time), **Hardy** (cooked/dried meat, roast, stew: −20% damage, a bit of red-fog resistance). Raw food is less risky and sickness is shorter.
 - Fishing: better odds, a rod can land two, fish bite more in rain and fog. Water: rainwater is clean, rain fills a carried pot or canteen, purification tablets craft from charcoal + herb, rainwater filters without charcoal.
-- Gear lasts 2.5× longer (old saves' gear is stretched once on load). Repair from the bag: a repair kit fixes fully anywhere; otherwise a few scrap (or a stick + 2 fiber for primitive tools) patches to 60%, or fully at a workbench/forge. You get a warning when something is wearing out.
+- Gear lasts 2.5× longer (old saves' gear is stretched once on load). Repair from the bag (per item, or the **Repair all** button by the gear list, most worn first): a repair kit fixes fully anywhere; otherwise a few scrap (or a stick + 2 fiber for primitive tools) patches to 60%, or fully at a workbench/forge. You get a warning when something is wearing out.

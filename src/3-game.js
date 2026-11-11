@@ -603,7 +603,7 @@ function die() {
   P.dead = true; P.hp = 0; $('dead').style.display = 'grid'; if (document.pointerLockElement) document.exitPointerLock();
   setTimeout(() => {
     dropBag();
-    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
+    $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.water = Math.max(P.water ?? 100, 50); P.fly = false;
     const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
     if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else if (!G.flags.reached) { P.x = POI.dropsite.x + DROP_WAKE[0]; P.z = POI.dropsite.z + DROP_WAKE[1]; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
     if (G.flags.reached && rust.state !== 'none' && rust.state !== 'clear') { P.x = ARC_DOOR_IN.x; P.z = ARC_DOOR_IN.z - 3; }   // in a fog, they carried you into the Arc
@@ -900,6 +900,7 @@ function updHUD(dt) {
   else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = 'Red fog — get inside the Arc!';
   else if (night.active) alert = `${night.final ? 'NIGHT 100' : 'Hold Kestrel'} · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
+  else if (P.water <= 0) alert = 'Thirsty — drink water (4)';
   else if (P.bleed > 0) alert = 'Bleeding — bandage it (5)';
   else if (P.dose > 40) alert = 'Rust poisoning — Rust medicine (5)';
   else if (P.sick > 50) alert = 'Sick — a poultice will help (5)';
@@ -942,14 +943,14 @@ function renderInv() {
   const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
   const load = carryLoad(), cap = carryCap();
-  const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div><span>Load</span><div class="bar"><i style="width:${Math.min(100, load / cap * 100)}%;background:${load > cap ? '#e0573d' : '#7fc4b8'}"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
+  const head = `<div class="stat"><span>Health</span><div class="bar"><i id="ivhp" style="width:${Math.max(0, P.hp)}%;background:#d9503a"></i></div><span>Food</span><div class="bar"><i id="ivfd" style="width:${P.food}%;background:#e0a040"></i></div><span>Water</span><div class="bar"><i id="ivwt" style="width:${P.water ?? 100}%;background:#5aa8d8"></i></div><span>Load</span><div class="bar"><i style="width:${Math.min(100, load / cap * 100)}%;background:${load > cap ? '#e0573d' : '#7fc4b8'}"></i></div></div>${tags ? `<div class="tags">${tags}</div>` : ''}`;
   let body = '';
   if (invTab === 'bag') {
     const groups = bagGroups();
     const act = id => FOOD[id] ? `<button data-eat="${id}">${FOOD[id].k === 'water' ? 'Drink' : 'Eat'}</button>` : MEDS[id] ? `<button data-med="${id}">Use</button>` : BUILD_DEF[id] ? `<button data-place="${id}">Place</button>` : THROWS.includes(id) ? `<button data-thr="${id}">${P.thr === id ? 'Ready ✓' : 'Ready (G)'}</button>` : '';
     for (const c of BAG_ORDER) if (groups[c]) body += `<h4>${CAT_N[c]}</h4><div class="row">${groups[c].map(([id, n]) => itemTile(id, n, act(id))).join('')}</div>`;
     const sorted = [...INV.tools].sort((a, b) => (WDEF[b.id] ? 2 : GEAR_DEFS[b.id].kind === 'wear' ? 1 : 0) - (WDEF[a.id] ? 2 : GEAR_DEFS[a.id].kind === 'wear' ? 1 : 0));
-    if (sorted.length) body += `<h4>Weapons, tools & gear · ${INV.tools.length}</h4><div class="row">${sorted.map(t => { const D = GEAR_DEFS[t.id], W = WDEF[t.id], b = [];
+    if (sorted.length) body += `<h4>Weapons, tools & gear · ${INV.tools.length}${needsRepair().length ? ` <button data-fixall="1">Repair all · ${needsRepair().length}</button>` : ''}</h4><div class="row">${sorted.map(t => { const D = GEAR_DEFS[t.id], W = WDEF[t.id], b = [];
       if (D.kind === 'wear') b.push(`<button data-wear="${t.u}">${t.on ? 'Take off' : 'Wear'}</button>`);
       if (W && W.cls === 'gun') b.push(`<button data-eq="${t.u}" data-slot="0">Slot 1</button><button data-eq="${t.u}" data-slot="1">Slot 2</button>`);
       else if (W) b.push(`<button data-eq="${t.u}" data-slot="2">Slot 3</button>`);
@@ -996,7 +997,7 @@ function renderInv() {
   }
   $('invb').innerHTML = tabs + head + body;
 }
-function updInvBars() { const a = $('ivhp'), b = $('ivfd'); if (a) a.style.width = Math.max(0, P.hp) + '%'; if (b) b.style.width = P.food + '%'; }
+function updInvBars() { const a = $('ivhp'), b = $('ivfd'); if (a) a.style.width = Math.max(0, P.hp) + '%'; if (b) b.style.width = P.food + '%'; const c = $('ivwt'); if (c) c.style.width = (P.water ?? 100) + '%'; }
 function openCraft(cat) { invTab = 'craft'; if (cat) craftCat = cat; toggleInv(true); }
 function toggleInv(v = !invOpen) {
   if (v && mapOpen) toggleMap();
@@ -1022,6 +1023,7 @@ $('inv').addEventListener('click', e => {
   else if (d.arc) { INV.eq[0] = 'arc'; if (P.slot === 0) selectGunView(gunId()); }
   else if (d.hunt) { INV.eq[1] = 'hunter'; G.flags.hunter = 1; if (P.slot === 1) selectGunView(gunId()); }
   else if (d.fix) repairGear(g(d.fix));
+  else if (d.fixall) repairAll();
   else if (d.put || d.putall) storePut(d.put || d.putall, !!d.putall || e.shiftKey);
   else if (d.take || d.takeall) storeTake(d.take || d.takeall, !!d.takeall || e.shiftKey);
   else if (d.putg) storePut(+d.putg); else if (d.takeg) storeTake(+d.takeg);

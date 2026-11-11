@@ -149,10 +149,10 @@ function updWeather(dt) {
 
 /* ---------- save: its own key, so the main save format is untouched and old saves just start clear ---------- */
 const WX_SAVE = 'the-arc-wx-v1';
-function wxSave() { try { localStorage.setItem(WX_SAVE, JSON.stringify({ id: wx.id, t: wx.t, buffs: P.buffs || {} })); } catch (e) {} }
+function wxSave() { try { localStorage.setItem(WX_SAVE, JSON.stringify({ id: wx.id, t: wx.t, buffs: P.buffs || {}, water: P.water ?? 100 })); } catch (e) {} }
 function wxLoad(s) {
   let w = null; if (s) try { w = JSON.parse(localStorage.getItem(WX_SAVE) || 'null'); } catch (e) {}
-  P.buffs = (w && w.buffs) || {};
+  P.buffs = (w && w.buffs) || {}; P.water = w && w.water != null ? w.water : 100; P.thirstWarn = 0;
   wxSet(w && WX[w.id] ? w.id : 'clear', true); if (w && w.t > 0) wx.t = w.t;
   for (const k of WX_KEYS) wx.cur[k] = WX[wx.id][k];
   wx.quiet = true; wx.flash = 0;

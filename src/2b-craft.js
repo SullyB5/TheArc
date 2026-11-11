@@ -41,7 +41,7 @@ const bestTool = kind => { let b = null; for (const t of INV.tools) { const D = 
 let lastTool = null;
 function wearTool(t, n = 1) {
   if (!t) return; t.d -= n; if (GEAR_DEFS[t.id].kind !== 'wear') lastTool = t;
-  if (t.d > 0 && t.d <= t.max * .15 && !t.warned) { t.warned = 1; toast(`${GEAR_DEFS[t.id].n} is wearing out — repair it from the bag (E)`, 3); }
+  if (t.d > 0 && t.d <= t.max * .15 && !t.warned) { t.warned = 1; toast(`${GEAR_DEFS[t.id].n} is wearing out — Repair in the bag (E)`, 3); }
   if (t.d <= 0) { INV.tools.splice(INV.tools.indexOf(t), 1); unequip(t); sfx('no'); toast(`${QUAL[t.q].n} ${GEAR_DEFS[t.id].n.toLowerCase()} broke`, 2.6); if (lastTool === t) lastTool = null; if (typeof onGearBroke === 'function') onGearBroke(t); }
 }
 const has = kind => !!bestTool(kind);
@@ -138,12 +138,13 @@ const FOOD = {
   berries: { f: 8, h: 2, k: 'plant' }, blueberries: { f: 8, h: 3, k: 'plant' }, nuts: { f: 12, h: 2, k: 'plant' }, greens: { f: 7, h: 3, k: 'plant' }, roots: { f: 10, h: 1, k: 'plant', risk: .08 },
   mushroom: { f: 9, h: 0, k: 'plant', risk: .22 }, potato: { f: 12, h: 2, k: 'plant', risk: .1 }, carrot: { f: 9, h: 3, k: 'plant' }, corn: { f: 10, h: 2, k: 'plant' }, squash: { f: 14, h: 3, k: 'plant' }, honey: { f: 15, h: 6, k: 'plant', b: { heal: 120 } },
   stew: { f: 46, h: 22, k: 'meal', b: { heal: 300, prot: 180 } }, veg_soup: { f: 40, h: 22, k: 'meal', b: { heal: 300 } }, fish_soup: { f: 52, h: 24, k: 'meal', b: { heal: 300, stam: 300 } }, bread: { f: 30, h: 6, k: 'meal', b: { stam: 300 } }, canned: { f: 40, h: 8, k: 'meal' }, arc_pack: { f: 35, h: 10, k: 'meal', b: { stam: 120 } },
-  water_dirty: { f: 4, h: 0, k: 'water', risk: .2 }, water_boiled: { f: 8, h: 5, k: 'water', b: { stam: 90 } }, water_filtered: { f: 8, h: 6, k: 'water', b: { stam: 90 } }, water_rain: { f: 7, h: 4, k: 'water' },
+  water_dirty: { f: 0, w: 30, h: 0, k: 'water', risk: .2 }, water_boiled: { f: 0, w: 45, h: 5, k: 'water', b: { stam: 90 } }, water_filtered: { f: 0, w: 45, h: 6, k: 'water', b: { stam: 90 } }, water_rain: { f: 0, w: 40, h: 4, k: 'water' },
 };
 const DIET_N = 6;
 function eatItem(id, quiet) {
   const F = FOOD[id]; if (!F || cnt(id) <= 0) return false;
   if (P.food >= 99 && F.k !== 'water' && !quiet) { toast('Not hungry'); return false; }
+  if (F.k === 'water' && (P.water ?? 100) >= 99 && !quiet) { toast('Not thirsty'); return false; }
   take(id, 1);
   let [f, h] = F.ration ? RATION() : [F.f, F.h];
   P.diet = P.diet || [];
@@ -152,7 +153,8 @@ function eatItem(id, quiet) {
   P.diet.push(F.k); if (P.diet.length > DIET_N) P.diet.shift();
   P.food = Math.min(100, P.food + f); P.hp = Math.min(100, P.hp + h);
   const hasP = P.diet.some(k => k === 'meat' || k === 'fish'), hasV = P.diet.some(k => k === 'plant' || k === 'meal'), hasW = P.diet.includes('water');
-  let note = `+${f} food`;
+  if (F.w) { P.water = Math.min(100, (P.water ?? 100) + F.w); P.thirstWarn = 0; }
+  let note = F.w ? `+${F.w} water` : `+${f} food`;
   if (mult < .8) note += ' · same food again, less filling';
   if (hasP && hasV && hasW && !(P.fed > 0)) { P.fed = 240; note += ' · well fed'; }
   if (F.risk && rnd() < F.risk) { P.sick = Math.max(P.sick || 0, 45); note = 'That was bad. You feel sick.'; sfx('cough'); }
@@ -161,6 +163,8 @@ function eatItem(id, quiet) {
   return true;
 }
 function eatBest() {
+  // thirsty and carrying clean water? drink first
+  if ((P.water ?? 100) < 60) { const d = ['water_filtered', 'water_boiled', 'water_rain'].find(id => cnt(id) > 0); if (d) { eatItem(d); return; } }
   const have = Object.keys(FOOD).filter(id => cnt(id) > 0 && FOOD[id].k !== 'water' && !FOOD[id].risk);
   if (!have.length) { const raw = Object.keys(FOOD).filter(id => cnt(id) > 0 && FOOD[id].k !== 'water'); if (!raw.length) { sfx('no'); toast('Nothing to eat — hunt, forage or cook'); return; } toast('Only raw food left — cook it at a fire first', 2.4); return; }
   const seen = k => (P.diet || []).filter(x => x === k).length;
@@ -277,6 +281,8 @@ function forage(n) {
 const container = () => cnt('pot') > 0 || cnt('canteen') > 0;
 function waterAction(w) {
   const fi = bestTool('fish'), sh = bestTool('shovel'), acts = [];
+  // (Part 3) drink straight from a lake or river — a small chance of an upset stomach, nothing worse
+  if ((P.water ?? 100) < 95) acts.push({ l: 'Drink', t: .8, fn: () => { P.water = Math.min(100, (P.water ?? 100) + 35); P.thirstWarn = 0; sfx('splash'); if (rnd() < .1) { P.sick = Math.max(P.sick || 0, 30); toast('+35 water · the water tasted off', 2); } else toast('+35 water', 1.4); } });
   if (container()) acts.push({ l: 'Fill up (dirty water)', t: 1, fn: () => gain([['water_dirty', cnt('canteen') ? 3 : 2]]) });
   if (fi) acts.push({ l: fi.id === 'fish_rod' ? 'Cast a line' : 'Spear fish', t: fi.id === 'fish_rod' ? 3.2 : 2.4, fn: () => {
     // (Part 3) better odds, a chance of two with a rod, and fish bite more in rain and fog (wxFishK, 1k-weather.js)
@@ -377,8 +383,12 @@ function updSurvival(dt) {
   P.food = Math.max(0, P.food - dt * SURV.drain * (P.sprinting ? SURV.sprintK : 1) * (P.swim ? SURV.swimK : 1) * warm);
   const B = P.buffs || (P.buffs = {});
   for (const k in B) if (B[k] > 0) { B[k] -= dt; if (B[k] <= 0) { delete B[k]; toast(`${BUFF_DEF[k]?.n || k} wore off`, 1.6); } }
+  P.water = Math.max(0, (P.water ?? 100) - dt * SURV.thirst * (P.sprinting ? SURV.sprintK : 1));
+  if (P.water < SURV.thirstyAt && !P.thirstWarn) { P.thirstWarn = 1; toast('Getting thirsty — drink at a lake or river, or from your canteen (4)', 3); }
+  const dry = P.water <= 0;
+  if (dry && P.stamT <= 0 && !P.sprinting) P.stam = Math.max(0, P.stam - dt * 9);   // stamina refills at about half speed
   if (P.food <= 0) { if (P.hp > SURV.starveFloor) P.hp = Math.max(SURV.starveFloor, P.hp - dt * SURV.starveHp); }
-  else if (P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
+  else if (!dry && P.food > SURV.regenAbove && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * (Math.hypot(P.x, P.z) < CAMP_R ? 1.6 : .5));
   if (B.heal > 0 && P.hp < 100 && P.hurtT <= 0) P.hp = Math.min(100, P.hp + dt * .9);
   // Energised: sprinting costs half as much and stamina comes back faster (updPlayer has already spent/refilled it this frame)
   if (B.stam > 0) { if (P.sprinting) P.stam = Math.min(100, P.stam + dt * 5.5); else if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * 10); }
@@ -407,6 +417,14 @@ function repairCost(t) {
   return null;
 }
 const repairLabel = t => repairCost(t)?.l || null;
+/* the one-tap Repair button: fixes everything worn, most worn first, as far as your kits / scrap / sticks go */
+const needsRepair = () => INV.tools.filter(t => GEAR_DEFS[t.id] && GEAR_DEFS[t.id].dur < 999 && t.d < t.max);
+function repairAll() {
+  const list = needsRepair().sort((a, b) => a.d / a.max - b.d / b.max); let n = 0;
+  for (const t of list) { const c = repairCost(t); if (!c) break; for (const [id, k] of c.need) { if (id === 'scrap') INV.scrap -= k; else take(id, k); } t.d = c.full ? t.max : Math.max(t.d, Math.round(t.max * .6)); t.warned = 0; n++; }
+  if (!n) { sfx('no'); toast(list.length ? 'Need a repair kit, scrap, or a stick and fiber' : 'Nothing needs repairing'); return; }
+  sfx('buy'); toast(`Repaired ${n} item${n > 1 ? 's' : ''}${n < list.length ? ` · ran out of materials for ${list.length - n}` : ''}`, 2.4); save();
+}
 function repairGear(t) {
   const c = t && repairCost(t); if (!c) { sfx('no'); toast('Need a repair kit, scrap, or a stick and fiber'); return; }
   for (const [id, n] of c.need) { if (id === 'scrap') INV.scrap -= n; else take(id, n); }

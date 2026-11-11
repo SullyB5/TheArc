@@ -143,10 +143,13 @@ const GEAR_DEFS = {
 const WEAR_SLOTS = ['head', 'body', 'arms', 'feet', 'pack'];
 
 /* (Nov 11, Part 3) gentler survival — the knobs live here so they're easy to tune.
-   The food bar is hunger and thirst together (water tops it up too). It used to empty in ~20 min of walking; now ~65.
+   Food and water are two bars. Food used to empty in ~20 min of walking; now ~65. Water is light: drink now and then
+   (any lake or river, a canteen), and running dry only stops healing and slows stamina.
    Starving no longer kills: it wears you down to a floor and stops. */
 const SURV = {
   drain: .025, sprintK: 1.5, swimK: 1.4,       // food per second while walking (was .08), × while sprinting / swimming
+  thirst: .035,                                 // water bar per second (~45 min from full). Empty = no natural healing + slower stamina, never damage
+  thirstyAt: 25,                                // a one-time nudge when the water bar gets this low
   starveHp: .25, starveFloor: 12,               // an empty food bar drains health to this floor, never below
   regenAbove: 35,                               // natural healing once you're this fed (was 45)
   sickFood: .04, doseFood: .03,                 // what sickness / Rust poisoning cost the food bar per second
