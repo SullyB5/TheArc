@@ -11737,7 +11737,7 @@ PROJECTS.lookout = { n: 'Lookout post', d: 'An extra rumor every morning; the sc
 PROJECTS.market = { n: 'Market square', d: 'A travelling trader sets up in Kestrel every third day; contracts pay a quarter more', cost: { log: 12, cloth: 8, scrap: 30 }, w: 3 }; PROJ_IDS.push('market');
 const E2_PLOTS = {}, E2_PG = {};
 function e2Plots() {
-  const take = (tx, tz) => { for (let k = 0; k < 80; k++) { const a = rnd() * 6.283, d = k ? rr(4, 26) : 0, x = tx + Math.cos(a) * d, z = tz + Math.sin(a) * d; if (Math.hypot(x, z) < CAMP_R + 10 || pathDist(x, z) < 6 || XPLOTS.some(p => Math.hypot(p.x - x, p.z - z) < 16) || Math.hypot(x, z - (CAMP_R + 34)) < 26) continue; if (e2Free(x, z, 6)) return { x, z }; } return { x: tx, z: tz }; };
+  const take = (tx, tz) => { for (let k = 0; k < 80; k++) { const a = rnd() * 6.283, d = k ? rr(4, 26) : 0, x = tx + Math.cos(a) * d, z = tz + Math.sin(a) * d; if (campD(x, z) < CAMP_R + 10 || pathDist(x, z) < 6 || XPLOTS.some(p => Math.hypot(p.x - x, p.z - z) < 16) || Math.hypot(x, z - (CAMP_R + 34)) < 26) continue; if (e2Free(x, z, 6)) return { x, z }; } return { x: tx, z: tz }; };
   E2_PLOTS.lookout = take(-72, 46); E2_PLOTS.market = take(70, 50);
 }
 { const bp0 = buildProject; buildProject = function (id, stage) {
@@ -11794,7 +11794,7 @@ function e2Snap() {
   return { t: G.t, seen: { ...(G.flags.seen || {}) }, logs: Object.keys(G.flags.logs || {}).length, caches: Object.keys(G.flags.caches || {}).length, it, rep, posts: OUTPOSTS.filter(O => postOwner(O) === 'kestrel').length, notes: E2().notes.length, bp: Object.keys(G.flags.bp || {}).length, saved: setS().saved + (setS().pending || []).length, done: E2().done };
 }
 function e2TripTick() {
-  const out = Math.hypot(P.x, P.z) > CAMP_R + 14 || !!UG.at;
+  const out = campD(P.x, P.z) > CAMP_R + 14 || !!UG.at;
   if (out && !e2Trip && !P.dead) e2Trip = e2Snap();
   if (!out && e2Trip) { const A = e2Trip; e2Trip = null; if (G.t - A.t > 100 && !night.active && !P.dead) e2Report(A, e2Snap()); }
 }
