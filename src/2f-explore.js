@@ -494,7 +494,7 @@ function buildMillbrook() {
     xbox(g, 2.2, 3, .2, 'dark', 0, 1.5, 7.05); for (const s of [-1, 1]) for (const zz of [-3, 2]) xbox(g, .1, 2, 1, 'glass', s * 4.52, 3.6, zz);
     const yy = xLowest(x, z, 9, 14, yaw); g.position.set(x, yy, z); g.rotation.y = yaw; world.add(g); xColRect(x, z, 9, 14, yaw, .5, 2.4); }
   // the well, with the notice nailed to it
-  { const [x, z] = F(0, 4), y = heightAt(x, z); xcyl(world, 1.1, 1.2, .9, 'conc', x, y + .45, z, 14); for (const s of [-1, 1]) xbox(world, .14, 2, .14, 'woodD', x + s * .9, y + 1, z); xbox(world, 2.2, .12, .5, 'woodD', x, y + 2, z); addCol(x, z, 1.3);
+  { const [x, z] = F(0, 4), y = heightAt(x, z); S.well = { x, z }; xcyl(world, 1.1, 1.2, .9, 'conc', x, y + .45, z, 14); for (const s of [-1, 1]) xbox(world, .14, 2, .14, 'woodD', x + s * .9, y + 1, z); xbox(world, 2.2, .12, .5, 'woodD', x, y + 2, z); addCol(x, z, 1.3);
     xNote(world, 'mb_notice', x + 1.25, y + .95, z, yaw); }
   // fences, overgrown gardens, a tractor rusting in a yard, a cart
   for (const [lx, lz] of [[-18, -12], [18, -10], [-18, 6], [19, 8]]) { const [x0, z0] = F(lx, lz - 6), [x1, z1] = F(lx, lz + 6); for (let t = 0; t <= 1; t += .125) { const x = lerp(x0, x1, t), z = lerp(z0, z1, t); if (xrnd() < .2) continue; const p = xbox(world, .12, xr(.9, 1.3), .12, 'woodD', x, heightAt(x, z) + .5, z); p.rotation.z = xr(-.2, .2); } }

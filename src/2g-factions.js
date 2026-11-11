@@ -366,6 +366,7 @@ const nearBanner = () => { for (const O of OUTPOSTS) if (Math.hypot(O.bx - P.x, 
 const SAB = ['molotov', 'frag', 'fuel', 'gas_tank'];
 function freePrisoner(Pr, paid) {
   (G.flags.freed ||= {})[Pr.id] = G.day; Pr.g.visible = false; sfx('pickup');
+  if (Pr.sid) { storyFreed(Pr); if (!paid) facAdd(Pr.holder, -5); toast(`${Pr.name} is free — heading home to Kestrel`, 3.4); save(); return; }
   if (Pr.of === 'kestrel' || Pr.of === 'arc') G.flags.rescued = (G.flags.rescued || 0) + 1;
   if (FAC[Pr.of]) facAdd(Pr.of, 15, `you freed ${Pr.name}`);
   if (!paid) facAdd(Pr.holder, -5);

@@ -77,6 +77,7 @@ const survEnt = R => { const e = SROS[R.id]; return e && !e.dead && ents.include
 function setNPC(e, dt) {
   if (!e.sid) return false;
   const R = setS().ros.find(x => x.id === e.sid); if (!R) { e.g.visible = true; return false; }
+  if (R.held) { e.g.visible = false; return true; }
   const J = JOBS[R.job] || JOBS.idle, workHours = G.tod > .33 && G.tod < .66 && !night.active && rust.state === 'none' && !e.downed && !e.follow;
   if (J.away && workHours) {
     if (!e.away) { // walk to the gate first, then out of sight
@@ -166,7 +167,7 @@ function setDay(quiet) {
   add(food >= pop * 2 ? 8 : food >= pop ? 0 : -10, food >= pop * 2 ? 'full stores' : food >= pop ? 'food' : 'not enough food');
   add(cap >= pop ? 5 : -(pop - cap) * 4, cap >= pop ? 'a bed each' : 'people sleeping on floors');
   add(Object.values(S.proj).filter(p => p.done).length * 3, 'what’s been built');
-  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(projDone('power') ? 4 : 0, 'lights at night');
+  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(S.fever ? -12 : 0, 'the fever'); add(projDone('power') ? 4 : 0, 'lights at night');
   add(Math.min(10, S.saved * 2) - Math.min(20, S.lost * 6), 'the saved and the lost');
   S.morale = clamp(lerp(S.morale, clamp(m, 0, 100), .5), 0, 100); S.why = why.slice(0, 8);
   const mk = .5 + S.morale / 100;
