@@ -169,7 +169,7 @@ function setDay(quiet) {
   add(food >= pop * 2 ? 8 : food >= pop ? 0 : -10, food >= pop * 2 ? 'full stores' : food >= pop ? 'food' : 'not enough food');
   add(cap >= pop ? 5 : -(pop - cap) * 4, cap >= pop ? 'a bed each' : 'people sleeping on floors');
   add(Object.values(S.proj).filter(p => p.done).length * 3, 'what’s been built');
-  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(S.fever ? -12 : 0, 'the fever'); add(projDone('power') ? 4 : 0, 'lights at night');
+  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(S.fever ? -12 : 0, 'the fever'); add(projDone('power') ? 4 : 0, 'lights at night'); add(projDone('gatehouse') ? 3 : 0, 'the gatehouse');
   add(Math.min(10, S.saved * 2) - Math.min(20, S.lost * 6), 'the saved and the lost');
   S.morale = clamp(lerp(S.morale, clamp(m, 0, 100), .5), 0, 100); S.why = why.slice(0, 8);
   const mk = .5 + S.morale / 100;

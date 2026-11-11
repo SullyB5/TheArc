@@ -8566,7 +8566,7 @@ const facAnyRaider = () => Object.values(facRaidWeights()).some(w => w > 0);
 function facRaidScale() {
   const W = facRaidWeights(); if (!Object.values(W).some(w => w > 0)) return 0; const base = FAC_IDS.reduce((a, f) => a + (FAC[f].rw && !(FAC[f].s2 && !G.flags.s2 && G.day <= 100) && (night.final || G.day >= FAC[f].since) ? FAC[f].rw : 0), 0) || 1, now = Object.values(W).reduce((a, b) => a + b, 0);
   const held = OUTPOSTS.filter(O => postOwner(O) === 'kestrel').length;
-  return clamp(now / base, .25, 1.4) * Math.max(.6, 1 - held * .05) * (projDone('towers') ? .9 : 1);
+  return clamp(now / base, .25, 1.4) * Math.max(.6, 1 - held * .05) * (projDone('towers') ? .9 : 1) * (projDone('gatehouse') ? .9 : 1);
 }
 // allies send fighters when the horn goes
 function facNight() {
@@ -8897,7 +8897,7 @@ function setDay(quiet) {
   add(food >= pop * 2 ? 8 : food >= pop ? 0 : -10, food >= pop * 2 ? 'full stores' : food >= pop ? 'food' : 'not enough food');
   add(cap >= pop ? 5 : -(pop - cap) * 4, cap >= pop ? 'a bed each' : 'people sleeping on floors');
   add(Object.values(S.proj).filter(p => p.done).length * 3, 'what’s been built');
-  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(S.fever ? -12 : 0, 'the fever'); add(projDone('power') ? 4 : 0, 'lights at night');
+  add(projDone('smoke') ? 3 : 0, 'smokehouse'); add(S.fever ? -12 : 0, 'the fever'); add(projDone('power') ? 4 : 0, 'lights at night'); add(projDone('gatehouse') ? 3 : 0, 'the gatehouse');
   add(Math.min(10, S.saved * 2) - Math.min(20, S.lost * 6), 'the saved and the lost');
   S.morale = clamp(lerp(S.morale, clamp(m, 0, 100), .5), 0, 100); S.why = why.slice(0, 8);
   const mk = .5 + S.morale / 100;

@@ -303,7 +303,7 @@ const facAnyRaider = () => Object.values(facRaidWeights()).some(w => w > 0);
 function facRaidScale() {
   const W = facRaidWeights(); if (!Object.values(W).some(w => w > 0)) return 0; const base = FAC_IDS.reduce((a, f) => a + (FAC[f].rw && !(FAC[f].s2 && !G.flags.s2 && G.day <= 100) && (night.final || G.day >= FAC[f].since) ? FAC[f].rw : 0), 0) || 1, now = Object.values(W).reduce((a, b) => a + b, 0);
   const held = OUTPOSTS.filter(O => postOwner(O) === 'kestrel').length;
-  return clamp(now / base, .25, 1.4) * Math.max(.6, 1 - held * .05) * (projDone('towers') ? .9 : 1);
+  return clamp(now / base, .25, 1.4) * Math.max(.6, 1 - held * .05) * (projDone('towers') ? .9 : 1) * (projDone('gatehouse') ? .9 : 1);
 }
 // allies send fighters when the horn goes
 function facNight() {
