@@ -96,7 +96,7 @@ function buildOutposts() {
   }
   facPaintBanners();
 }
-function facPaintBanners() { const own = G.flags.out || {}; for (const O of OUTPOSTS) { const f = own[O.id]; O.cloth.material.color.set(f === 'kestrel' ? '#f0a640' : FAC[f] ? FAC[f].c : '#888'); } }
+function facPaintBanners() { const own = G.flags.out || {}; for (const O of OUTPOSTS) { const f = own[O.id]; O.cloth.material.color.set(f === 'kestrel' ? kColor() : FAC[f] ? FAC[f].c : '#888'); } }
 const postOwner = O => (G.flags.out || {})[O.id];
 const postGuards = O => ents.filter(e => e.type === 'clan' && !e.dead && e.post === O.id);
 // put the right people at an outpost (only when you're not watching)

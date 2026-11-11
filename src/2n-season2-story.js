@@ -60,7 +60,7 @@ function bedFree(i) {
 }
 function valeSpawn() {
   if (VALE && !VALE.dead && ents.includes(VALE)) return; if (AS().vale) return;
-  VALE = pkSpawn(MTN, 'soldier', -30, 45, { boss: 900, name: 'Captain Oren Vale' }); VALE.state = 'chase'; VALE.valeAdds = 0;
+  VALE = pkSpawn(MTN, 'soldier', -30, 45, { boss: 900, name: 'Captain Oren Vale' }); VALE.state = 'chase'; VALE.valeAdds = 0; VALE.vale = 1;
   for (let i = 0; i < 3; i++) pkSpawn(MTN, 'soldier', -36 + i * 4, 57).state = 'chase';
 }
 function valeTick() {

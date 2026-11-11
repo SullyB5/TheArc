@@ -121,3 +121,20 @@ Events and side jobs (Nov 11, Part 8): out in the world, something turns up ever
 Combat (Nov 11, Part 9): C to crouch (quieter, harder to see; a blade from behind while crouched is a silent takedown). Gunshots carry — guards come to look. Bring a survivor along from bag → Settlement; Z (or tap their tag above your health) cycles follow / wait / defend / attack. Faction leaders fight like bosses: dodge Garrun's charge so he hits a tree, get behind Rask (or blast him) and step out of his fire, and watch your back with Kael.
 
 Season 2 (Nov 11, Parts 10–11): after Aftermath, day 101 — the Spoke comes down, Greyhold's checkpoints go up, the Hollowed start raiding, and the missions lead from the trail of the missing to the Mountain itself. Get in by the front gate (Greyhold card), the vent (bolt cutters) or the Drift; crouch past the cameras or shut the reactor down and every door fails open. The assault brings your allies to the front gate; free the people in Ward R, beat Captain Vale, and decide what happens to the Mountain. Three endings (and the epilogue changes with how many of the missing you brought home, who stood with you and what Kestrel became); afterwards the valley stays open for free play.
+
+## Part 12 — finishing the overhaul (`src/2o-finish.js`)
+- **Bosses:** Captain Vale throws gas and, at half health, shields himself until you close the two coolant valves in the reactor hall. The Pale One waits in the Drift's deep chamber. He only takes full damage while at least two of the four braziers burn, he snuffs them out, he leaps at you, and he calls the Hollowed in. Killing him drops the Hollowed-cloak blueprint.
+- **Crafting:**
+  - Blueprints teach recipes on pickup: trooper armour, the Greyhold rifle, field optics, Arden's serum, the Hollowed cloak and Ironjaw frag. They're found in Mountain/Hesper/lab/Site Nine/Drift/cave vaults, and Rask drops one.
+  - Workshop upgrades: the bench makes more ammo per craft, the lab more medicine, the forge better gear.
+  - Salvage: strip unequipped gear at a bench for scrap and parts.
+  - All of this is in the Settlement tab.
+- **Cosmetics:** Kestrel's colours (gate flags and captured-outpost banners) and a trophy rack by the stores, unlocked by bosses, the Lantern, the cave carving and the secret unlock.
+- **Factions:**
+  - Take beaten fighters prisoner. Trade or return them at that faction's white flag (Factions tab).
+  - Each faction has restricted ground near its capital, open at rep 20 or higher when not hostile. Trespass and they turn on you.
+- **Missions:** other ways through Water (a water filter), Hostile (buy the war-map at Farlight), Signal (any transmitter), Fever (5 herbal medicine) and Plans (question a Thornkin prisoner).
+- **People get hurt:** raiders can down settlers outside the Arc at night, and anyone hunting you can down your companion. Bandage them or they die.
+- **Settlement:** an outer gatehouse project on the south road. Settlers sit round the fire in the evening and talk, with speech bubbles. Traders stock better goods as the story advances.
+- **Events:** Greyhold equipment shipments, a quarrel between two friendly factions (side with one, or pay to split it), and temporary radiation hot zones with salvage in the middle.
+- **Balance:** the Mountain turret fires every 0.6 s (was 0.45) and hits 40% of the time (was 50%).

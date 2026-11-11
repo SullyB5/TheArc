@@ -289,7 +289,7 @@ function updSeason2(dt) {
       if (c.t > 1.6 && G.t > camAlarmT) { camAlarmT = G.t + 40; c.t = 0; toast('A camera’s seen you — the alarm’s going!', 3); horn(88, 1.6, .2, 4); for (const o of ents) if (o.pk === MTN && !o.dead) o.state = 'chase'; for (let i = 0; i < 3; i++) pkSpawn(MTN, 'soldier', 5 + rr(-2, 2), 3 + rr(0, 4)).state = 'chase'; } }
     // the checkpoint turret
     const T = MTN.turret; if (T.alive) { const [tx, ty, tz] = T.at, d = Math.hypot(P.x - tx, P.z - tz); T.cool -= dt;
-      if (d < 16 && P.z < tz && Math.abs(P.x - tx) < 3 && T.cool <= 0) { T.cool = .45; T.g.rotation.y = Math.atan2(P.x - tx, P.z - tz); tracer(new THREE.Vector3(tx, ty, tz), new THREE.Vector3(P.x + rr(-.3, .3), P.y + 1.2, P.z + rr(-.3, .3)), 0xff8a6a); sfx('turret', .8); if (rnd() < (P.crouch ? .3 : .5)) hurtPlayer(6, tx, tz); } }
+      if (d < 16 && P.z < tz && Math.abs(P.x - tx) < 3 && T.cool <= 0) { T.cool = .6; T.g.rotation.y = Math.atan2(P.x - tx, P.z - tz); tracer(new THREE.Vector3(tx, ty, tz), new THREE.Vector3(P.x + rr(-.3, .3), P.y + 1.2, P.z + rr(-.3, .3)), 0xff8a6a); sfx('turret', .8); if (rnd() < (P.crouch ? .25 : .4)) hurtPlayer(6, tx, tz); } }
   }
   s2T -= dt; if (s2T > 0) return; s2T = 2;
   if (S2() && !G.flags.s2seen) { G.flags.s2seen = 1; s2Sync(); }

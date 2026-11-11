@@ -106,13 +106,13 @@ function recipeIns(r) {
 function recipeState(r) {
   const ins = recipeIns(r);
   const miss = ins.some(([k, n]) => cnt(k) < n), stOK = !r.at || nearStation(r.at), toolOK = !r.tool || has(r.tool);
-  return { ins, miss, stOK, toolOK, open: tierOpen(r.t), ok: tierOpen(r.t) && !miss && stOK && toolOK };
+  return { ins, miss, stOK, toolOK, open: tierOpen(r.t) && (!r.bp || bpKnown(r.bp)), ok: tierOpen(r.t) && (!r.bp || bpKnown(r.bp)) && !miss && stOK && toolOK };
 }
 function craft(r, times = 1) {
   let made = 0;
   for (let k = 0; k < times; k++) {
     const s = recipeState(r);
-    if (!s.open) { sfx('no'); toast(`Tier ${r.t}: ${TIER_HOW[r.t]}`, 3.4); break; }
+    if (!s.open) { sfx('no'); toast(r.bp && !bpKnown(r.bp) ? 'You need the blueprint for this' : `Tier ${r.t}: ${TIER_HOW[r.t]}`, 3.4); break; }
     if (s.miss) { if (!made) { sfx('no'); toast('Missing materials'); } break; }
     if (!s.stOK) { sfx('no'); toast(`Needs a ${STATION_N[r.at].toLowerCase()}`); break; }
     if (!s.toolOK) { sfx('no'); toast(`Needs a ${r.tool === 'weld' ? 'welding kit' : r.tool === 'driver' ? 'screwdriver' : r.tool}`); break; }
@@ -121,11 +121,11 @@ function craft(r, times = 1) {
     if (GEAR_DEFS[r.o]) {
       let q = null; if (nearStation('bench') || nearStation('forge')) { const x = rnd(); q = x < .08 ? 0 : x < .68 ? 1 : 2; }
       const g = newGear(r.o, q); toast(`${QUAL[g.q].n} ${GEAR_DEFS[r.o].n.toLowerCase()} · ${g.max} uses`, 2.6);
-    } else give(r.o, r.n || 1);
+    } else give(r.o, craftN(r));
     made++;
   }
   if (!made) return;
-  if (!GEAR_DEFS[r.o]) toast(`+${(r.n || 1) * made} ${nameOf(r.o)}`, 1.8);
+  if (!GEAR_DEFS[r.o]) toast(`+${craftN(r) * made} ${nameOf(r.o)}`, 1.8);
   sfx(r.at === 'fire' || r.at === 'cook' ? 'eat' : 'buy');
   save(); renderInv();
 }
