@@ -5111,6 +5111,7 @@ const SURV = {
   starveHp: .25, starveFloor: 12,               // an empty food bar drains health to this floor, never below
   regenAbove: 35,                               // natural healing once you're this fed (was 45)
   sickFood: .04, doseFood: .03,                 // what sickness / Rust poisoning cost the food bar per second
+  repairAt: .4,                                 // Repair buttons only show once gear is below this much condition (40%)
   protCut: .2,                                  // 'Hardy' buff: damage taken × (1 − this)
   rainCatch: 40, rainCap: 8,                    // in the rain with a pot/canteen: +1 rainwater every N s, up to this many
 };
@@ -5715,7 +5716,7 @@ function survLoad() {
 /* easy repairs: a repair kit restores fully anywhere; otherwise scrap (or sticks + fiber for primitive tools) patches it
    up to 60%, or all the way at a workbench or forge */
 function repairCost(t) {
-  const D = GEAR_DEFS[t.id]; if (!D || t.d >= t.max) return null;
+  const D = GEAR_DEFS[t.id]; if (!D || t.d > t.max * SURV.repairAt) return null;
   if (cnt('repair_kit')) return { l: 'Repair · kit', need: [['repair_kit', 1]], full: true };
   const atBench = nearStation('bench') || nearStation('forge');
   if ((D.t || 1) <= 1 && cnt('stick') >= 1 && cnt('fiber') >= 2) return { l: `Repair · stick + 2 fiber${atBench ? '' : ' (60%)'}`, need: [['stick', 1], ['fiber', 2]], full: atBench };
@@ -5725,7 +5726,7 @@ function repairCost(t) {
 }
 const repairLabel = t => repairCost(t)?.l || null;
 /* the one-tap Repair button: fixes everything worn, most worn first, as far as your kits / scrap / sticks go */
-const needsRepair = () => INV.tools.filter(t => GEAR_DEFS[t.id] && GEAR_DEFS[t.id].dur < 999 && t.d < t.max);
+const needsRepair = () => INV.tools.filter(t => GEAR_DEFS[t.id] && GEAR_DEFS[t.id].dur < 999 && t.d <= t.max * SURV.repairAt);
 function repairAll() {
   const list = needsRepair().sort((a, b) => a.d / a.max - b.d / b.max); let n = 0;
   for (const t of list) { const c = repairCost(t); if (!c) break; for (const [id, k] of c.need) { if (id === 'scrap') INV.scrap -= k; else take(id, k); } t.d = c.full ? t.max : Math.max(t.d, Math.round(t.max * .6)); t.warned = 0; n++; }

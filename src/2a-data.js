@@ -153,6 +153,7 @@ const SURV = {
   starveHp: .25, starveFloor: 12,               // an empty food bar drains health to this floor, never below
   regenAbove: 35,                               // natural healing once you're this fed (was 45)
   sickFood: .04, doseFood: .03,                 // what sickness / Rust poisoning cost the food bar per second
+  repairAt: .4,                                 // Repair buttons only show once gear is below this much condition (40%)
   protCut: .2,                                  // 'Hardy' buff: damage taken × (1 − this)
   rainCatch: 40, rainCap: 8,                    // in the rain with a pot/canteen: +1 rainwater every N s, up to this many
 };
