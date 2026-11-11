@@ -127,9 +127,10 @@ WEAPONS.hunter.name = 'Hunting rifle';
 
 /* ---------- what's in each slot ---------- */
 function eqInit() {
-  if (!Array.isArray(INV.eq) || INV.eq.length !== 3) INV.eq = ['arc', G.flags.hunter ? 'hunter' : null, null];
-  INV.eq = INV.eq.map(u => u === 'arc' || u === 'hunter' || u == null ? u : INV.tools.some(t => t.u === u) ? u : null);
-  if (!INV.eq[0] && !INV.eq[1] && !INV.eq[2]) INV.eq[0] = 'arc';
+  // (Nov 11, Bryce) you no longer start with the Arc rifle or the hunting rifle — Rook issues them at the gunsmith
+  if (!Array.isArray(INV.eq) || INV.eq.length !== 3) INV.eq = [G.flags.arcRifle ? 'arc' : null, G.flags.hunter ? 'hunter' : null, null];
+  INV.eq = INV.eq.map(u => u == null ? u : u === 'arc' ? (G.flags.arcRifle ? u : null) : u === 'hunter' ? (G.flags.hunter ? u : null) : INV.tools.some(t => t.u === u) ? u : null);
+  if (!INV.eq[0] && !INV.eq[1] && !INV.eq[2] && G.flags.arcRifle) INV.eq[0] = 'arc';
 }
 function slotWeapon(i) {
   const u = INV.eq?.[i]; if (u == null) return null;
@@ -139,7 +140,7 @@ function slotWeapon(i) {
   const g = INV.tools.find(t => t.u === u); if (!g || !WDEF[g.id]) return null;
   return { key: g.id, g, st: WDEF[g.id], name: GEAR_DEFS[g.id].n };
 }
-const curW = () => slotWeapon(P.slot) || slotWeapon(0) || { key: 'carbine', g: null, st: { cls: 'melee', dmg: 8, rate: .5, reach: 1.6 }, name: 'Fists' };
+const curW = () => slotWeapon(P.slot) || slotWeapon(0) || slotWeapon(1) || { key: 'carbine', g: null, st: { cls: 'melee', dmg: 8, rate: .5, reach: 1.6 }, name: 'Fists' };
 const gunId = () => curW().key;
 const magOf = w => w.g ? (w.g.mag ?? 0) : INV.mags[w.key] ?? 0;
 function setMag(w, n) { if (w.g) w.g.mag = n; else INV.mags[w.key] = n; }

@@ -7071,9 +7071,10 @@ WEAPONS.hunter.name = 'Hunting rifle';
 
 /* ---------- what's in each slot ---------- */
 function eqInit() {
-  if (!Array.isArray(INV.eq) || INV.eq.length !== 3) INV.eq = ['arc', G.flags.hunter ? 'hunter' : null, null];
-  INV.eq = INV.eq.map(u => u === 'arc' || u === 'hunter' || u == null ? u : INV.tools.some(t => t.u === u) ? u : null);
-  if (!INV.eq[0] && !INV.eq[1] && !INV.eq[2]) INV.eq[0] = 'arc';
+  // (Nov 11, Bryce) you no longer start with the Arc rifle or the hunting rifle — Rook issues them at the gunsmith
+  if (!Array.isArray(INV.eq) || INV.eq.length !== 3) INV.eq = [G.flags.arcRifle ? 'arc' : null, G.flags.hunter ? 'hunter' : null, null];
+  INV.eq = INV.eq.map(u => u == null ? u : u === 'arc' ? (G.flags.arcRifle ? u : null) : u === 'hunter' ? (G.flags.hunter ? u : null) : INV.tools.some(t => t.u === u) ? u : null);
+  if (!INV.eq[0] && !INV.eq[1] && !INV.eq[2] && G.flags.arcRifle) INV.eq[0] = 'arc';
 }
 function slotWeapon(i) {
   const u = INV.eq?.[i]; if (u == null) return null;
@@ -7083,7 +7084,7 @@ function slotWeapon(i) {
   const g = INV.tools.find(t => t.u === u); if (!g || !WDEF[g.id]) return null;
   return { key: g.id, g, st: WDEF[g.id], name: GEAR_DEFS[g.id].n };
 }
-const curW = () => slotWeapon(P.slot) || slotWeapon(0) || { key: 'carbine', g: null, st: { cls: 'melee', dmg: 8, rate: .5, reach: 1.6 }, name: 'Fists' };
+const curW = () => slotWeapon(P.slot) || slotWeapon(0) || slotWeapon(1) || { key: 'carbine', g: null, st: { cls: 'melee', dmg: 8, rate: .5, reach: 1.6 }, name: 'Fists' };
 const gunId = () => curW().key;
 const magOf = w => w.g ? (w.g.mag ?? 0) : INV.mags[w.key] ?? 0;
 function setMag(w, n) { if (w.g) w.g.mag = n; else INV.mags[w.key] = n; }
@@ -11898,8 +11899,20 @@ function restBunk() { if (night.active) { sfx('no'); toast('No sleeping through 
 const KEEPER_Q = {
   kade: { l: () => 'upgrades', act: () => talk('kade') },
   juno: { l: () => P.hp < 100 || P.bleed > 0 || P.frac > 0 || P.sick > 0 || P.dose > 0 ? 'patch up' : 'talk', act: () => talk('juno') },
-  rook: { l: () => 'draw rifle ammo', act: () => { if (G.flags.armoryDay === G.day) { sfx('no'); toast('Already drew today’s ammo — come back tomorrow'); return; } G.flags.armoryDay = G.day; INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX); sfx('reload'); toast('Ammo restocked (once a day)'); } },
+  rook: { l: () => !G.flags.arcRifle ? 'get issued the Arc rifle' : !G.flags.hunter && G.day >= 3 ? 'get issued the hunting rifle' : 'draw rifle ammo', act: () => {
+    if (!G.flags.arcRifle || (!G.flags.hunter && G.day >= 3)) { issueRifle(G.flags.arcRifle ? 'hunter' : 'arc'); return; }
+    if (G.flags.armoryDay === G.day) { sfx('no'); toast('Already drew today’s ammo — come back tomorrow'); return; } G.flags.armoryDay = G.day; INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX); sfx('reload'); toast('Ammo restocked (once a day)'); } },
 };
+
+// (Nov 11) the Arc rifle and the hunting rifle are earned at Rook's bench now, not carried from the start
+function issueRifle(k) {
+  if (k === 'arc') { G.flags.arcRifle = 1; INV.res = Math.max(INV.res, RES_MAX); INV.mags[RIFLE[UP.rifle].id] = RIFLE[UP.rifle].mag; }
+  else { G.flags.hunter = 1; INV.resH = Math.max(INV.resH, RESH_MAX); INV.mags.hunter = 5; }
+  const i = INV.eq[0] == null ? 0 : INV.eq[1] == null ? 1 : -1;
+  if (i >= 0) { INV.eq[i] = k; P.slot = i; selectGunView(gunId()); }
+  sfx('reload'); toast(`Rook hands you the ${k === 'arc' ? 'Arc rifle' : 'hunting rifle'}${i >= 0 ? ` · slot ${i + 1}` : ' · move it to a slot from the bag (E)'}`, 3.2);
+  if (k === 'arc') setTimeout(() => toast('Come back from day 3 for a hunting rifle', 2.6), 3400); save();
+}
 
 /* ================= interactables ================= */
 const GATE_SPOT = { x: 0, z: CAMP_R };
@@ -12760,7 +12773,7 @@ function renderInv() {
       else if (W) b.push(`<button data-eq="${t.u}" data-slot="2">Slot 3</button>`);
       { const rl = repairLabel(t); if (rl) b.push(`<button data-fix="${t.u}">${rl}</button>`); }
       return gearTile(t, b.join('')); }).join('')}</div>`;
-    body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
+    body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${G.flags.arcRifle && INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${G.flags.hunter && INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
     body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of ${G.flags.s2 || G.day > 100 ? 200 : 100} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
   } else if (invTab === 'craft') {
@@ -12841,7 +12854,7 @@ $('inv').addEventListener('click', e => {
   else if (d.wear) { toggleWear(g(d.wear)); save(); }
   else if (d.eq) equipTo(g(d.eq), +d.slot);
   else if (d.arc) { INV.eq[0] = 'arc'; if (P.slot === 0) selectGunView(gunId()); }
-  else if (d.hunt) { INV.eq[1] = 'hunter'; G.flags.hunter = 1; if (P.slot === 1) selectGunView(gunId()); }
+  else if (d.hunt) { INV.eq[1] = 'hunter'; if (P.slot === 1) selectGunView(gunId()); }
   else if (d.fix) repairGear(g(d.fix));
   else if (d.fixall) repairAll();
   else if (d.put || d.putall) storePut(d.put || d.putall, !!d.putall || e.shiftKey);
@@ -13312,10 +13325,10 @@ function startGame(fresh) {
   Object.assign(UP, { wall: 0, gate: 0, tur: 0, light: 0, rifle: 0, smoke: 0 });
   Object.assign(INV, { scrap: 0, meat: 0, rations: 0, mags: { carbine: 20, battle: 25, hunter: 5 }, res: 60, resH: 15, items: { cloth: 3, bandage: 1, canned: 2, water_boiled: 2 }, tools: [], eq: null, uid: 1 });
   clearInjuries(); P.diet = []; P.fed = 0; P.immune = 0; P.paint = 0; chan = null; lastTool = null; RDEPL.clear();
-  G.step = 13; G.day = 1; G.tod = .3; G.chapterDone = true; G.flags = { tier: 1, hunter: 1 };
+  G.step = 13; G.day = 1; G.tod = .3; G.chapterDone = true; G.flags = { tier: 1 };
   if (s) {
     Object.assign(UP, s.up); Object.assign(INV, s.inv); G.day = s.day; G.flags = s.flags || {}; P.hp = s.hp ?? 100; P.food = s.food ?? 100;
-    G.tod = clamp(s.tod ?? .3, .26, .7); G.flags.hunter = 1; G.flags.tier = G.flags.tier || 1;
+    G.tod = clamp(s.tod ?? .3, .26, .7); if (G.flags.arcRifle == null) { G.flags.arcRifle = 1; G.flags.hunter = 1; } G.flags.tier = G.flags.tier || 1;   // older saves keep the rifles they had
     if (!INV.mags || typeof INV.mags !== 'object') INV.mags = { carbine: 20, battle: 25, hunter: 5 };
     if (s.p) { P.diet = s.p.diet || []; P.bleed = s.p.bleed || 0; P.frac = s.p.frac || 0; P.sick = s.p.sick || 0; P.dose = s.p.dose || 0; }
   }
@@ -13323,7 +13336,13 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); eventsRestore(); combatRestore(); season2Restore(); s2StoryRestore(); finishRestore(); everydayRestore(); gHinted = !!G.flags.craftHint;
+  invInit();
+  if (!s) {   // (Nov 11, Bryce) fresh start: just a pistol, a knife and a hatchet — no Arc rifle, no hunting rifle
+    INV.res = 0; INV.resH = 0; INV.eq = [null, null, null];
+    const pis = newGear('pistol', 1); pis.mag = WDEF.pistol.mag; INV.eq = [pis.u, null, null];
+    newGear('hunting_knife', 1); newGear('hatchet', 1); give('ammo_9', 36);
+  }
+  eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); eventsRestore(); combatRestore(); season2Restore(); s2StoryRestore(); finishRestore(); everydayRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
