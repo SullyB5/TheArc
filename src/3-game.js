@@ -117,12 +117,15 @@ const KEEPER_Q = {
 };
 
 /* ================= interactables ================= */
+const GATE_SPOT = { x: 0, z: CAMP_R };
 const INTERACT = [
   ...SHOP_DEFS.map(D => ({ id: 'st_' + D.id, at: () => D.spot, r: 2.6, label: () => D.id === 'bunk' && P.hp >= 100 ? null : D.stN, act: () => D.id === 'bunk' ? restBunk() : openCraft(D.cat) })),
   { id: 'forge', at: () => SHOP.craft.forge, r: 2.4, label: () => 'Forge · smelt + metalwork', act: () => openCraft('mat') },
   { id: 'fire', at: () => SPOTS.fire, r: 3.4, label: () => 'Cook at the fire', act: () => openCraft('food') },
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
   { id: 'hulldoor', at: () => inHull(P.x, P.z) ? ARC_DOOR_IN : ARC_DOOR_OUT, r: 4.2, label: () => hullDoor.hp <= 0 ? (night.active ? 'The Arc’s doors are wrecked' : null) : hullDoor.open ? 'Seal the Arc’s blast doors' : 'Open the Arc’s blast doors', act: () => { if (hullDoor.hp <= 0) return; hullDoor.open = !hullDoor.open; sfx('gate'); toast(hullDoor.open ? 'Blast doors open' : `Blast doors sealed · ${Math.round(hullDoor.hp)} / ${hullDoor.max}`, 2); } },
+  // (Nov 10, Bryce) the settlement gate opens and shuts by hand, from either side
+  { id: 'gate', at: () => GATE_SPOT, r: 6.5, label: () => gate.hp <= 0 ? null : gate.open ? 'Close the gate' : 'Open the gate', act: () => { if (gate.hp <= 0) return; gate.open = !gate.open; sfx('gate'); toast(gate.open ? 'Gate open' : 'Gate shut', 1.8); } },
   { id: 'fogheal', at: () => nearDowned(), r: 2.6, label: () => { const e = nearDowned(), id = FOG_MEDS.find(k => cnt(k) > 0); return `${e.shopName || 'Settler'} is down — ` + (id ? `treat them (${nameOf(id).toLowerCase()})` : 'you need a bandage or a medkit'); }, act: () => healDowned(nearDowned()) },
   { id: 'radiodesk', at: () => arcInside ? ARC_RADIO : null, r: 2.7, label: () => radioDue().length ? 'Answer the radio · someone is calling Kestrel' : 'Listen to the radio', act: () => radioListen() },
   { id: 'walkies', at: () => arcInside ? ARC_WALKIES : null, r: 2.3, label: () => cnt('radio') > 0 || (G.flags.walkies || 0) >= 4 ? null : 'Take a walkie-talkie', act: () => takeWalkie() },
@@ -152,7 +155,8 @@ function findInteract() {
   if (!best && Math.hypot(P.x, P.z) > CAMP_R - 4) { const w = wildInteract(); if (w) best = { it: { act: w.act }, l: w.l, prog: w.prog, next: w.next, multi: w.multi }; }
   return best;
 }
-function useInteract() { if (curInter) curInter.it.act(); }
+// (Nov 10, Bryce) no bag button: E (phone: USE) does what's in front of you, and with nothing there it opens the bag; again closes it
+function useInteract() { if (invOpen) { toggleInv(false); return; } if (curInter) curInter.it.act(); else toggleInv(true); }
 
 function butcher(e) {
   e.butchered = true; sfx('pickup'); puff(e.x, e.y + .5, e.z, 0x7a2a1a, 5, 1.5, .1, .5);
@@ -308,9 +312,10 @@ function endNight(won) {
    blast doors. One or two always get caught out — they go down in the fog, and unless you get a bandage or a medkit into
    them they don't get up. A roof doesn't stop fog: the only cover is the sealed hull. Out in the world it's gear
    (gas mask, hazmat, breather, Rust medicine) or nothing. */
+const warnLen = () => 40 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);   // the horn to the fog
 function rustDue() { return G.day + 7 + Math.floor(rnd() * 4); }
 function startRust(scripted) {
-  rust.state = 'warn'; rust.t = 40 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);
+  rust.state = 'warn'; rust.t = warnLen();
   G.flags.rustDay = rustDue(); P.fogT = 0;
   // who gets caught out: one or two of the settlers and townsfolk, late off the mark and slow
   const pool = ents.filter(e => e.type === 'npc' && !e.dead && (e.settler || e.name === 'extra') && Math.hypot(e.home.x, e.home.z) < CAMP_R);
@@ -330,17 +335,38 @@ function fogNPC(e, dt) {
     return { x: e.x, z: e.z, spd: 0 };
   }
   const on = rust.state === 'warn' || rust.state === 'active';
-  if (!on) { e.fogSpot = null; return null; }
+  if (!on) { e.fogSpot = null; e.fogRoute = null; return null; }
+  if (!e.fogSpot) e.fogRoute = null;
   if (!e.fogSpot) e.fogSpot = rnd() < .7 ? { x: ARC.x + rr(-24, 10), z: ARC.z + rr(-6, 5) } : (() => { const p = WING.pts[8 + Math.floor(rnd() * (WING.pts.length - 12))], o = rr(-4, 4); return { x: p.x + p.nx * o, z: p.z + p.nz * o }; })();
   const out = !inHull(e.x, e.z);
-  if (rust.state === 'active' && out && e.name !== 'watch' && !(e.shop && !e.settler) && !e.rescued) {
+  if (rust.state === 'active' && out && !(e.shop && !e.settler) && !e.rescued) {   // (Nov 10) the watch (the two on the gate too) breathe it like anyone else
     e.fogDose = (e.fogDose || 0) + dt * (e.straggler ? 1.6 : 1);
     if (rnd() < dt * 1.2 && Math.hypot(e.x - P.x, e.z - P.z) < 18) sfx('cough', .6);
     if (e.fogDose > 9) { e.downed = true; e.dieT = 70; e.route = null; toast(`${e.shopName || 'Someone'} is down in the fog — get a bandage or a medkit into them!`, 4.5); return { x: e.x, z: e.z, spd: 0 }; }
   }
   // stragglers dither until the fog's on them, then stumble
   if (e.straggler && !e.rescued && rust.state === 'warn') return { x: e.x, z: e.z, spd: 0 };
+  // (Nov 10) the way there: out of the shop door, along the streets to the Arc's doors, then in (straight lines got the keepers
+  // stuck behind their counters). Anyone wedged for a few seconds out of your sight skips to the next corner.
+  if (out && !e.fogRoute) e.fogRoute = fogRouteFor(e);
+  if (e.fogRoute && e.fogRoute.length) {
+    const n = e.fogRoute[0], d = Math.hypot(n.x - e.x, n.z - e.z);
+    if (d < 1.1) { e.fogRoute.shift(); e.fogStuck = 0; e.fogBest = 1e9; }
+    else {
+      // no headway on this corner (sliding along a wall doesn't count) — skip to it
+      if (d < (e.fogBest ?? 1e9) - .3) { e.fogBest = d; e.fogStuck = 0; } else e.fogStuck = (e.fogStuck || 0) + dt;
+      if (e.fogStuck > (Math.hypot(e.x - P.x, e.z - P.z) > 14 ? 2.5 : 6)) { e.x = n.x; e.z = n.z; e.fogRoute.shift(); e.fogStuck = 0; e.fogBest = 1e9; }
+      return { x: n.x, z: n.z, spd: e.straggler && !e.rescued ? 1.7 : 3.8 };
+    }
+  }
   return { x: e.fogSpot.x, z: e.fogSpot.z, spd: Math.hypot(e.fogSpot.x - e.x, e.fogSpot.z - e.z) > .8 ? (e.straggler && !e.rescued ? 1.7 : 3.8) : 0 };
+}
+function fogRouteFor(e) {
+  const pts = [], D = SHOP[e.shop];
+  if (D && Math.hypot(e.x - D.cx, e.z - D.cz) < Math.max(D.bw, D.bd) * .6) pts.push(shopL2W(D, 0, D.bd / 2 + 1.2), shopL2W(D, 0, D.bd / 2 + 2.6));
+  const p0 = pts.length ? pts[pts.length - 1] : e, from = WALK.nearest(p0.x, p0.z), to = WALK.nearest(ARC_DOOR_OUT.x, ARC_DOOR_OUT.z);
+  pts.push(from, ...WALK.path(from, to), { x: ARC_DOOR_OUT.x + rr(-1.2, 1.2), z: ARC_DOOR_OUT.z });
+  return pts.map(n => ({ x: n.x, z: n.z }));
 }
 const nearDowned = () => { for (const e of ents) if (e.downed && Math.hypot(e.x - P.x, e.z - P.z) < 2.6) return e; return null; };
 const FOG_MEDS = ['rust_med', 'medkit', 'blood_bag', 'iv', 'surgical_kit', 'bandage', 'herb_bandage', 'painkiller'];
@@ -350,6 +376,31 @@ function healDowned(e) {
   take(id, 1); e.downed = false; e.rescued = true; e.fogDose = 0; e.straggler = false; sfx('pickup');
   toast(`You patched ${e.shopName || 'them'} up (${nameOf(id).toLowerCase()}) — they're heading for the Arc`, 3.5);
 }
+/* (Nov 10, Bryce) the blast doors shut themselves when the fog rolls in and open again when it lifts (E at the door still works:
+   caught outside, you can open them, get in and seal them behind you) */
+function sealForFog(on) {
+  if (hullDoor.hp <= 0 || night.active) return;
+  if (on && hullDoor.open) { hullDoor.open = false; sfx('gate'); toast(inHull(P.x, P.z) ? 'Blast doors sealed — the fog is here' : 'The Arc’s doors are sealing — E at the door to get in', 3.5); }
+  if (!on && !hullDoor.open) { hullDoor.open = true; sfx('gate'); toast('Blast doors opening', 2.5); }
+}
+/* time to the next fog, for the countdown at the top of the screen: null = nothing to show yet */
+function fogCountdown() {
+  if (rust.state === 'warn') return { t: `RED FOG IN ${clock(rust.t)}`, k: 'warn' };
+  if (rust.state === 'active') return { t: `RED FOG · LIFTS IN ${clock(rust.t)}`, k: 'act' };
+  if (rust.state === 'clear') return { t: 'FOG LIFTING', k: '' };
+  if (!G.flags.reached) return null;
+  if (!G.flags.firstRust) return G.flags.firstRustT != null ? { t: `RED FOG IN ${clock(G.flags.firstRustT + warnLen())}`, k: G.flags.firstRustT < 30 ? 'near' : '' } : null;
+  if (G.flags.rustDay == null) return null;
+  // it comes in the day window (.36–.62) of its day; past the window it rolls to the next morning
+  const rem = G.day < G.flags.rustDay ? (G.flags.rustDay - G.day) + (.36 - G.tod) : G.tod < .36 ? .36 - G.tod : G.tod < .62 ? 0 : 1.36 - G.tod;
+  if (rem <= 0 && night.active) return { t: 'RED FOG AFTER THE RAID', k: 'near' };
+  if (rem <= 0) return { t: `RED FOG IN ${clock(warnLen())}`, k: 'near' };
+  const secs = rem * DAY_LEN / .56 + warnLen();
+  if (rem < 1) return { t: `RED FOG IN ${clock(secs)}`, k: secs < 120 ? 'near' : '' };
+  const h = Math.floor(rem * 24);
+  return { t: `RED FOG IN ${Math.floor(h / 24)}D ${h % 24}H`, k: '' };
+}
+const clock = s => { s = Math.max(0, Math.ceil(s)); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`; };
 function updRust(dt) {
   if (rust.state === 'none') {
     if (G.flags.rustDay == null) G.flags.rustDay = rustDue();
@@ -357,14 +408,16 @@ function updRust(dt) {
     if (G.flags.reached && !G.flags.firstRust && !night.active) { G.flags.firstRustT = (G.flags.firstRustT ?? 60) - dt; if (G.flags.firstRustT <= 0) { G.flags.firstRust = 1; delete G.flags.firstRustT; startRust(false); } }
     if ((G.chapterDone || G.day > 1) && !night.active && G.day >= G.flags.rustDay && G.tod > .36 && G.tod < .62) startRust(false);
     if (G.step === 8 && !G.flags.rustDone && Math.hypot(P.x, P.z) > 85) { G.flags.rustDone = 1; startRust(true); }
-  } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 60; } }
+  } else if (rust.state === 'warn') { rust.t -= dt; rust.k = lerp(rust.k, .25, dt * .3); if (rust.t <= 0) { rust.state = 'active'; rust.t = 60; rust.sealT = 8; } }
   else if (rust.state === 'active') {
     rust.t -= dt; rust.k = lerp(rust.k, 1, dt * .8);
+    // the doors shut once whoever is right at them is through (or after 8 s, whoever's left)
+    if (rust.sealT > 0) { rust.sealT -= dt; if (rust.sealT <= 0 || !ents.some(e => e.type === 'npc' && !e.dead && !e.downed && e.fogSpot && Math.hypot(e.x - ARC_DOOR_OUT.x, e.z - ARC_DOOR_OUT.z) < 7 && !inHull(e.x, e.z))) { rust.sealT = 0; sealForFog(true); } }
     P.safe = inShelter();
     // it burns harder the longer you're out in it: ~5 hp/s at first, ~15 after twenty seconds
     P.fogT = P.safe ? Math.max(0, (P.fogT || 0) - dt * 2) : (P.fogT || 0) + dt;
     const fr = fogResist(); if (!P.safe && !P.dead && fr < 1) { P.dose = (P.dose || 0) + dt * 1.6 * (1 - fr); P.hp -= (5 + Math.min(10, P.fogT * .5)) * dt * (1 - fr); P.coughT -= dt; if (P.coughT <= 0) { P.coughT = rr(1.2, 2.2); sfx('cough'); hud.hurt.style.opacity = .5; } }
-    if (rust.t <= 0) { rust.state = 'clear'; rust.t = 8; say([['Radio', 'Fog is lifting. Breathe easy.']]); }
+    if (rust.t <= 0) { rust.state = 'clear'; rust.t = 8; sealForFog(false); say([['Radio', 'Fog is lifting. Breathe easy.']]); }
   } else if (rust.state === 'clear') { rust.t -= dt; rust.k = lerp(rust.k, 0, dt * .6); if (rust.t <= 0) { rust.state = 'none'; rust.k = 0; } }
 }
 
@@ -601,7 +654,7 @@ addEventListener('keydown', e => { if (G.mode !== 'play' || e.key.length !== 1) 
 function updPlayer(dt) {
   if (P.dead) return;
   // look (slower while aiming)
-  const lk = 1 / (1 + ((WEAPONS[gunId()]?.scope || 1) - 1) * P.ads * .8) / (P.binoc ? 3 : 1);
+  const lk = 1 / (1 + (zoomOf(gunId()) - 1) * P.ads * .8) / (P.binoc ? 3 : 1);
   const dYaw = input.look[0] * lk;
   P.yaw -= dYaw; P.pitch = clamp(P.pitch - input.look[1] * lk, -1.45, 1.45); input.look[0] = input.look[1] = 0;
   // move (or fly: F toggles it — no gravity, no collisions, go where you look)
@@ -691,18 +744,32 @@ function updPlayer(dt) {
   P.sway = 0;
   camera.position.set(P.x + rx * bobX * .5, P.eyeY + (P.swim ? 1.45 : 1.62) + bobY - P.land, P.z + rz * bobX * .5);
   camera.rotation.set(P.pitch + P.kick * .35 - P.land * .12, P.yaw, P.roll);
-  const fov = (BASE_FOV + P.runK * 7) / (1 + ((W.scope || 1) - 1) * P.ads) / (P.binoc ? 4 : 1);
+  // (Nov 10, Bryce: "like Elyra") aiming zooms the view and the gun stays at your side; only the snipers look through a scope
+  if (P.ads < .1) P.scopeLvl = 0;
+  const fov0 = BASE_FOV + P.runK * 7, fov = fov0 / (1 + (zoomOf(gunId()) - 1) * P.ads) / (P.binoc ? 4 : 1);
   if (Math.abs(camera.fov - fov) > .05) { camera.fov = fov; camera.updateProjectionMatrix(); }
-  const scoped = (W.scope || 1) >= 4.5 && P.ads > .85;
-  $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim;
+  const scoped = SNIPE.has(gunId()) && P.ads > .85;
+  $('scope').classList.toggle('on', scoped); vm.visible = !scoped && !P.swim; if (isTouch) $('bZoom').style.display = scoped ? 'grid' : 'none';
   // viewmodel: bob, kick, reload dip, swap drop; aiming slides it to the centre
   const rl = P.reload > 0 ? Math.sin((1 - P.reload / P.reloadMax) * Math.PI) : 0, sw = (P.swapT || 0) / .45;
   // running lowers and cants the gun; it lags a hair behind fast turns
   const rk2 = P.runK;
-  vm.position.set(bobX * .8 - P.ads * W.at[0] + P.sway * .5 - rk2 * .03, bobY * .7 - rl * .16 - sw * .3 - rk2 * .07 - P.land * .3 + P.ads * (-W.at[1] - .085 - (W.scope > 2 ? .045 : 0)), P.kick * 1.1 + P.ads * .1 + rk2 * .03);
+  vm.position.set(bobX * .8 + P.ads * .012 + P.sway * .5 - rk2 * .03, bobY * .7 - rl * .16 - sw * .3 - rk2 * .07 - P.land * .3 - P.ads * .04, P.kick * 1.1 - P.ads * .02 + rk2 * .03);
   vm.rotation.set(rl * .5 + P.kick * 1.4 - rk2 * .32 + Math.sin(P.bob) * .03 * rk2, P.sway * 1.5 + rk2 * .55, -rl * .3 + rk2 * .2 + P.roll * .5);
   weaponAnim(dt);
+  // the gun is drawn as if by its own unzoomed camera: squeezed toward the middle by exactly as much as the zoom magnifies (ELYRA's vmFov)
+  { const zk = Math.tan(fov0 * Math.PI / 360) / Math.tan(camera.fov * Math.PI / 360); vm.scale.set(1 / zk, 1 / zk, 1); vm.position.x /= zk; vm.position.y /= zk; }
 }
+/* (Nov 10) zoom, from ELYRA: assault rifles 2x; pistols, SMGs, shotguns and bows 1.3x; the snipers (hunting rifle, sniper rifle) 4x
+   through the scope, 7x with Z (phone: ZOOM) while scoped. Every time you scope in it starts at 4x and eases between the two */
+const SNIPE = new Set(['hunter', 'sniper']), AR_Z = new Set(['carbine', 'battle', 'assault', 'grey_rifle', 'pulse_rifle', 'lmg', 'pump_rifle']), SCOPE_Z = [4, 7];
+P.scopeLvl = 0; P.zoomNow = SCOPE_Z[0];
+function zoomOf(id) {
+  if (SNIPE.has(id)) { const want = SCOPE_Z[P.scopeLvl] || SCOPE_Z[0]; P.zoomNow += (want - P.zoomNow) * .22; if (Math.abs(want - P.zoomNow) < .01) P.zoomNow = want; return P.zoomNow; }
+  if (AR_Z.has(id)) return 2;
+  return (WEAPONS[id]?.scope || 1) > 1 ? 1.3 : 1;
+}
+function scopeZoom() { if (!SNIPE.has(gunId()) || P.ads < .85 || P.dead) return; P.scopeLvl = (P.scopeLvl + 1) % SCOPE_Z.length; sfx('dry'); }
 function climbLookout() {
   if (P.y < POI.lookoutTop - 3) { P.x = POI.lookout.x + .5; P.z = POI.lookout.z + .5; P.y = POI.lookoutTop; P.vy = 0; toast('The whole valley, laid out', 2.5); }
   else { P.x = POI.lookout.x - 4; P.z = POI.lookout.z + 4; P.y = heightAt(P.x, P.z); P.vy = 0; }
@@ -831,7 +898,7 @@ function updHUD(dt) {
   hud.gunn.textContent = w.name + (w.g ? ` · ${Math.round(w.g.d / w.g.max * 100)}%` : '');
   renderTool();
   let alert = '';
-  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get inside the Arc or mask up`;
+  if (rust.state === 'warn') alert = 'Get inside the Arc or mask up';
   else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = 'Red fog — get inside the Arc!';
   else if (night.active) alert = `${night.final ? 'NIGHT 100' : 'Hold Kestrel'} · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
@@ -839,15 +906,16 @@ function updHUD(dt) {
   else if (P.dose > 40) alert = 'Rust poisoning — Rust medicine (5)';
   else if (P.sick > 50) alert = 'Sick — a poultice will help (5)';
   hud.alert.textContent = alert; hud.alert.classList.toggle('on', !!alert); hud.alert.classList.toggle('rust', rust.state === 'warn' || rust.state === 'active');
+  { const fc = fogCountdown(), el = $('fogc'); el.classList.toggle('on', !!fc); if (fc) { if (el.textContent !== fc.t) el.textContent = fc.t; el.className = 'on ' + fc.k; } }
   miniT -= dt; if (miniT <= 0) { miniT = .1; drawMini(); }
   if (invOpen) { invT -= dt; if (invT <= 0) { invT = .3; updInvBars(); if ((invTab === 'store' && storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) > 5) || (invTab === 'trade' && !nearTrader())) { invTab = 'bag'; renderInv(); } } }
   updChan(dt); updStatus(dt); updLoad(dt);
   curInter = findInteract();
   if (curInter) {
     const bar = curInter.prog != null ? `<i class="pg"><i style="width:${Math.round(curInter.prog * 100)}%"></i></i>` : '';
-    if (isTouch) { hud.use.style.display = 'grid'; hud.use.innerHTML = curInter.l.replace(/ {2}· {2}hold: [a-z]+/, '') + (curInter.multi ? ` <small>(hold: ${/dismantle/.test(curInter.l) ? 'dismantle' : 'next'})</small>` : '') + bar; hud.prompt.style.display = 'none'; }
+    if (isTouch) { hud.use.style.display = 'grid'; hud.use.classList.remove('bag'); hud.use.innerHTML = curInter.l.replace(/ {2}· {2}hold: [a-z]+/, '') + (curInter.multi ? ` <small>(hold: ${/dismantle/.test(curInter.l) ? 'dismantle' : 'next'})</small>` : '') + bar; hud.prompt.style.display = 'none'; }
     else { hud.prompt.style.display = 'block'; hud.prompt.innerHTML = (curInter.prog != null ? '' : '<kbd>E</kbd>') + curInter.l + bar; }
-  } else { hud.prompt.style.display = 'none'; hud.use.style.display = 'none'; }
+  } else { hud.prompt.style.display = 'none'; if (isTouch) { hud.use.style.display = 'grid'; hud.use.classList.add('bag'); if (hud.use.textContent !== 'BAG') hud.use.textContent = 'BAG'; } else hud.use.style.display = 'none'; }
   hud.hurt.style.opacity = Math.max(0, (+hud.hurt.style.opacity || 0) - dt * 1.2);
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) hud.toast.classList.remove('on'); }
   if (subT > 0) { subT -= dt; if (subT <= 0) nextLine(); }
@@ -962,7 +1030,32 @@ $('inv').addEventListener('click', e => {
   else if (d.buy) buyTrade(+d.buy); else if (d.sell) sellTrade(d.sell); else if (d.sellg) sellTrade(null, g(d.sellg));
   renderInv();
 });
-$('bInv').addEventListener('click', e => { e.stopPropagation(); toggleInv(); });
+/* ---------- pause (Nov 10, Bryce): the button top-left (or Esc / P) stops the game; the main menu lives in here ---------- */
+let paused = false, pauseAt = 0;
+function setPause(v) {
+  if (v === paused || G.mode !== 'play') return;
+  if (v && (P.dead || cine)) return;
+  paused = v; pauseAt = performance.now(); $('pause').classList.toggle('on', v);
+  input.fire = false; input.ads = false; input.mx = input.my = 0; for (const k in keys) keys[k] = false;
+  if (v) {
+    if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); if (shopOpen) closeShop();
+    $('pinfo').textContent = `Day ${G.day} · Tier ${tierNow()}` + (fogCountdown() ? ' · ' + fogCountdown().t.toLowerCase().replace(/^red fog/, 'red fog') : '');
+    $('pSnd').textContent = `Sound: ${muted ? 'off' : 'on'}`;
+    $('pkeys').textContent = isTouch ? 'Left thumb: move · right thumb: look · USE does what’s in front of you, or opens your bag · AIM zooms (ZOOM on a sniper scope) · tap the minimap for the map.'
+      : 'WASD move · Shift sprint · mouse look · click fire · right-click aim (Z: 4x / 7x on a sniper) · R reload · 1–5 toolbar · E use, or open your bag · Q swap · G throw · M map · N sound · Esc / P pause';
+    if (document.pointerLockElement) document.exitPointerLock();
+  } else if (!isTouch) canvas.requestPointerLock?.();
+}
+$('bPause').addEventListener('click', e => { e.stopPropagation(); setPause(true); });
+$('pRes').addEventListener('click', e => { e.stopPropagation(); setPause(false); });
+$('pMap').addEventListener('click', e => { e.stopPropagation(); setPause(false); if (document.pointerLockElement) document.exitPointerLock(); toggleMap(); });
+$('pSnd').addEventListener('click', e => { e.stopPropagation(); setMute(!muted); $('pSnd').textContent = `Sound: ${muted ? 'off' : 'on'}`; });
+$('pGfx').addEventListener('click', e => { e.stopPropagation(); openGfx(); });
+$('pMenu').addEventListener('click', e => { e.stopPropagation(); save(); location.reload(); });   // saved: Continue on the title picks up right here
+$('pause').addEventListener('click', e => { if (e.target.id === 'pause') setPause(false); });
+$('pause').addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+// Esc on a PC drops the mouse lock before the page sees the key: losing the lock mid-play (nothing else open) pauses
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && G.mode === 'play' && !paused && !gfxOpen && !invOpen && !mapOpen && !shopOpen && !P.dead && !cine && !isTouch) setPause(true); });
 $('mini').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 if (isTouch) document.body.classList.add('touch');
 
@@ -978,8 +1071,10 @@ const keys = {};
 addEventListener('keydown', e => {
   keys[e.code] = true; initAudio();
   if (G.mode !== 'play') return;
+  if (paused) { if ((e.code === 'Escape' || e.code === 'KeyP') && performance.now() - pauseAt > 300) setPause(false); return; }
+  if (e.code === 'KeyP' && !cine) { setPause(true); return; }
   if (cine && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { skipCine(); return; }
-  if (e.code === 'KeyE') { if (shopOpen) closeShop(); else useInteract(); }
+  if (e.code === 'KeyE' && !e.repeat) { if (shopOpen) closeShop(); else useInteract(); }
   if (e.code === 'KeyR') reload();
   if (e.code === 'Space') input.jump = true;
   if (e.code === 'KeyN') setMute(!muted);
@@ -988,9 +1083,10 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyI' || e.code === 'Tab') { e.preventDefault(); toggleInv(); }
   if (e.code === 'KeyQ') { if (curInter && curInter.multi && curInter.next) curInter.next(); else swapGun(); }
   if (e.code === 'KeyG') throwNext();
+  if (e.code === 'KeyZ') scopeZoom();
   if (e.code === 'KeyB') { if (has('binoc')) { P.binoc = !P.binoc; toast(P.binoc ? 'Binoculars' : 'Binoculars away', 1); } }
   const dg = /^Digit([1-5])$/.exec(e.code); if (dg) useSlot(+dg[1] - 1);
-  if (e.code === 'Escape') { if (gfxOpen) closeGfx(); if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); }
+  if (e.code === 'Escape') { if (gfxOpen || shopOpen || invOpen || mapOpen) { if (gfxOpen) closeGfx(); if (shopOpen) closeShop(); if (invOpen) toggleInv(false); if (mapOpen) toggleMap(); } else if (performance.now() - pauseAt > 300) setPause(true); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 function keyMove() {
@@ -1026,7 +1122,9 @@ function tStart(e) {
     if (el && el.closest('#hp')) { e.preventDefault(); secretTap(); continue; }
     if (el && el.closest('#bFly')) { e.preventDefault(); if (G.flags.dev) toggleFly(); continue; }
     if (el && el.closest('.slot')) { e.preventDefault(); useSlot(+el.closest('.slot').dataset.i); continue; }
-    if (el && (el.closest('#mini') || el.closest('#bInv'))) { e.preventDefault(); if (el.closest('#mini')) toggleMap(); else { const now = performance.now(); toggleInv(); window.__bagT = now; } continue; }
+    if (el && el.closest('#mini')) { e.preventDefault(); toggleMap(); continue; }
+    if (el && el.closest('#bPause')) { e.preventDefault(); setPause(true); continue; }
+    if (el && el.closest('#bZoom')) { e.preventDefault(); scopeZoom(); continue; }
     const btn = el && el.closest('.btn');
     if (btn) {
       btn.classList.add('on');
@@ -1095,6 +1193,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   adaptRes((now - last) / 1000);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (paused) { composer.render(0); return; }
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
   updHouseLights();
@@ -1411,14 +1510,14 @@ function startGame(fresh) {
   P.yaw = wake ? Math.atan2(P.x - POI.dropsite.x, P.z - POI.dropsite.z) : 0; P.pitch = 0;   // you wake looking at the wreck
   if (!s) {
     say([['Radio', '…anyone at the drop site, this is Kestrel. If you can hear this, you made it down.'], ['Kade', 'Grab what you can from the wreck. Our walls are north-east — follow the old road.'], ['Kade', 'Or dig in where you are. Your call. Nights out there get loud.']]);
-    setTimeout(() => toast(isTouch ? 'Search the wreck · Bag → Craft to build here · the minimap shows the way to Kestrel' : 'E search the wreck · I bag + craft (build here) · M map — Kestrel is north-east', 6), 2500);
+    setTimeout(() => toast(isTouch ? 'Search the wreck · BAG → Craft to build here · the minimap shows the way to Kestrel' : 'E search the wreck · E on nothing: bag + craft · M map — Kestrel is north-east', 6), 2500);
   } else toast(`Day ${G.day} · Tier ${tierNow()}`, 3);
   if (!isTouch) setTimeout(() => canvas.requestPointerLock?.(), 50);
 }
 function menu() {
   const s = load();
   $('menu').innerHTML = (s ? '<button id="bCont">Continue</button><button class="sec" id="bNew">New game</button>' : '<button id="bNew">Start</button>') + `<button class="sec" id="bMute">Sound: ${muted ? 'off' : 'on'}</button><button class="sec" id="bGfx">Settings</button>`;
-  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · bag for inventory.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use · Space jump/swim · I inventory · M map · N sound · O settings';
+  $('keys').textContent = isTouch ? 'Left thumb: move (push to the edge to sprint) · right thumb: look · hold the crosshair button to fire · tap the toolbar to switch or eat · tap the minimap for the map · USE (BAG when nothing is near) for inventory · the pause button top-left for the menu.' : 'WASD move · Shift sprint · mouse look · click fire · right-click aim · R reload · 1–5 toolbar · E use / bag · Space jump/swim · M map · N sound · Esc pause';
   $('bNew').onclick = () => { if (s && !confirmNew()) return; try { localStorage.removeItem(SAVE); } catch (e) {} startGame(true); };
   if ($('bCont')) $('bCont').onclick = () => startGame(false);
   $('bGfx').onclick = () => openGfx();
@@ -1491,3 +1590,5 @@ boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
 window.__E = { ARC_RADIO, ARC_WALKIES, WING, envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };
+Object.assign(window.__T, { updNPC, updRust, fogCountdown, setPause, zoomOf, useInteract, input });
+Object.defineProperties(window.__T, { paused: { get: () => paused }, invOpen: { get: () => invOpen } });

@@ -264,7 +264,7 @@ function wallCollide(o, rad, isPlayer) {
   if (Math.abs(d - R) < rad + .45 && d > .01) {
     const a = Math.atan2(o.x, o.z);
     const gateOpen = gate.open || gate.hp <= 0;
-    if (Math.abs(a) < GATE_HALF - .02 && (isPlayer || gateOpen)) { o.pd = d; return; }
+    if (Math.abs(a) < GATE_HALF - .02 && gateOpen) { o.pd = d; return; }   // (Nov 10) a shut gate stops you too: E opens it
     const inside = (o.pd ?? d) < R;
     const nd = inside ? R - rad - .45 : R + rad + .45;
     o.x *= nd / d; o.z *= nd / d;

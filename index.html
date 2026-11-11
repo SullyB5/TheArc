@@ -44,15 +44,30 @@ body.cine .touch,body.title .touch,body:not(.touch) .touch{display:none}
 #mini{position:absolute;right:var(--r);top:var(--t);width:132px;height:132px;border-radius:50%;box-shadow:0 0 0 2px #ffffff33,0 4px 16px #0008;pointer-events:auto;cursor:pointer}
 #minic{width:100%;height:100%;border-radius:50%;display:block}
 #mini i{position:absolute;left:50%;top:-1px;transform:translateX(-50%);font:700 11px/1 "Barlow Condensed",sans-serif;font-style:normal;color:var(--ink);background:#000a;border-radius:6px;padding:1px 4px}
-#bInv{position:absolute;left:var(--l);top:var(--t);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;display:grid;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
-#bInv svg{width:24px;height:24px}
+#bPause{position:absolute;left:var(--l);top:var(--t);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;display:grid;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
+#bPause svg{width:22px;height:22px}
+/* the red fog countdown (top middle) */
+#fogc{position:absolute;left:50%;top:var(--t);transform:translateX(-50%);padding:4px 14px;border-radius:99px;background:#000a;box-shadow:inset 0 0 0 1px #ff8a5a55;color:#ffb89a;font:700 15px/1.1 "Barlow Condensed",sans-serif;letter-spacing:.14em;white-space:nowrap;display:none;text-shadow:0 1px 2px #000;font-variant-numeric:tabular-nums}
+#fogc.on{display:block}
+#fogc.near{color:#ff8a5a;box-shadow:inset 0 0 0 1.5px #ff8a5a99}
+#fogc.warn{background:#6d1d0ccc;color:#fff;box-shadow:0 0 0 1.5px #ff8a5a,0 0 18px #ff4a1a66;animation:blink 1s infinite}
+#fogc.act{color:#fff;background:#4a1408cc;box-shadow:0 0 0 1.5px #ff8a5a99}
+/* pause */
+#pause{position:fixed;inset:0;z-index:12;display:none;place-items:center;background:#05080bd9}
+#pause.on{display:grid}
+#pause .pp{width:min(340px,calc(100vw - 40px));padding:18px 20px;border-radius:14px;background:#12130fee;box-shadow:0 0 0 1.5px #ffffff22,0 10px 40px #000}
+#pause h3{margin:0 0 4px;font:900 30px/1 "Big Shoulders Stencil Display",Impact,sans-serif;letter-spacing:.1em}
+#pause .pi{margin:0 0 14px;color:var(--dim);font-size:15px}
+#pause button{appearance:none;display:block;width:100%;margin:0 0 8px;padding:11px 16px;border:0;border-radius:10px;font:700 18px/1 "Barlow Condensed",sans-serif;letter-spacing:.08em;text-transform:uppercase;text-align:left;cursor:pointer;color:#1a1208;background:var(--amber)}
+#pause button.sec{background:#ffffff1a;color:var(--ink);box-shadow:inset 0 0 0 1.5px #ffffff33}
+#pause .keys{margin-top:10px;font-size:13px;color:var(--dim);line-height:1.35}
 #bFly{position:absolute;left:var(--l);top:calc(var(--t) + 50px);width:42px;height:42px;border-radius:10px;border:0;background:#0007;box-shadow:inset 0 0 0 1.5px #ffffff26;color:#efe9dc;font:800 11px/1 system-ui,sans-serif;letter-spacing:.06em;display:none;place-items:center;pointer-events:auto;cursor:pointer;padding:0}
 #bFly.on{background:#e8a83acc;color:#1a1a1a}
 #hp{pointer-events:auto}
-#alert{position:absolute;left:50%;top:var(--t);transform:translateX(-50%);padding:5px 14px;border-radius:99px;background:#000a;font-size:15px;white-space:nowrap;display:none;text-shadow:0 1px 2px #000}
+#alert{position:absolute;left:50%;top:calc(var(--t) + 32px);transform:translateX(-50%);padding:5px 14px;border-radius:99px;background:#000a;font-size:15px;white-space:nowrap;display:none;text-shadow:0 1px 2px #000}
 #alert.on{display:block}
 #alert.rust{background:#6d1d0ccc;box-shadow:0 0 0 1px #ff8a5a88}
-#toast{position:absolute;left:50%;top:calc(var(--t) + 36px);transform:translateX(-50%);font-size:15px;color:var(--amber);text-shadow:0 1px 3px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
+#toast{position:absolute;left:50%;top:calc(var(--t) + 66px);transform:translateX(-50%);font-size:15px;color:var(--amber);text-shadow:0 1px 3px #000;opacity:0;transition:opacity .3s;white-space:nowrap}
 #toast.on{opacity:1}
 body.shopping #tool{display:none}
 body.touch #gun{bottom:auto;top:calc(var(--t) + 140px);padding:4px 8px}
@@ -63,7 +78,7 @@ body.touch #hp .bar{width:120px}
 /* inventory */
 #inv{position:fixed;inset:0;z-index:7;display:none;place-items:center;background:#05080bcc}
 #inv.on{display:grid}
-#gfx{position:fixed;inset:0;z-index:12;display:none;place-items:center;background:#05080bcc}
+#gfx{position:fixed;inset:0;z-index:13;display:none;place-items:center;background:#05080bcc}
 #gfx.on{display:grid}
 #gfxb{width:min(520px,92vw);max-height:88vh;overflow:auto;padding:18px 20px;border-radius:14px;background:#0d1310f2;box-shadow:inset 0 0 0 1.5px #ffffff22;color:var(--ink)}
 #gfxb h3{margin:0 0 6px;font:900 30px/1 "Big Shoulders Stencil Display",Impact,sans-serif;letter-spacing:.06em}
@@ -206,6 +221,8 @@ body.title #title{display:flex}
 .btn.lit{background:#f0a640aa;color:#1a1208}
 #bAim{right:calc(var(--r) + 110px);bottom:calc(var(--b) + 132px)}
 #bRun{left:calc(var(--l) + 8px);bottom:calc(var(--b) + 64px);width:56px}
+#bZoom{right:calc(var(--r) + 110px);bottom:calc(var(--b) + 176px);display:none}
+#bUse.bag{background:#0000004d;color:#fffd;border-color:#ffffff38}
 #stam{position:absolute;left:calc(var(--l) + 35px);bottom:calc(var(--b) + 30px);width:170px;height:4px;border-radius:2px;background:#ffffff1a;overflow:hidden;opacity:0;transition:opacity .4s}
 #stam.on{opacity:1}
 #stam i{display:block;height:100%;width:100%;background:#e8dcc0;border-radius:2px}
@@ -229,7 +246,8 @@ body.touch #sub{bottom:calc(var(--b) + 78px);font-size:15px;max-width:46vw}
   <div id="gun"><span id="gunn">Carbine</span><b id="mag">20</b> <small id="res">/ 60</small></div>
   <div id="mini"><canvas id="minic"></canvas><i>N</i></div>
   <button id="bFly" aria-label="Fly">FLY</button>
-  <button id="bInv" aria-label="Inventory"><svg viewBox="0 0 24 24" fill="none" stroke="#efe9dc" stroke-width="1.8" stroke-linejoin="round"><path d="M5 9h14l-1 11H6z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><path d="M9 13h6"/></svg></button>
+  <button id="bPause" aria-label="Pause"><svg viewBox="0 0 24 24" fill="#efe9dc"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+  <div id="fogc"></div>
   <div id="alert"></div>
   <div id="toast"></div>
   <div id="cross"></div>
@@ -247,6 +265,9 @@ body.touch #sub{bottom:calc(var(--b) + 78px);font-size:15px;max-width:46vw}
 <div id="card"><div><h2 id="cardh"></h2><p id="cardp"></p></div></div>
 
 <div id="shop"></div>
+<div id="pause"><div class="pp"><h3>PAUSED</h3><p class="pi" id="pinfo"></p>
+  <button id="pRes">Resume</button><button class="sec" id="pMap">Map</button><button class="sec" id="pSnd">Sound: on</button><button class="sec" id="pGfx">Settings</button><button class="sec" id="pMenu">Main menu</button>
+  <div class="keys" id="pkeys"></div></div></div>
 
 <div class="touch" id="touch">
   <div id="stick"><i></i></div>
@@ -257,6 +278,7 @@ body.touch #sub{bottom:calc(var(--b) + 78px);font-size:15px;max-width:46vw}
   <div class="btn" id="bUse">USE</div>
   <div class="btn sm" id="bAim">AIM</div>
   <div class="btn sm" id="bRun">RUN</div>
+  <div class="btn sm" id="bZoom">ZOOM</div>
 </div>
 
 <div id="title">
