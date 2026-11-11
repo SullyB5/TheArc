@@ -9148,11 +9148,20 @@ const MISSIONS = [
     intro: [['Kade', 'This is it. When the horn goes, everyone does their job. If the wall goes, we fall back to the Arc.']],
     steps: [{ txt: 'Hold Kestrel through Night 100', at: () => null, done: () => !!G.flags.held100 || !!G.flags.fell100 }],
     reward: () => {}, rt: '' },
+  { id: 'after', t: 'Aftermath', by: 'Kade', open: () => !!(G.flags.held100 || G.flags.fell100),
+    intro: [['Kade', 'We’re still here. That’s more than they wanted.'], ['Juno', 'Kade… we’re short. More than the ones they dragged off. People went missing in the night — after it was over.']],
+    start: () => vanish(),
+    steps: [
+      { txt: 'Clear and rebuild the burned buildings', at: () => { const id = (G.flags.burnt || [])[0]; return id && SHOP[id] ? SHOP[id].front : null; }, done: () => !(G.flags.burnt || []).length },
+      { txt: 'Look at what was left by the gate', at: () => CLUE, done: () => !!(G.flags.logs || {}).ms_syringe },
+      { txt: 'Tell Kade who’s missing', at: () => kadeAt(), done: () => !!G.flags.s2, use: { at: () => kadeAt(), r: 4, label: 'Tell Kade who’s missing', need: true, act: () => { G.flags.s2 = G.day; } } },
+    ], reward: () => {}, rt: '',
+    outro: [['Kade', 'A Greyhold needle. Footprints that walk straight into the fog and don’t come out.'], ['Kade', 'They’re in the mountain. Whatever Greyhold is — whatever’s under that grey door — that’s where our people are.']] },
 ];
 const MSI = Object.fromEntries(MISSIONS.map((m, i) => [m.id, i]));
 
 /* ---------- things the missions put in the world ---------- */
-let WARCAMP = null, MINA = null;
+let WARCAMP = null, MINA = null, CLUE = null;
 const CAPTIVES = [];
 function buildStoryWorld() {
   // the pod: a note on the hatch
@@ -9168,6 +9177,12 @@ function buildStoryWorld() {
   { const S = XS('kvrn'), yaw = Math.atan2(-S.x, -S.z), [x, z] = xFrame(S.x, S.z, yaw)(-2, -2.6); grab(x, z, 'kvrn_tx', 'signal', 0, 'Pull the transmitter out of the desk'); }
   { const p = POI.village; const g = new THREE.Group(); mesh(new THREE.BoxGeometry(1.2, .8, .7), M(0x6a5038), 0, .4, 0, g); const mp = mesh(new THREE.PlaneGeometry(.8, .55), new THREE.MeshLambertMaterial({ color: 0xc8b088, side: THREE.DoubleSide }), 0, .81, 0, g); mp.rotation.x = -Math.PI / 2; g.position.set(p.x + 3, heightAt(p.x + 3, p.z - 2), p.z - 2); world.add(g); addCol(p.x + 3, p.z - 2, .6); grab(p.x + 3, p.z - 2, 'war_map', 'hostile', 1, 'Take the war-map'); }
   { const A = POI.ashmere, gateA = Math.atan2(-A.z, -A.x), [x, z] = xFrame(A.x - 12, A.z, Math.PI / 2 + gateA)(0, -6); grab(x, z, 'war_plans', 'plans', 0, 'Take Garrun’s war plans from the chest'); const c = new THREE.Group(); mesh(new THREE.BoxGeometry(1, .6, .6), M(0x4a3626), 0, .3, 0, c); c.position.set(x, heightAt(x, z), z); world.add(c); }
+  // the clue at the gate after Night 100: a spent syringe with a Greyhold stamp, bootprints into the trees
+  { const x = 4.5, z = CAMP_R + 7, y = heightAt(x, z); CLUE = { x, z }; const g = new THREE.Group(); g.visible = false; world.add(g); g.userData.dyn = 1; CLUE.g = g;
+    mesh(new THREE.CylinderGeometry(.02, .02, .18, 6), new THREE.MeshBasicMaterial({ color: 0xd8f0ff }), x, y + .03, z, g).rotation.z = Math.PI / 2;
+    for (let i = 0; i < 10; i++) { const fp = mesh(new THREE.PlaneGeometry(.14, .3), new THREE.MeshLambertMaterial({ color: 0x2a221a, transparent: true, opacity: .6, depthWrite: false }), x + i * .5 + (i % 2) * .25, 0, z + i * 1.1, g); fp.position.y = heightAt(fp.position.x, fp.position.z) + .03; fp.rotation.x = -Math.PI / 2; }
+    LOGS.ms_syringe = { at: 'Kestrel’s gate', kind: 'note', t: 'A spent syringe', by: 'Greyhold', b: 'A steel syringe, empty, stamped with the Greyhold mark. Beside it, bootprints — heavy, all the same tread — walking north-west into the trees, toward the grey mountain. Three sets go out. None come back.' };
+    xNote(g, 'ms_syringe', x - .4, y + .02, z, 0); }
   // the war camp on the west rim (only there from day 88)
   { const s = xFind({ tx: -VALLEY - 170, tz: 60, r: 40, sl: .3 }, [], xAvoid()); WARCAMP = { x: s.x, z: s.z }; const g = new THREE.Group(); g.visible = false; world.add(g); g.userData.dyn = 1; WARCAMP.g = g;
     for (let i = 0; i < 40; i++) { const a = rnd() * 6.28, r = rr(6, 40), x = s.x + Math.cos(a) * r, z = s.z + Math.sin(a) * r; const t = mesh(new THREE.ConeGeometry(rr(1.8, 2.6), rr(3.2, 4.4), 8), M(pick([0x7a5a3e, 0x6a4a32, 0x5a6248, 0x8a6a48])), x, heightAt(x, z) + 1.8, z, g); }
@@ -9207,6 +9222,7 @@ function msFinish(m) {
   if (m.reward) m.reward();
   card('MISSION COMPLETE', m.t + (m.rt ? ' · ' + m.rt : ''), 4.2); sfx('buy');
   if (m.outro) setTimeout(() => say(m.outro), 1800);
+  if (m.id === 'after') setTimeout(() => card('SEASON 2 · THE MOUNTAIN', 'Days 101–200 · find the missing', 6), 9000);
   save();
 }
 let msT = 0, msWarnDay = -1, msWellDay = -1;
@@ -9216,6 +9232,7 @@ function updStory(dt) {
   storyTick();
   const M2 = MS();
   if (WARCAMP) WARCAMP.g.visible = G.day >= 88 && !G.flags.held100 && !G.flags.fell100;
+  if (CLUE) CLUE.g.visible = !!(M2.done.night100 || M2.cur === 'after');
   // the next mission, after a short breath
   if (!M2.cur) {
     if ((M2.wait = (M2.wait || 0) - .5) > 0 || night.active) return;
@@ -9239,7 +9256,7 @@ function storyTick() {
 }
 // mission hand-ins at a person or place
 const STINTERACT = [
-  { id: 'msuse', at: () => { const m = msCur(); const s = m && m.steps[MS().st]; if (!s || !s.use) return null; const need = typeof s.use.need === 'function' ? s.use.need() : s.use.need; if (!need || !cnt(need)) return null; return s.use.at(); }, r: 4,
+  { id: 'msuse', at: () => { const m = msCur(); const s = m && m.steps[MS().st]; if (!s || !s.use) return null; const need = typeof s.use.need === 'function' ? s.use.need() : s.use.need; if (need !== true && (!need || !cnt(need))) return null; return s.use.at(); }, r: 4,
     label: () => msCur().steps[MS().st].use.label, act: () => { const s = msCur().steps[MS().st]; s.use.act(); sfx('buy'); save(); } },
 ];
 function missionsHTML() {
@@ -9252,7 +9269,169 @@ function missionsHTML() {
   return h + '</div>';
 }
 function buildStory() { const s0 = seed; seed = 6060606; for (const k in SPEAK_C) if (!SPEAKERS[k]) SPEAKERS[k] = SPEAK_C[k]; buildStoryWorld(); window.__M = { MISSIONS, MS, msStart, msFinish, updStory, get WARCAMP() { return WARCAMP; }, takeCaptives, msText }; seed = s0; }
-function storyRestore() { const M2 = MS(); if (MINA) MINA.g.visible = !G.flags.minaFound; if (setS().ros.some(R => R.held)) takeCaptives(true); else takeCaptives(true); msWellDay = G.day; }
+// the ones who vanished after Night 100
+function vanish() {
+  const S = setS(); if (S.vanished) return; S.vanished = G.day; const pool = S.ros.filter(R => !R.held && survEnt(R)); const gone = [];
+  for (let i = 0; i < 2 && pool.length > 3; i++) { const R = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; const e = SROS[R.id]; if (e) { e.dead = true; removeEnt(e); } S.ros.splice(S.ros.indexOf(R), 1); (S.missing ||= []).push({ n: R.n, id: R.id, day: G.day, by: 'grey' }); gone.push(R.n); }
+  if (gone.length) setTimeout(() => card(`${gone.length === 2 ? 'TWO' : 'ONE'} MORE MISSING`, `${gone.join(' and ')} — gone in the night`, 4.5), 4000);
+  save();
+}
+function storyRestore() { const M2 = MS(); if (CLUE) CLUE.g.visible = !!(MS().done.night100 || M2.cur === 'after'); if (MINA) MINA.g.visible = !G.flags.minaFound; if (setS().ros.some(R => R.held)) takeCaptives(true); else takeCaptives(true); msWellDay = G.day; }
+
+/* ================= Night 100: the siege, and what's left after (Nov 11, Part 7 of the overhaul) =================
+   The hundredth night is four stages, one after another as the waves come (twelve waves, three to a stage):
+   1 · THE APPROACH  — every faction against you comes from its own side of the valley (toward its home).
+   2 · THE BREACH    — a section of the wall is blown open: raiders pour over it (they barely have to climb), and
+                       fires start in Kestrel's buildings — put them out (E at the burning building) or lose the building.
+   3 · THE TAKING    — raiders come for people, not walls: they grab a settler and run for the dark. Kill the one carrying
+                       them and they're free; let them reach the trees and they're gone.
+   4 · THE LAST PUSH — Greyhold soldiers and every faction leader still alive; allies, if you have any, arrive now.
+   All the while settlers and the watch get hurt — treat them (E, a bandage or a medkit) or they die.
+   How hard it is follows what you did before: who's hostile and how strong (Part 4: ceasefires, alliances, burned depots,
+   dead leaders, outposts), the settlement (Part 5: guards, outer towers, barracks), the upgrades.
+   At dawn (`siegeAfter`): the dead, the taken, the burned. Then "Aftermath" (2i-story.js) leads into Season 2. */
+
+const SIEGE = { on: false, stage: -1, fireT: 0, hurtT: 0, fires: [], grabbed: [], taken: [], breachA: null, breachG: null, alliesIn: false };
+const STAGES = [['THE APPROACH', 'They’re coming from every side.'], ['THE BREACH', 'The wall’s blown — fires in the yard!'], ['THE TAKING', 'They’re going for our people!'], ['THE LAST PUSH', 'Greyhold. And every chief that’s left.']];
+const siegeStage = () => SIEGE.on ? clamp(Math.floor((night.wave - 1) / 3), 0, 3) : -1;
+const siegeStageName = () => SIEGE.on ? STAGES[Math.max(0, siegeStage())][0].toLowerCase().replace(/^\w/, c => c.toUpperCase()) : '';
+function siegeStart() {
+  Object.assign(SIEGE, { on: true, stage: -1, fireT: 40, hurtT: 30, fires: [], grabbed: [], taken: [], breachA: null, alliesIn: false });
+  G.flags.siegeLog = { taken: [], dead: [] };
+}
+// where a raider of faction `tr` comes from: the side of the valley their home is on
+function siegeSpawn(a, r, tr) {
+  if (!SIEGE.on) return [a, r];
+  const st = siegeStage();
+  if (st === 1 && SIEGE.breachA != null && rnd() < .65) return [SIEGE.breachA + rr(-.12, .12), rr(100, 115)];
+  if (tr && FAC[tr]) { const C = FAC[tr].cap(); if (C) return [Math.atan2(C.x, C.z) + rr(-.45, .45), rr(105, 125)]; }
+  return [a, r];
+}
+// a raider just spawned: what they're for in this stage
+function siegeRaider(e) {
+  if (!SIEGE.on || !e) return;
+  const st = siegeStage();
+  if (st === 1 && SIEGE.breachA != null && Math.abs(angWrap(Math.atan2(e.x, e.z) - SIEGE.breachA)) < .3) { e.climb = true; e.breach = true; }
+  if (st === 2 && rnd() < .35 && e.kind !== 'gunner' && e.kind !== 'soldier') { e.grab = true; e.climb = true; e.breach = true; e.speed *= 1.15; }
+}
+// the breach: a blown section of wall, burning
+function siegeBreach() {
+  const W = facRaidWeights(); let best = 'thorn', bw = -1; for (const f in W) if (W[f] > bw) { bw = W[f]; best = f; }
+  const C = FAC[best].cap(); let a = C ? Math.atan2(C.x, C.z) : Math.PI; if (Math.abs(angWrap(a)) < GATE_HALF * 3) a += .5;   // not the gate itself
+  SIEGE.breachA = a; const x = Math.sin(a) * CAMP_R, z = Math.cos(a) * CAMP_R, y = heightAt(x, z);
+  sfx('boom'); puff(x, y + 2, z, 0x6a6058, 30, 8, .3, 1.6, -2); puff(x, y + 2, z, 0xff8a3a, 16, 6, .2, .6, -2);
+  const g = new THREE.Group(); g.position.set(x, y, z); world.add(g); SIEGE.breachG = g;
+  for (let i = 0; i < 14; i++) { const m = mesh(new THREE.BoxGeometry(rr(.4, 1.6), rr(.2, .7), rr(.4, 1.2)), new THREE.MeshLambertMaterial({ map: texWood, color: 0x3a2a1e }), rr(-3, 3), rr(.1, .8), rr(-2, 2), g); m.rotation.set(rr(0, 3), rr(0, 3), rr(0, 3)); }
+  const f = new THREE.Mesh(new THREE.ConeGeometry(1, 2.6, 7), new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: .9 })); f.position.y = 1.3; g.add(f); DECOR_ANIM.push(t => { f.scale.y = 1 + Math.sin(t * 13) * .25; });
+  SMOKES.push({ x, z, y: y + 2, k: rnd() });
+}
+/* fires in Kestrel's buildings */
+function siegeFire() {
+  const lit = new Set(SIEGE.fires.filter(F => !F.out).map(F => F.id)), pool = SHOP_DEFS.filter(D => !lit.has(D.id) && !((G.flags.burnt || []).includes(D.id))); if (!pool.length) return;
+  const D = pick(pool), g = new THREE.Group(), y = heightAt(D.cx, D.cz); g.position.set(D.cx, y, D.cz); world.add(g);
+  const flames = []; for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.6, 1.1), rr(1.6, 2.8), 7), new THREE.MeshBasicMaterial({ color: pick([0xff7a2a, 0xff9a3a, 0xffb040]), transparent: true, opacity: .9 })); f.position.set(rr(-D.bw / 3, D.bw / 3), rr(4, 5.6), rr(-D.bd / 3, D.bd / 3)); g.add(f); flames.push(f); }
+  const l = new THREE.PointLight(0xff7a2a, 0, 26, 0); l.position.y = 5; g.add(l);
+  const F = { id: D.id, D, g, flames, l, t: 0, out: false, sm: { x: D.cx, z: D.cz, y: y + 6, k: rnd() } }; SMOKES.push(F.sm); SIEGE.fires.push(F);
+  toast(`The ${D.sign.toLowerCase()} is on fire!`, 3); sfx('boom', .5);
+}
+const nearFire = () => { for (const F of SIEGE.fires) if (!F.out && Math.hypot(F.D.cx - P.x, F.D.cz - P.z) < Math.max(F.D.bw, F.D.bd) / 2 + 3.5) return F; return null; };
+function douse(F) { F.out = true; world.remove(F.g); const i = SMOKES.indexOf(F.sm); if (i >= 0) SMOKES.splice(i, 1); sfx('splash'); puff(F.D.cx, heightAt(F.D.cx, F.D.cz) + 4, F.D.cz, 0xd8d8d8, 20, 4, .3, 1.4, -1); toast(`Fire’s out on the ${F.D.sign.toLowerCase()}`, 2.2); }
+/* grabbers: they go for people */
+function siegeGrab(e, dt) {
+  const p = e.p;
+  if (e.carry) {
+    const d0 = Math.hypot(e.x, e.z), a = Math.atan2(e.x, e.z), tx = Math.sin(a) * 150, tz = Math.cos(a) * 150;
+    if (d0 < CAMP_R + 1 && d0 > CAMP_R - 2.5) { e.x = Math.sin(a) * (CAMP_R + 1.8); e.z = Math.cos(a) * (CAMP_R + 1.8); }   // over the wall with them
+    const v = moveEnt(e, tx, tz, e.speed * .85, dt); e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
+    e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
+    if (d0 > 128) { // gone
+      const vic = e.carry; vic.dead = true; removeEnt(vic); SIEGE.taken.push(vic.shopName || 'a settler'); (G.flags.siegeLog.taken ||= []).push(vic.shopName || 'a settler');
+      if (vic.sid) { const R = setS().ros.find(x => x.id === vic.sid); if (R) R.taken = 'grey'; }
+      toast(`${vic.shopName || 'Someone'} was dragged off into the dark`, 4); sfx('no'); removeEnt(e); e.dead = true;
+    }
+    return true;
+  }
+  // find someone to take: outside the sealed hull, not already taken, not down
+  if ((e.pickT = (e.pickT || 0) - dt) <= 0 || !e.prey || e.prey.dead || !ents.includes(e.prey) || e.prey.grabbed) {
+    e.pickT = 1; let b = null, bd = 90;
+    for (const o of ents) { if (o.type !== 'npc' || o.dead || o.grabbed || o.downed || !(o.settler || o.name === 'extra' || o.sid) || !o.g.visible) continue; if (inHull(o.x, o.z) && hullDoor.hp > 0 && !hullDoor.open) continue; const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; b = o; } }
+    e.prey = b;
+  }
+  const o = e.prey; if (!o) return false;
+  if (Math.hypot(e.x, e.z) > CAMP_R + .5 && !e.climbing) return false;   // let the usual raid code get them over the wall
+  const d = Math.hypot(o.x - e.x, o.z - e.z);
+  if (d < 1.5) { e.carry = o; o.grabbed = e; o.g.visible = false; SIEGE.grabbed.push(o);
+    const bun = mesh(new THREE.BoxGeometry(.5, .5, 1.3), M(0x5a6a7a), .3, 1.6, 0, e.g); e.bundle = bun;
+    toast(`They’ve got ${o.shopName || 'someone'}! Stop them!`, 3.4); sfx('grunt'); return true; }
+  const v = moveEnt(e, o.x, o.z, e.speed, dt); e.ph += dt * strideRate(v); poseWalk(p, e.ph, Math.min(1, v / 3), v);
+  e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw; return true;
+}
+/* each frame of the siege */
+function updSiege(dt) {
+  if (!SIEGE.on) return;
+  if (!night.active) { SIEGE.on = false; return; }
+  const st = siegeStage();
+  if (st !== SIEGE.stage) {
+    SIEGE.stage = st; card(`STAGE ${st + 1} · ${STAGES[st][0]}`, STAGES[st][1], 3.6); horn(74 + st * 3, 2.4, .24, 4);
+    if (st === 0) say([['Kade', 'Every side at once. Watch the west and the north — the gate’s not the only way in.']]);
+    if (st === 1) { siegeBreach(); say([['Kade', 'They blew the wall! Get to the gap — and someone put those fires out!']]); SIEGE.fireT = 4; }
+    if (st === 2) say([['Juno', 'They’re not fighting — they’re taking people! Get everyone into the Arc!']]);
+    if (st === 3) {
+      say([['Kade', 'Greyhold. And there’s Garrun… they’re all here. Hold!']]);
+      for (const f of FAC_IDS) { if (f === 'arc' || !facHostile(f) || facS(f).lead > G.day) continue; const C = FAC[f].cap(); if (!C) continue; const a = Math.atan2(C.x, C.z), r = 118;
+        const e = spawnClan(f === 'grey' ? 'soldier' : f === 'iron' ? 'gunner' : 'brute', Math.sin(a) * r, Math.cos(a) * r, 'raid', facFac(f)); e.tribe = f; e.leader = f; e.name = FAC[f].leader[0]; e.hp = e.maxhp = e.maxhp * 3; e.g.scale.multiplyScalar(1.12); }
+      const al = FAC_IDS.filter(f => facAllied(f)); if (al.length && !SIEGE.alliesIn) { SIEGE.alliesIn = true; for (const f of al) { const K = FAC_KINDS[FAC[f].kind]; for (let i = 0; i < 6; i++) { const e = spawnClan(K[i % K.length], rr(-6, 6), CAMP_R + rr(6, 14), 'ally', facFac(f)); e.tribe = f; e.state = 'ally'; } }
+        setTimeout(() => card(`THE ${al.map(f => FAC[f].n.toUpperCase()).join(' AND THE ')} ARE HERE`, 'Your allies came', 3.6), 2000); }
+    }
+  }
+  // fires
+  if (st >= 1) { SIEGE.fireT -= dt; if (SIEGE.fireT <= 0) { SIEGE.fireT = rr(26, 40) - st * 3; if (SIEGE.fires.filter(F => !F.out).length < 3 && SIEGE.fires.length < 5) siegeFire(); } }
+  for (const F of SIEGE.fires) if (!F.out) { F.t += dt; F.l.intensity = 2 + Math.sin(G.t * 9) * .4; for (const f of F.flames) f.scale.y = 1 + Math.sin(G.t * 12 + f.position.x) * .25 + Math.min(1, F.t / 60); if (F.t > 75 && !F.gutted) { F.gutted = true; toast(`The ${F.D.sign.toLowerCase()} is gutted`, 3); } }
+  // people getting hurt on the wall and in the yard
+  if (st >= 0) { SIEGE.hurtT -= dt; if (SIEGE.hurtT <= 0) { SIEGE.hurtT = rr(30, 50);
+    const pool = ents.filter(o => o.type === 'npc' && !o.dead && !o.downed && !o.grabbed && o.g.visible && (o.guard || o.name === 'watch' || o.settler) && !inHull(o.x, o.z) && Math.hypot(o.home.x, o.home.z) < CAMP_R);
+    if (pool.length) { const o = pick(pool); o.downed = true; o.dieT = 90; o.siegeHurt = true; o.route = null; toast(`${o.shopName || (o.name === 'watch' ? 'One of the watch' : 'Someone')} is down — get a bandage into them!`, 4); } } }
+  // anyone whose taker died is free
+  for (const o of [...SIEGE.grabbed]) { const e = o.grabbed; if (e && (e.dead || !ents.includes(e)) && !o.dead) { o.grabbed = null; o.g.visible = true; o.x = e.x; o.z = e.z; SIEGE.grabbed.splice(SIEGE.grabbed.indexOf(o), 1); toast(`${o.shopName || 'They'} broke free!`, 2.6); } }
+}
+const SGINTERACT = [{ id: 'douse', at: () => nearFire(), r: 9, label: () => `Put out the fire on the ${nearFire().D.sign.toLowerCase()}`, act: () => { const F = nearFire(); startChan({ l: 'Beating out the flames', t: 2.4, fn: () => douse(F) }); } }];
+
+/* ---------- dawn after Night 100 ---------- */
+function siegeAfter(won) {
+  const L = G.flags.siegeLog || { taken: [], dead: [] }, S = setS();
+  // the hurt who weren't treated
+  for (const o of [...ents]) if (o.type === 'npc' && o.downed && o.siegeHurt) { L.dead.push(o.shopName || 'one of the watch'); o.dead = true; removeEnt(o); }
+  // anyone still carried off is gone
+  for (const o of SIEGE.grabbed) if (!o.dead) { L.taken.push(o.shopName || 'a settler'); o.dead = true; removeEnt(o); }
+  // if it fell, they took more
+  if (!won) { const pool = S.ros.filter(R => !R.held && survEnt(R)); for (let i = 0; i < 3 && pool.length; i++) { const R = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; R.taken = 'grey'; const e = SROS[R.id]; if (e) { e.dead = true; removeEnt(e); } L.taken.push(R.n); } INV.scrap = Math.floor(INV.scrap * .5); for (const k in S.stores) S.stores[k] = Math.floor(S.stores[k] * .4); }
+  // the roster: the taken are missing (Season 2 will look for them), the dead are gone
+  for (const R of [...S.ros]) { const e = SROS[R.id]; if (R.taken) { (S.missing ||= []).push({ n: R.n, id: R.id, day: G.day, by: R.taken }); S.ros.splice(S.ros.indexOf(R), 1); } else if (e && e.dead) { S.ros.splice(S.ros.indexOf(R), 1); S.lost++; } }
+  // what burned
+  const burnt = new Set(G.flags.burnt || []); for (const F of SIEGE.fires) if (!F.out) { burnt.add(F.id); world.remove(F.g); } G.flags.burnt = [...burnt]; siegeScorch();
+  S.morale = clamp(S.morale + (won ? 12 : -15) - (L.dead.length + L.taken.length) * 5 - burnt.size * 3, 0, 100);
+  G.flags.s1end = { won: won ? 1 : 0, dead: L.dead, taken: L.taken, burnt: [...burnt], day: G.day };
+  if (!won) G.flags.fell100 = 1;
+  if (SIEGE.breachG) { SIEGE.breachG.visible = false; }
+  SIEGE.on = false; SIEGE.fires = []; SIEGE.grabbed = [];
+  setTimeout(() => card(won ? 'KESTREL HELD' : 'KESTREL FELL — BUT IT STANDS', [L.dead.length ? `${L.dead.length} dead` : 'nobody died', L.taken.length ? `${L.taken.length} taken` : 'nobody taken', burnt.size ? `${burnt.size} building${burnt.size > 1 ? 's' : ''} burned` : 'no fires left'].join(' · '), 6), 6500);
+  save();
+}
+// burned buildings: soot, charred beams and smoke until someone clears them
+const SIEGE_SCORCH = {};
+function siegeScorch() {
+  for (const id in SIEGE_SCORCH) { world.remove(SIEGE_SCORCH[id].g); const i = SMOKES.indexOf(SIEGE_SCORCH[id].sm); if (i >= 0) SMOKES.splice(i, 1); delete SIEGE_SCORCH[id]; }
+  for (const id of G.flags.burnt || []) { const D = SHOP[id]; if (!D) continue; const y = heightAt(D.cx, D.cz), g = new THREE.Group(); g.position.set(D.cx, y, D.cz); g.rotation.y = D.ry; world.add(g);
+    const soot = mesh(new THREE.BoxGeometry(D.bw + .3, 4.2, D.bd + .3), new THREE.MeshLambertMaterial({ color: 0x0e0c0a, transparent: true, opacity: .55, depthWrite: false }), 0, 2.1, 0, g); soot.castShadow = false;
+    for (let i = 0; i < 8; i++) { const b = mesh(new THREE.BoxGeometry(.25, .25, rr(2, 4)), M(0x1a1612), rr(-D.bw / 2, D.bw / 2), rr(.2, 1.2), rr(-D.bd / 2 - 2, -D.bd / 2 - .5) * -1, g); b.rotation.set(rr(-.4, .4), rr(0, 3), rr(-.3, .3)); }
+    const sm = { x: D.cx, z: D.cz, y: y + 4, k: rnd() }; SMOKES.push(sm); SIEGE_SCORCH[id] = { g, sm }; }
+}
+const nearScorch = () => { for (const id of G.flags.burnt || []) { const D = SHOP[id]; if (D && Math.hypot(D.front.x - P.x, D.front.z - P.z) < 4) return D; } return null; };
+SGINTERACT.push({ id: 'rebuild', at: () => nearScorch() && nearScorch().front, r: 4, label: () => { const D = nearScorch(), n = cnt('log') + sCnt('log'); return `Clear and rebuild the ${D.sign.toLowerCase()} (8 logs · you have ${n})`; },
+  act: () => { const D = nearScorch(); let need = 8; const fromS = Math.min(sCnt('log'), need); need -= fromS; if (cnt('log') < need) { sfx('no'); toast('Not enough logs — 8 from your bag or the stores', 2.6); return; }
+    startChan({ l: 'Clearing the wreckage', t: 3.2, fn: () => { sAdd('log', -fromS); take('log', need); G.flags.burnt = (G.flags.burnt || []).filter(x => x !== D.id); siegeScorch(); setS().morale += 3; toast(`The ${D.sign.toLowerCase()} is back in business`, 2.6); save(); } }); } });
+function siegeRestore() { SIEGE.on = false; siegeScorch(); }
+window.__SG = { SIEGE, updSiege, siegeAfter, siegeFire, nearFire, siegeStage };
 
 /* ================= state ================= */
 const gate = { open: true, hp: 260, max: 260, ang: 1 };
@@ -9389,7 +9568,7 @@ const INTERACT = [
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
-  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT, ...SGINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
@@ -9519,7 +9698,8 @@ function respawnBases() {
 /* ================= night raids ================= */
 function startNight() {
   night.active = true; night.wave = 0; night.core = 100;
-  night.final = G.day >= 100 && !G.flags.held100;
+  night.final = G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
+  if (night.final) siegeStart();   // (Nov 11) Night 100 in four stages — 2j-siege.js
   night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
   gate.open = false; sfx('gate'); G.tod = .9; G.todTarget = null;
   horn(78, 3.2, .26, 4);
@@ -9548,8 +9728,8 @@ function updNight(dt) {
     night.spawnT -= dt;
     if (night.spawnT <= 0) {
       night.spawnT = rr(.7, 1.6); night.left--;
-      const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
-      const rk = raiderKind(); if (rk) { const [k, f, tr] = rk; const re = spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f); if (tr) re.tribe = tr; }
+      let a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
+      const rk = raiderKind(); if (rk) { const [k, f, tr] = rk; [a, r] = siegeSpawn(a, r, tr); const re = spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f); if (tr) re.tribe = tr; siegeRaider(re); }
     }
   } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
@@ -9558,13 +9738,14 @@ function updNight(dt) {
   if (night.core <= 0) endNight(false);
 }
 function endNight(won) {
-  setS().lastWin = won ? 1 : 0;
+  setS().lastWin = won ? 1 : 0; const wasFinal = SIEGE.on;
   night.active = false; gate.open = true; gate.hp = gate.max; hullDoor.hp = hullDoor.max; hullDoor.open = true;
   for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
   for (const s of SCRAPS) if (!s.alive && s.tag === 'wild' && rnd() < .5) { s.alive = true; s.g.visible = true; }
   ensureWildlife();
   dawnScene(won);
+  if (wasFinal) siegeAfter(won);
 }
 
 /* ================= the Rust (red fog) ================= */
@@ -9591,7 +9772,7 @@ function fogNPC(e, dt) {
   if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
   if (e.downed) {
     e.dieT -= dt; if (rnd() < dt * .6) puff(e.x, e.y + .4, e.z, 0x9a3a22, 1, .6, .1, .5, 1.5);
-    if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — the Rust got them.`, 4); sfx('no'); }
+    if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — ${e.siegeHurt ? 'their wounds were too much' : 'the Rust got them'}.`, 4); sfx('no'); }
     return { x: e.x, z: e.z, spd: 0 };
   }
   const on = rust.state === 'warn' || rust.state === 'active';
@@ -9706,6 +9887,7 @@ function updClan(e, dt) {
   if (e.burn > 0) { e.burn -= dt; e.hp -= 12 * dt; if (Math.random() < dt * 8) puff(e.x, e.y + 1, e.z, 0xff7a2a, 1, 1, .12, .4, 2); if (e.hp <= 0) { damage(e, 1, true, new THREE.Vector3(e.x, e.y + 1, e.z)); return; } }
   if (e.stun > 0) { e.stun -= dt; p.body.rotation.z = Math.sin(e.t * 20) * .1; e.g.position.set(e.x, e.y, e.z); return; }
   if (e.blind > 0) e.blind -= dt;
+  if (e.grab && siegeGrab(e, dt)) return;
   if (facUpd(e, dt)) return;   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
@@ -9738,7 +9920,7 @@ function updClan(e, dt) {
       if (e.climb && UP.wall < 3) {
         const a = Math.atan2(e.x, e.z); tx = Math.sin(a) * (CAMP_R + 1); tz = Math.cos(a) * (CAMP_R + 1); spd = e.speed;
         if (Math.abs(a) < GATE_HALF + .05) e.climb = false;
-        if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
+        if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = e.breach ? .7 : 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
       } else if (gate.hp > 0 && !gate.open) {
         tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed;
         if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'gate'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
@@ -10189,7 +10371,7 @@ function updHUD(dt) {
 let invOpen = false, invT = 0;
 function objectiveNow() {
   if (rust.state === 'warn' || rust.state === 'active') return 'Get inside the Arc until the fog lifts';
-  if (night.active) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  if (night.active) return SIEGE.on ? `Night 100 · ${siegeStageName()} · wave ${night.wave}/${night.waves}` : `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   return objText();
 }
 let invTab = 'bag', craftCat = 'tool', craftOnly = false;
@@ -10223,7 +10405,7 @@ function renderInv() {
       return gearTile(t, b.join('')); }).join('')}</div>`;
     body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
-    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
+    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of ${G.flags.s2 || G.day > 100 ? 200 : 100} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
   } else if (invTab === 'craft') {
     body += `<div class="ctabs">${RCATS.map(([k, n]) => `<button data-cat="${k}" class="${craftCat === k ? 'on' : ''}">${n}</button>`).join('')}<button data-only="1" class="${craftOnly ? 'on' : ''}">Can make</button></div>`;
     const near = Object.keys(STATION_N).filter(nearStation).map(k => STATION_N[k]);
@@ -10505,7 +10687,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -10718,7 +10900,7 @@ function drawMap() {
   drawXMarks(g, S, k);
   const at = objAt(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 6 * k, 0, 7); g.stroke(); }
   const [px, py] = toMap(P.x, P.z, S); playerArrow(g, px, py, 1.1 * k);
-  $('mapday').textContent = `Day ${G.day} of 100 · ${exploredPct()}% explored`;
+  $('mapday').textContent = `Day ${G.day} of ${G.flags.s2 || G.day > 100 ? 200 : 100} · ${exploredPct()}% explored`;
 }
 function playerArrow(g, x, y, k) {
   g.save(); g.translate(x, y); g.rotate(-P.yaw + Math.PI);
@@ -10775,7 +10957,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());

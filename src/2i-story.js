@@ -119,11 +119,20 @@ const MISSIONS = [
     intro: [['Kade', 'This is it. When the horn goes, everyone does their job. If the wall goes, we fall back to the Arc.']],
     steps: [{ txt: 'Hold Kestrel through Night 100', at: () => null, done: () => !!G.flags.held100 || !!G.flags.fell100 }],
     reward: () => {}, rt: '' },
+  { id: 'after', t: 'Aftermath', by: 'Kade', open: () => !!(G.flags.held100 || G.flags.fell100),
+    intro: [['Kade', 'We’re still here. That’s more than they wanted.'], ['Juno', 'Kade… we’re short. More than the ones they dragged off. People went missing in the night — after it was over.']],
+    start: () => vanish(),
+    steps: [
+      { txt: 'Clear and rebuild the burned buildings', at: () => { const id = (G.flags.burnt || [])[0]; return id && SHOP[id] ? SHOP[id].front : null; }, done: () => !(G.flags.burnt || []).length },
+      { txt: 'Look at what was left by the gate', at: () => CLUE, done: () => !!(G.flags.logs || {}).ms_syringe },
+      { txt: 'Tell Kade who’s missing', at: () => kadeAt(), done: () => !!G.flags.s2, use: { at: () => kadeAt(), r: 4, label: 'Tell Kade who’s missing', need: true, act: () => { G.flags.s2 = G.day; } } },
+    ], reward: () => {}, rt: '',
+    outro: [['Kade', 'A Greyhold needle. Footprints that walk straight into the fog and don’t come out.'], ['Kade', 'They’re in the mountain. Whatever Greyhold is — whatever’s under that grey door — that’s where our people are.']] },
 ];
 const MSI = Object.fromEntries(MISSIONS.map((m, i) => [m.id, i]));
 
 /* ---------- things the missions put in the world ---------- */
-let WARCAMP = null, MINA = null;
+let WARCAMP = null, MINA = null, CLUE = null;
 const CAPTIVES = [];
 function buildStoryWorld() {
   // the pod: a note on the hatch
@@ -139,6 +148,12 @@ function buildStoryWorld() {
   { const S = XS('kvrn'), yaw = Math.atan2(-S.x, -S.z), [x, z] = xFrame(S.x, S.z, yaw)(-2, -2.6); grab(x, z, 'kvrn_tx', 'signal', 0, 'Pull the transmitter out of the desk'); }
   { const p = POI.village; const g = new THREE.Group(); mesh(new THREE.BoxGeometry(1.2, .8, .7), M(0x6a5038), 0, .4, 0, g); const mp = mesh(new THREE.PlaneGeometry(.8, .55), new THREE.MeshLambertMaterial({ color: 0xc8b088, side: THREE.DoubleSide }), 0, .81, 0, g); mp.rotation.x = -Math.PI / 2; g.position.set(p.x + 3, heightAt(p.x + 3, p.z - 2), p.z - 2); world.add(g); addCol(p.x + 3, p.z - 2, .6); grab(p.x + 3, p.z - 2, 'war_map', 'hostile', 1, 'Take the war-map'); }
   { const A = POI.ashmere, gateA = Math.atan2(-A.z, -A.x), [x, z] = xFrame(A.x - 12, A.z, Math.PI / 2 + gateA)(0, -6); grab(x, z, 'war_plans', 'plans', 0, 'Take Garrun’s war plans from the chest'); const c = new THREE.Group(); mesh(new THREE.BoxGeometry(1, .6, .6), M(0x4a3626), 0, .3, 0, c); c.position.set(x, heightAt(x, z), z); world.add(c); }
+  // the clue at the gate after Night 100: a spent syringe with a Greyhold stamp, bootprints into the trees
+  { const x = 4.5, z = CAMP_R + 7, y = heightAt(x, z); CLUE = { x, z }; const g = new THREE.Group(); g.visible = false; world.add(g); g.userData.dyn = 1; CLUE.g = g;
+    mesh(new THREE.CylinderGeometry(.02, .02, .18, 6), new THREE.MeshBasicMaterial({ color: 0xd8f0ff }), x, y + .03, z, g).rotation.z = Math.PI / 2;
+    for (let i = 0; i < 10; i++) { const fp = mesh(new THREE.PlaneGeometry(.14, .3), new THREE.MeshLambertMaterial({ color: 0x2a221a, transparent: true, opacity: .6, depthWrite: false }), x + i * .5 + (i % 2) * .25, 0, z + i * 1.1, g); fp.position.y = heightAt(fp.position.x, fp.position.z) + .03; fp.rotation.x = -Math.PI / 2; }
+    LOGS.ms_syringe = { at: 'Kestrel’s gate', kind: 'note', t: 'A spent syringe', by: 'Greyhold', b: 'A steel syringe, empty, stamped with the Greyhold mark. Beside it, bootprints — heavy, all the same tread — walking north-west into the trees, toward the grey mountain. Three sets go out. None come back.' };
+    xNote(g, 'ms_syringe', x - .4, y + .02, z, 0); }
   // the war camp on the west rim (only there from day 88)
   { const s = xFind({ tx: -VALLEY - 170, tz: 60, r: 40, sl: .3 }, [], xAvoid()); WARCAMP = { x: s.x, z: s.z }; const g = new THREE.Group(); g.visible = false; world.add(g); g.userData.dyn = 1; WARCAMP.g = g;
     for (let i = 0; i < 40; i++) { const a = rnd() * 6.28, r = rr(6, 40), x = s.x + Math.cos(a) * r, z = s.z + Math.sin(a) * r; const t = mesh(new THREE.ConeGeometry(rr(1.8, 2.6), rr(3.2, 4.4), 8), M(pick([0x7a5a3e, 0x6a4a32, 0x5a6248, 0x8a6a48])), x, heightAt(x, z) + 1.8, z, g); }
@@ -178,6 +193,7 @@ function msFinish(m) {
   if (m.reward) m.reward();
   card('MISSION COMPLETE', m.t + (m.rt ? ' · ' + m.rt : ''), 4.2); sfx('buy');
   if (m.outro) setTimeout(() => say(m.outro), 1800);
+  if (m.id === 'after') setTimeout(() => card('SEASON 2 · THE MOUNTAIN', 'Days 101–200 · find the missing', 6), 9000);
   save();
 }
 let msT = 0, msWarnDay = -1, msWellDay = -1;
@@ -187,6 +203,7 @@ function updStory(dt) {
   storyTick();
   const M2 = MS();
   if (WARCAMP) WARCAMP.g.visible = G.day >= 88 && !G.flags.held100 && !G.flags.fell100;
+  if (CLUE) CLUE.g.visible = !!(M2.done.night100 || M2.cur === 'after');
   // the next mission, after a short breath
   if (!M2.cur) {
     if ((M2.wait = (M2.wait || 0) - .5) > 0 || night.active) return;
@@ -210,7 +227,7 @@ function storyTick() {
 }
 // mission hand-ins at a person or place
 const STINTERACT = [
-  { id: 'msuse', at: () => { const m = msCur(); const s = m && m.steps[MS().st]; if (!s || !s.use) return null; const need = typeof s.use.need === 'function' ? s.use.need() : s.use.need; if (!need || !cnt(need)) return null; return s.use.at(); }, r: 4,
+  { id: 'msuse', at: () => { const m = msCur(); const s = m && m.steps[MS().st]; if (!s || !s.use) return null; const need = typeof s.use.need === 'function' ? s.use.need() : s.use.need; if (need !== true && (!need || !cnt(need))) return null; return s.use.at(); }, r: 4,
     label: () => msCur().steps[MS().st].use.label, act: () => { const s = msCur().steps[MS().st]; s.use.act(); sfx('buy'); save(); } },
 ];
 function missionsHTML() {
@@ -223,4 +240,11 @@ function missionsHTML() {
   return h + '</div>';
 }
 function buildStory() { const s0 = seed; seed = 6060606; for (const k in SPEAK_C) if (!SPEAKERS[k]) SPEAKERS[k] = SPEAK_C[k]; buildStoryWorld(); window.__M = { MISSIONS, MS, msStart, msFinish, updStory, get WARCAMP() { return WARCAMP; }, takeCaptives, msText }; seed = s0; }
-function storyRestore() { const M2 = MS(); if (MINA) MINA.g.visible = !G.flags.minaFound; if (setS().ros.some(R => R.held)) takeCaptives(true); else takeCaptives(true); msWellDay = G.day; }
+// the ones who vanished after Night 100
+function vanish() {
+  const S = setS(); if (S.vanished) return; S.vanished = G.day; const pool = S.ros.filter(R => !R.held && survEnt(R)); const gone = [];
+  for (let i = 0; i < 2 && pool.length > 3; i++) { const R = pool.splice(Math.floor(rnd() * pool.length), 1)[0]; const e = SROS[R.id]; if (e) { e.dead = true; removeEnt(e); } S.ros.splice(S.ros.indexOf(R), 1); (S.missing ||= []).push({ n: R.n, id: R.id, day: G.day, by: 'grey' }); gone.push(R.n); }
+  if (gone.length) setTimeout(() => card(`${gone.length === 2 ? 'TWO' : 'ONE'} MORE MISSING`, `${gone.join(' and ')} — gone in the night`, 4.5), 4000);
+  save();
+}
+function storyRestore() { const M2 = MS(); if (CLUE) CLUE.g.visible = !!(MS().done.night100 || M2.cur === 'after'); if (MINA) MINA.g.visible = !G.flags.minaFound; if (setS().ros.some(R => R.held)) takeCaptives(true); else takeCaptives(true); msWellDay = G.day; }

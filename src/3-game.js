@@ -134,7 +134,7 @@ const INTERACT = [
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
-  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  ...XINTERACT, ...FINTERACT, ...SINTERACT, ...STINTERACT, ...SGINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
@@ -264,7 +264,8 @@ function respawnBases() {
 /* ================= night raids ================= */
 function startNight() {
   night.active = true; night.wave = 0; night.core = 100;
-  night.final = G.day >= 100 && !G.flags.held100;
+  night.final = G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
+  if (night.final) siegeStart();   // (Nov 11) Night 100 in four stages — 2j-siege.js
   night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
   gate.open = false; sfx('gate'); G.tod = .9; G.todTarget = null;
   horn(78, 3.2, .26, 4);
@@ -293,8 +294,8 @@ function updNight(dt) {
     night.spawnT -= dt;
     if (night.spawnT <= 0) {
       night.spawnT = rr(.7, 1.6); night.left--;
-      const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
-      const rk = raiderKind(); if (rk) { const [k, f, tr] = rk; const re = spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f); if (tr) re.tribe = tr; }
+      let a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
+      const rk = raiderKind(); if (rk) { const [k, f, tr] = rk; [a, r] = siegeSpawn(a, r, tr); const re = spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f); if (tr) re.tribe = tr; siegeRaider(re); }
     }
   } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
@@ -303,13 +304,14 @@ function updNight(dt) {
   if (night.core <= 0) endNight(false);
 }
 function endNight(won) {
-  setS().lastWin = won ? 1 : 0;
+  setS().lastWin = won ? 1 : 0; const wasFinal = SIEGE.on;
   night.active = false; gate.open = true; gate.hp = gate.max; hullDoor.hp = hullDoor.max; hullDoor.open = true;
   for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
   for (const s of SCRAPS) if (!s.alive && s.tag === 'wild' && rnd() < .5) { s.alive = true; s.g.visible = true; }
   ensureWildlife();
   dawnScene(won);
+  if (wasFinal) siegeAfter(won);
 }
 
 /* ================= the Rust (red fog) ================= */
@@ -336,7 +338,7 @@ function fogNPC(e, dt) {
   if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
   if (e.downed) {
     e.dieT -= dt; if (rnd() < dt * .6) puff(e.x, e.y + .4, e.z, 0x9a3a22, 1, .6, .1, .5, 1.5);
-    if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — the Rust got them.`, 4); sfx('no'); }
+    if (e.dieT <= 0) { removeEnt(e); e.dead = true; toast(`${e.shopName || 'A settler'} didn't make it — ${e.siegeHurt ? 'their wounds were too much' : 'the Rust got them'}.`, 4); sfx('no'); }
     return { x: e.x, z: e.z, spd: 0 };
   }
   const on = rust.state === 'warn' || rust.state === 'active';
@@ -451,6 +453,7 @@ function updClan(e, dt) {
   if (e.burn > 0) { e.burn -= dt; e.hp -= 12 * dt; if (Math.random() < dt * 8) puff(e.x, e.y + 1, e.z, 0xff7a2a, 1, 1, .12, .4, 2); if (e.hp <= 0) { damage(e, 1, true, new THREE.Vector3(e.x, e.y + 1, e.z)); return; } }
   if (e.stun > 0) { e.stun -= dt; p.body.rotation.z = Math.sin(e.t * 20) * .1; e.g.position.set(e.x, e.y, e.z); return; }
   if (e.blind > 0) e.blind -= dt;
+  if (e.grab && siegeGrab(e, dt)) return;
   if (facUpd(e, dt)) return;   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
@@ -483,7 +486,7 @@ function updClan(e, dt) {
       if (e.climb && UP.wall < 3) {
         const a = Math.atan2(e.x, e.z); tx = Math.sin(a) * (CAMP_R + 1); tz = Math.cos(a) * (CAMP_R + 1); spd = e.speed;
         if (Math.abs(a) < GATE_HALF + .05) e.climb = false;
-        if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
+        if (dE < CAMP_R + 1.4) { e.climbing = true; e.climbDur = e.climbT = e.breach ? .7 : 2.2 + UP.wall * 1.4; e.yaw = Math.atan2(-e.x, -e.z); sfx('grunt'); }
       } else if (gate.hp > 0 && !gate.open) {
         tx = clamp(e.x, -3, 3); tz = CAMP_R + 1.5; spd = e.speed;
         if (Math.hypot(e.x - tx, e.z - tz) < 2.2 && e.cool <= 0) { e.yaw = Math.PI; e.target = 'gate'; e.atk = .65; e.struck = false; e.cool = e.kind === 'brute' ? 1.6 : 1.2; }
@@ -934,7 +937,7 @@ function updHUD(dt) {
 let invOpen = false, invT = 0;
 function objectiveNow() {
   if (rust.state === 'warn' || rust.state === 'active') return 'Get inside the Arc until the fog lifts';
-  if (night.active) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
+  if (night.active) return SIEGE.on ? `Night 100 · ${siegeStageName()} · wave ${night.wave}/${night.waves}` : `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   return objText();
 }
 let invTab = 'bag', craftCat = 'tool', craftOnly = false;
@@ -968,7 +971,7 @@ function renderInv() {
       return gearTile(t, b.join('')); }).join('')}</div>`;
     body += `<p class="dim">Slots: 1 ${slotWeapon(0)?.name || '—'} · 2 ${slotWeapon(1)?.name || '—'} · 3 ${slotWeapon(2)?.name || '—'}${INV.eq[0] !== 'arc' && INV.eq[1] !== 'arc' ? ' · <button data-arc="1">Arc rifle → slot 1</button>' : ''}${INV.eq[0] !== 'hunter' && INV.eq[1] !== 'hunter' ? ' <button data-hunt="1">Hunting rifle → slot 2</button>' : ''}</p>`;
     if (!Object.keys(groups).length && !INV.tools.length) body += '<p class="dim">Empty. Gather sticks from trees, stones from rocks and fiber from the undergrowth outside the wall.</p>';
-    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of 100 · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
+    body += `<p class="obj">◆ ${objectiveNow() || 'Explore'}</p><p class="day">Tier ${tierNow()} · ${TIERS[tierNow()]} · Day ${G.day} of ${G.flags.s2 || G.day > 100 ? 200 : 100} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · ${exploredPct()}% explored</p>`;
   } else if (invTab === 'craft') {
     body += `<div class="ctabs">${RCATS.map(([k, n]) => `<button data-cat="${k}" class="${craftCat === k ? 'on' : ''}">${n}</button>`).join('')}<button data-only="1" class="${craftOnly ? 'on' : ''}">Can make</button></div>`;
     const near = Object.keys(STATION_N).filter(nearStation).map(k => STATION_N[k]);
@@ -1250,7 +1253,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updStory(dt); updSiege(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1463,7 +1466,7 @@ function drawMap() {
   drawXMarks(g, S, k);
   const at = objAt(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 6 * k, 0, 7); g.stroke(); }
   const [px, py] = toMap(P.x, P.z, S); playerArrow(g, px, py, 1.1 * k);
-  $('mapday').textContent = `Day ${G.day} of 100 · ${exploredPct()}% explored`;
+  $('mapday').textContent = `Day ${G.day} of ${G.flags.s2 || G.day > 100 ? 200 : 100} · ${exploredPct()}% explored`;
 }
 function playerArrow(g, x, y, k) {
   g.save(); g.translate(x, y); g.rotate(-P.yaw + Math.PI);
@@ -1520,7 +1523,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); storyRestore(); siegeRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
