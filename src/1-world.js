@@ -70,7 +70,7 @@ const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 114 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
-  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, arches: { x: -66, z: -206 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
   cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
@@ -279,6 +279,7 @@ function prepFlats() {
   addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
   for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
+  addFlat(POI.arches.x, POI.arches.z, 20, 42);                                       // the Old Arches, on the hill behind the Arc
   addFlat(POI.dropsite.x, POI.dropsite.z, 34, 60);                                  // the dropsite: open, level ground to build on
   prepNearLakes();
 }
@@ -590,6 +591,7 @@ const REGIONS = [
   { id: 'lake', name: 'LAKE ILSE', sub: 'Still water, a stone’s throw from the gate', x: POI.lake.x, z: POI.lake.z, r: 34 },
   { id: 'dropsite', name: 'THE DROPSITE', sub: 'A piece of the Arc, torn off on the way down · where you woke', x: POI.dropsite.x, z: POI.dropsite.z, r: 60 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
+  { id: 'arches', name: 'THE OLD ARCHES', sub: 'Older than the city · something is buried under them', x: POI.arches.x, z: POI.arches.z, r: 40 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
   // past the rim
   { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },

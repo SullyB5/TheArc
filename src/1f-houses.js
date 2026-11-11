@@ -511,7 +511,7 @@ function shopHouse(D) {
     K.box('metal', 1.1, .9, .9, fx, 1.95, fz - .1, 0, 0, 0, 0x3a3634); stovepipe(K, fx, 2.4, fz - .1, Hs.HT - 2.1);
     K.box('metal', .62, .2, .26, 2.3, .95, 2.45, 0, .2, 0, 0x2e2e2e); K.box('metal', .2, .22, .2, 2.62, .97, 2.45, 0, .2, Math.PI / 4, 0x2e2e2e); K.cyl('board', .22, .26, .85, 8, 2.3, .42, 2.45, 0, 0, 0, 0x5a4030);
     barrel(K, 5, 0, 2.7, 0x4a4f56, .7);
-    for (const [x, z, c] of [[-BW / 2 + .5, 3.4, 0x2a5a3a], [-BW / 2 + .8, 3.6, 0x8a2a22]]) { K.cyl('metal', .13, .13, 1.2, 10, x, .6, z, 0, 0, 0, c); K.cyl('shiny', .04, .06, .12, 6, x, 1.26, z, 0, 0, 0, 0x8a7a50); }
+    if (!MODELS['props/gas-bottle']) for (const [x, z, c] of [[-BW / 2 + .5, 3.4, 0x2a5a3a], [-BW / 2 + .8, 3.6, 0x8a2a22]]) { K.cyl('metal', .13, .13, 1.2, 10, x, .6, z, 0, 0, 0, c); K.cyl('shiny', .04, .06, .12, 6, x, 1.26, z, 0, 0, 0, 0x8a7a50); }
     { const ex = 2, ez = -2.5; K.box('metal', .9, .7, .6, ex, 1.1, ez, 0, .3, 0, 0x4a4a48); for (let i = 0; i < 4; i++) K.cyl('metal', .1, .1, .3, 8, ex - .3 + i * .2, 1.55, ez, 0, .3, 0, 0x5a5a58); K.box('metal', .7, .7, .5, ex, .38, ez, 0, .3, 0, 0x2a2a28); }
     // the roll-up door, mostly up
     for (let i = 0; i < 6; i++) K.box('metal', BW - 3.1, .12, .05, 0, H1 - .1 - i * .13, BD / 2 - .12, 0, 0, 0, tint(0x8a8e90, .05));
@@ -599,7 +599,7 @@ function shopHouse(D) {
     for (let i = 0; i < 5; i++) K.box('metal', .55, 1.9, .5, -BW / 2 + .35, .95, 1.6 - i * .58, 0, 0, 0, tint(hpick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), .06));
     K.box('board', 2, .06, 1, sx + 2, .8, sz + 1, 0, 0, 0, 0x6a5038); for (const [dx, dz] of [[-.9, -.4], [.9, -.4], [-.9, .4], [.9, .4]]) K.box('board', .06, .78, .06, sx + 2 + dx, .4, sz + 1 + dz, 0, 0, 0, 0x4a3a2c);
     for (let k = 0; k < 9; k++) K.box('paper', .06, .002, .09, sx + 1.6 + hr(0, .8), .84, sz + 1 + hr(-.3, .3), 0, hr(0, 3), 0, 0xffffff);
-    K.box('metal', .6, .8, .6, 3.6, .4, 2, 0, 0, 0, 0x2a2a28); K.box('glow', .25, .15, .02, 3.6, .3, 2.31, 0, 0, 0, 0xff6a1a); stovepipe(K, 3.6, .8, 1.9, Hs.HT + .9);
+    if (!MODELS['props/wood-stove']) { K.box('metal', .6, .8, .6, 3.6, .4, 2, 0, 0, 0, 0x2a2a28); K.box('glow', .25, .15, .02, 3.6, .3, 2.31, 0, 0, 0, 0xff6a1a); stovepipe(K, 3.6, .8, 1.9, Hs.HT + .9); }
     for (let i = 0; i < 6; i++) K.box('plain', .12, .15, .28, -1 + i * .25, .3, BD / 2 - .5, 0, hr(-.3, .3), 0, hpick([0x3a2a1e, 0x4a3a2a, 0x2a2a28]));
     hput(inner, hmodel('props/radiator', .8, 'y'), BW / 2 - .25, .25, .6, -Math.PI / 2);
     const b0 = shopL2W(D, -5, -2.4), b1 = shopL2W(D, 5, -2.4); addColLine(b0.x, b0.z, b1.x, b1.z, .9);
@@ -616,6 +616,7 @@ function shopHouse(D) {
     hput(inner, hmodel('props/pipes', 2.2, 'x'), -BW / 2 + .6, 1.6, -1.6, Math.PI / 2);
     for (let i = 0; i < 6; i++) K.box('hull', 1.6, 1.1, .05, 1 + i * .06, .55, -BD / 2 + .5 + i * .1, -.15, 0, 0, tint(0xc0beb6, .06), 2);
   }
+  dressShop(D, K, inner, Hs);                       // (Nov 10) Bryce's props: the wood stove, gas bottles, medkits, radios
   // collision: back + side walls, counter, the side station (as before), and the side door gaps left open
   const P0 = shopL2W(D, -BW / 2, -BD / 2), P1 = shopL2W(D, BW / 2, -BD / 2), P2 = shopL2W(D, -BW / 2, BD / 2), P3 = shopL2W(D, BW / 2, BD / 2);
   addColLine(P0.x, P0.z, P1.x, P1.z, .45); addColLine(P0.x, P0.z, P2.x, P2.z, .45); addColLine(P1.x, P1.z, P3.x, P3.z, .45);
@@ -639,6 +640,7 @@ function buildYard() {
   // the power yard: Bryce's substation inside a fence, the genset beside it, a pole line out to the buildings
   const PX = 24, PZ = -8;
   const sub = hmodel('props/substation', 2.9); if (sub) { sub.position.set(PX, 0, PZ); sub.rotation.y = -Math.PI / 2; g.add(sub); }
+  dressYard(g);
   K.box('conc', 7.4, .2, 5.4, PX + .8, .1, PZ, 0, 0, 0, 0xb8b2a8, 2);
   const fence = [[PX - 2.8, PZ - 2.5], [PX + 4.4, PZ - 2.5], [PX + 4.4, PZ + 2.5], [PX + 1.4, PZ + 2.5]];
   for (let i = 0; i < fence.length - 1; i++) { const [ax, az] = fence[i], [bx, bz] = fence[i + 1], L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 2.4);

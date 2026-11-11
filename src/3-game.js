@@ -24,6 +24,29 @@ function nextLine() {
   if (who === 'Radio' || who === 'Greyhold') sfx('radio');
   if (fn) fn();
 }
+/* (Nov 10) the warning before night 100 comes over the walkie-talkies: the other settlements call Kestrel as the clans gather.
+   Carry a radio (a walkie-talkie from the rack in the Arc's radio room, or one you find) and you hear each call at dawn;
+   without one the calls wait on the radio desk in the Arc. */
+const RADIO_CALLS = [
+  [70, 'Farlight', 'Kestrel, this is Farlight. The clans have stopped raiding each other. That never happens. They’re saving it for someone — and I think it’s you.'],
+  [85, 'Farlight', 'Kestrel, Farlight again. Ironjaw is buying up every round in the valley, and there are Greyhold trucks on the north road. Count the nights.'],
+  [92, 'Halvard', 'Anyone on this channel — it’s the scavvers at Halvard. War paint at Varnhold and Sunscar both. Eight nights, they’re saying. Eight.'],
+  [97, 'Farlight', 'Three nights, Kestrel. They’re camped along the rim. Bring everyone inside the wall and get the turrets fed.'],
+  [99, 'Farlight', 'Tomorrow night. Every clan, Ironjaw, Greyhold — all of them at once. Good luck, Kestrel. Farlight out.'],
+];
+const radioDue = () => { const h = G.flags.radio || {}; return RADIO_CALLS.filter(c => G.day >= c[0] && !h[c[0]]); };
+function radioPlay(due) { const h = G.flags.radio = G.flags.radio || {}; for (const c of due) h[c[0]] = 1; const c = due[due.length - 1]; G.flags.radioNag = 0; say([['Radio', `${c[1]}: ${c[2]}`]]); }
+function radioDay() {
+  if (G.flags.held100) return; const due = radioDue(); if (!due.length) return;
+  if (cnt('radio') > 0) { toast('Your walkie-talkie crackles', 2.4); radioPlay(due); }
+  else if (!G.flags.radioNag) { G.flags.radioNag = 1; toast('Someone is calling Kestrel — the radio desk in the Arc', 4); }
+}
+function radioListen() {
+  const due = radioDue(); if (due.length) { radioPlay(due); return; }
+  const last = [...RADIO_CALLS].reverse().find(c => G.day >= c[0]);
+  say([['Radio', last ? `${last[1]}, repeating: ${last[2]}` : pick(['Static. Under it, someone reading out numbers.', 'Farlight on the hour: prices for salt and rounds. Nothing for Kestrel.', 'Static, and a few bars of a song from somewhere far off.'])]]);
+}
+function takeWalkie() { G.flags.walkies = (G.flags.walkies || 0) + 1; newGear('radio', 1); sfx('pickup'); toast('Took a walkie-talkie · you’ll hear the other settlements on it', 3.2); setTimeout(radioDay, 1200); }
 function card(h, p, dur = 4) { $('cardh').textContent = h; $('cardp').textContent = p; $('card').classList.add('on'); setTimeout(() => $('card').classList.remove('on'), dur * 1000); }
 
 /* ================= cinematics ================= */
@@ -101,6 +124,8 @@ const INTERACT = [
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
   { id: 'hulldoor', at: () => inHull(P.x, P.z) ? ARC_DOOR_IN : ARC_DOOR_OUT, r: 4.2, label: () => hullDoor.hp <= 0 ? (night.active ? 'The Arc’s doors are wrecked' : null) : hullDoor.open ? 'Seal the Arc’s blast doors' : 'Open the Arc’s blast doors', act: () => { if (hullDoor.hp <= 0) return; hullDoor.open = !hullDoor.open; sfx('gate'); toast(hullDoor.open ? 'Blast doors open' : `Blast doors sealed · ${Math.round(hullDoor.hp)} / ${hullDoor.max}`, 2); } },
   { id: 'fogheal', at: () => nearDowned(), r: 2.6, label: () => { const e = nearDowned(), id = FOG_MEDS.find(k => cnt(k) > 0); return `${e.shopName || 'Settler'} is down — ` + (id ? `treat them (${nameOf(id).toLowerCase()})` : 'you need a bandage or a medkit'); }, act: () => healDowned(nearDowned()) },
+  { id: 'radiodesk', at: () => arcInside ? ARC_RADIO : null, r: 2.7, label: () => radioDue().length ? 'Answer the radio · someone is calling Kestrel' : 'Listen to the radio', act: () => radioListen() },
+  { id: 'walkies', at: () => arcInside ? ARC_WALKIES : null, r: 2.3, label: () => cnt('radio') > 0 || (G.flags.walkies || 0) >= 4 ? null : 'Take a walkie-talkie', act: () => takeWalkie() },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
@@ -216,7 +241,7 @@ function dawnScene(won) {
   G.tod = .24; G.todTarget = null; G.day++;
   if (night.final && won) { G.flags.held100 = 1; card('THE HUNDREDTH NIGHT', 'Kestrel stands. The world is yours to take.', 6); }
   else toast(won ? `Day ${G.day}. Kestrel held.` : `Day ${G.day}. They got inside — we lost supplies.`, 4);
-  respawnBases(); save();
+  respawnBases(); save(); radioDay();
 }
 function respawnBases() {
   // a cleared base fills back up two days later
@@ -725,7 +750,7 @@ function updTime(dt) {
   else if (G.chapterDone && G.step >= 12 && !G.flags.reached) {
     // before you've reached Kestrel the raids aren't your fight: nights pass (a bit quicker) wherever you are
     G.tod += dt * (.56 / DAY_LEN) * (isNight() ? 2 : 1);
-    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); }
+    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); radioDay(); }
   }
   else if (G.chapterDone && G.step >= 12) {
     G.tod += dt * (.56 / DAY_LEN);
@@ -1404,7 +1429,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS]);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS, ...NEW_PROPS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
@@ -1412,7 +1437,7 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
+  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildArches();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
@@ -1435,4 +1460,4 @@ async function boot() {
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
-window.__E = { envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };
+window.__E = { ARC_RADIO, ARC_WALKIES, WING, envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };

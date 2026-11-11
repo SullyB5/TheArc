@@ -73,10 +73,13 @@ function envSites() {
     const sl = slopeAt(x, z), pd = pathDist(x, z), sc = sl * 40 - Math.min(pd, 30) + (SHELTERS.some(s => Math.hypot(s.x - x, s.z - z) < 25) ? 50 : 0) + (Math.hypot(x - 80, z + 36) < 44 || Math.hypot(x + 80, z + 24) < 36 ? 50 : 0);
     if (pd > 15 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
   if (best) S.push({ id: 'paddock', x: best.x, z: best.z, r: 16 });
+  S.push({ id: 'arches', x: POI.arches.x, z: POI.arches.z, r: 34 });            // (Nov 10) the Old Arches: no pines or boulders through the ruin
   // two city blocks: the factory and the street
   const C = CITY, cityOK = (x, z) => pathDist(x, z) > 20 && Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) > FOUNDRY.R + 45 && Math.hypot(x - C.x, z - C.z) < C.R - 60;
   const f = firstOK([[C.x + 170, C.z + 60], [C.x + 130, C.z - 150], [C.x - 170, C.z - 120], [C.x + 60, C.z + 200]], cityOK); if (f) S.push({ id: 'factory', x: f[0], z: f[1], r: 30, city: 1 });
   const s = firstOK([[C.x - 120, C.z + 190], [C.x - 200, C.z + 40], [C.x + 20, C.z - 230], [C.x + 230, C.z - 60]], (x, z) => cityOK(x, z) && (!f || Math.hypot(x - f[0], z - f[1]) > 80)); if (s) S.push({ id: 'street', x: s[0], z: s[1], r: 26, city: 1 });
+  // (Nov 10) the park: a cleared block for the park arch, away from the other two
+  const p = firstOK([[C.x + 40, C.z + 130], [C.x - 60, C.z - 160], [C.x + 150, C.z - 40], [C.x - 150, C.z + 90], [C.x + 90, C.z + 220]], (x, z) => cityOK(x, z) && [f, s].every(q => !q || Math.hypot(x - q[0], z - q[1]) > 85)); if (p) S.push({ id: 'park', x: p[0], z: p[1], r: 32, city: 1 });
   return S;
 }
 const envSite = id => envSites().find(s => s.id === id);
@@ -201,6 +204,7 @@ function buildEnvCity(cars) {
   const f = envSite('factory'), s = envSite('street');
   if (f) { const g = farGroup(f.x, f.z, 40), ry = .2, W = whole('e/factory'); if (W) { envPut(g, 'e/factory', f.x, envFloor(f.x, f.z, W.size.x, W.size.z, ry) - .3, f.z, ry); colRect(f.x, f.z, W.size.x - .6, W.size.z - .6, ry, .7, []); cache(g, f.x, f.z, 0, 'pry', 'city', { id: 'c_factory', name: 'Old factory floor', big: 1, rolls: 1, refill: 2 }); } }
   if (s) { const g = farGroup(s.x, s.z, 40), ry = -.15; envPut(g, 'e/street', s.x, heightAt(s.x, s.z) - .25, s.z, ry); const P = pieces('e/trashcans'); if (P.length) instParts(g, [P[0], P[1] || P[0]], [envM(s.x + 6, heightAt(s.x + 6, s.z), s.z + 3, ry)]); }
+  dressCity(f, whole('e/factory'), .2);
   // the drawn wrecks in the streets become real ones: one in six a bus
   const car = whole('e/car'), bus = whole('e/bus'); if (!car || !cars?.length) return false;
   const root = farGroup(CITY.x, CITY.z, CITY.R), cm = [], bm = [];

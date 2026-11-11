@@ -70,7 +70,7 @@ const riverX = z => 318 + Math.sin(z * .0065) * 46 + Math.sin(z * .019 + 1) * 14
 const POI = {
   pod: { x: 172, z: 158 }, meadow: { x: 98, z: -44 }, village: { x: -196, z: -66 }, vault: { x: -186, z: -206 },
   debris: { x: 0, z: 114 }, halvard: { x: 480, z: 300 }, burn: { x: 400, z: -150 }, ashmere: { x: -420, z: -20 },
-  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
+  lake: { x: -36, z: 94 }, dropsite: { x: -268, z: 282 }, arches: { x: -66, z: -206 }, lookout: { x: -120, z: 430 }, bridge: { x: riverX(236), z: 236 }, relay: { x: -300, z: -320 },
   // the outlands, past the valley rim
   varnhold: { x: 120, z: -1180 }, sunscar: { x: 1480, z: 260 }, elderhollow: { x: 160, z: 1360 },
   cinder: { x: 1300, z: -760 }, watchers: { x: -1340, z: 360 }, varr: { x: -700, z: 1150 }, mirror: { x: -1420, z: -380 },
@@ -279,6 +279,7 @@ function prepFlats() {
   addFlat(CITY.x, CITY.z, CITY.R + 10, CITY.R + 90);
   for (const B of BASES) addFlat(B.x, B.z, B.R + 10, B.R + 50);
   addFlat(POI.watchers.x, POI.watchers.z, 18, 40);
+  addFlat(POI.arches.x, POI.arches.z, 20, 42);                                       // the Old Arches, on the hill behind the Arc
   addFlat(POI.dropsite.x, POI.dropsite.z, 34, 60);                                  // the dropsite: open, level ground to build on
   prepNearLakes();
 }
@@ -590,6 +591,7 @@ const REGIONS = [
   { id: 'lake', name: 'LAKE ILSE', sub: 'Still water, a stone’s throw from the gate', x: POI.lake.x, z: POI.lake.z, r: 34 },
   { id: 'dropsite', name: 'THE DROPSITE', sub: 'A piece of the Arc, torn off on the way down · where you woke', x: POI.dropsite.x, z: POI.dropsite.z, r: 60 },
   { id: 'lookout', name: 'SOUTH LOOKOUT', sub: 'A fire tower on the ridge', x: POI.lookout.x, z: POI.lookout.z, r: 35 },
+  { id: 'arches', name: 'THE OLD ARCHES', sub: 'Older than the city · something is buried under them', x: POI.arches.x, z: POI.arches.z, r: 40 },
   { id: 'grey', name: 'THE GREY DOOR', sub: 'Sealed. Humming.', x: POI.vault.x, z: POI.vault.z, r: 40 },
   // past the rim
   { id: 'outlands', name: 'THE OUTLANDS', sub: 'Nobody from the Arc has been this far', area: (x, z) => Math.hypot(x, z) > RIM_R + 50 },
@@ -1221,16 +1223,20 @@ function buildArc() {
     for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; const p = mesh(new THREE.CylinderGeometry(.15, .15, 6, 6), M(0x2a2a2a), Math.cos(a) * 2.2, 3, Math.sin(a) * 2.2, cg); p.rotation.set(Math.sin(a) * .3, 0, -Math.cos(a) * .3); }
     addCol(ARC_CORE.x, ARC_CORE.z, 2.4); }
   // bunks, lockers, crates — a place to hole up
-  for (let i = 0; i < 6; i++) { const x = -24 + i * 3.4, z = -ARC.W + 1.4; const b = new THREE.Group(); b.position.set(x, -C, z); b.rotation.y = arr(-.05, .05); g.add(b);
-    for (const y of [.5, 1.8]) { mesh(new THREE.BoxGeometry(2.2, .14, 1), M(0x5a5e60), 0, y, 0, b); mesh(new THREE.BoxGeometry(2, .16, .9), M(apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a])), 0, y + .14, 0, b); }
+  // (Nov 10) with Bryce's props loaded the bunks, lockers and strip lights are models (dressArc in 1h-props.js); the hull's own draws still run so nothing else moves
+  const propsIn = MODELS['props/bed'] != null;
+  for (let i = 0; i < 6; i++) { const x = -24 + i * 3.4, z = -ARC.W + 1.4, ry = arr(-.05, .05), cs = [apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a]), apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a])]; if (propsIn) continue;
+    const b = new THREE.Group(); b.position.set(x, -C, z); b.rotation.y = ry; g.add(b);
+    [.5, 1.8].forEach((y, k) => { mesh(new THREE.BoxGeometry(2.2, .14, 1), M(0x5a5e60), 0, y, 0, b); mesh(new THREE.BoxGeometry(2, .16, .9), M(cs[k]), 0, y + .14, 0, b); });
     for (const sx of [-1.05, 1.05]) mesh(new THREE.BoxGeometry(.08, 2.4, .08), M(0x3a3a3a), sx, 1.2, .45, b);
     addCol(ARC.x + x, ARC.z + z, 1); }
-  for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7; mesh(new THREE.BoxGeometry(1, 2.2, .6), M(apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a])), x, 1.1 - C, z, g).rotation.y = arr(-.06, .06); }
+  for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7, cl = apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), ry = arr(-.06, .06); if (!propsIn) mesh(new THREE.BoxGeometry(1, 2.2, .6), M(cl), x, 1.1 - C, z, g).rotation.y = ry; }
   addColLine(ARC.x - 4, ARC.z - ARC.W + .7, ARC.x + 4, ARC.z - ARC.W + .7, .6);
-  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
+  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn && Math.abs(z - 4.3) < 2.5 && (Math.abs(x - 18.6) < 6 || Math.abs(x + 22) < 3.5)) { arr(-.3, .3); continue; }   // the passages stand there now
+    mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
   // strip lights + one warm lamp so it isn't a cave
   const strip = new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false });
-  for (let x = -LW + 4; x < LE - 2; x += 8) { const l = mesh(new THREE.BoxGeometry(2.4, .1, .25), strip, x, R + hullOff(x, 1, 0) - 1.3, 0, g); l.castShadow = false; l.rotation.z = arr(-.04, .04); }
+  for (let x = -LW + 4; x < LE - 2; x += 8) { const rz = arr(-.04, .04); if (propsIn) continue; const l = mesh(new THREE.BoxGeometry(2.4, .1, .25), strip, x, R + hullOff(x, 1, 0) - 1.3, 0, g); l.castShadow = false; l.rotation.z = rz; }
   const hl = new THREE.PointLight(0xffd8a0, 2.4, 52, 1.2); hl.position.set(-4, R - 3, 0); g.add(hl);
   // collision: the shell (bullets pass over the south side above 8 m — that's the slit), the west end, the east end round
   // the opening into the wing, a gap for the door
@@ -1282,6 +1288,7 @@ function buildArc() {
   WING.pts.forEach((p, i) => { if (i % 2) return; for (const k of [-1, 1]) addCol(p.x + p.nx * k * (WING.W + .25), p.z + p.nz * k * (WING.W + .25), .6); });
   { const e = WING.end; addColLine(e.x - e.nx * WING.W, e.z - e.nz * WING.W, e.x + e.nx * WING.W, e.z + e.nz * WING.W, .6); }
   SHELTERS.push({ x: ARC.x, z: ARC.z, kind: 'arc', r: 0, hull: 1 });
+  dressArc();
   for (let i = 0; i < 74; i++) rnd();   // the hull used to draw from the world's stream: keep everything after it where it was
 
   // the side modules, broken off on the way down, now outside the wall
@@ -2187,7 +2194,7 @@ function shopHouse(D) {
     K.box('metal', 1.1, .9, .9, fx, 1.95, fz - .1, 0, 0, 0, 0x3a3634); stovepipe(K, fx, 2.4, fz - .1, Hs.HT - 2.1);
     K.box('metal', .62, .2, .26, 2.3, .95, 2.45, 0, .2, 0, 0x2e2e2e); K.box('metal', .2, .22, .2, 2.62, .97, 2.45, 0, .2, Math.PI / 4, 0x2e2e2e); K.cyl('board', .22, .26, .85, 8, 2.3, .42, 2.45, 0, 0, 0, 0x5a4030);
     barrel(K, 5, 0, 2.7, 0x4a4f56, .7);
-    for (const [x, z, c] of [[-BW / 2 + .5, 3.4, 0x2a5a3a], [-BW / 2 + .8, 3.6, 0x8a2a22]]) { K.cyl('metal', .13, .13, 1.2, 10, x, .6, z, 0, 0, 0, c); K.cyl('shiny', .04, .06, .12, 6, x, 1.26, z, 0, 0, 0, 0x8a7a50); }
+    if (!MODELS['props/gas-bottle']) for (const [x, z, c] of [[-BW / 2 + .5, 3.4, 0x2a5a3a], [-BW / 2 + .8, 3.6, 0x8a2a22]]) { K.cyl('metal', .13, .13, 1.2, 10, x, .6, z, 0, 0, 0, c); K.cyl('shiny', .04, .06, .12, 6, x, 1.26, z, 0, 0, 0, 0x8a7a50); }
     { const ex = 2, ez = -2.5; K.box('metal', .9, .7, .6, ex, 1.1, ez, 0, .3, 0, 0x4a4a48); for (let i = 0; i < 4; i++) K.cyl('metal', .1, .1, .3, 8, ex - .3 + i * .2, 1.55, ez, 0, .3, 0, 0x5a5a58); K.box('metal', .7, .7, .5, ex, .38, ez, 0, .3, 0, 0x2a2a28); }
     // the roll-up door, mostly up
     for (let i = 0; i < 6; i++) K.box('metal', BW - 3.1, .12, .05, 0, H1 - .1 - i * .13, BD / 2 - .12, 0, 0, 0, tint(0x8a8e90, .05));
@@ -2275,7 +2282,7 @@ function shopHouse(D) {
     for (let i = 0; i < 5; i++) K.box('metal', .55, 1.9, .5, -BW / 2 + .35, .95, 1.6 - i * .58, 0, 0, 0, tint(hpick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), .06));
     K.box('board', 2, .06, 1, sx + 2, .8, sz + 1, 0, 0, 0, 0x6a5038); for (const [dx, dz] of [[-.9, -.4], [.9, -.4], [-.9, .4], [.9, .4]]) K.box('board', .06, .78, .06, sx + 2 + dx, .4, sz + 1 + dz, 0, 0, 0, 0x4a3a2c);
     for (let k = 0; k < 9; k++) K.box('paper', .06, .002, .09, sx + 1.6 + hr(0, .8), .84, sz + 1 + hr(-.3, .3), 0, hr(0, 3), 0, 0xffffff);
-    K.box('metal', .6, .8, .6, 3.6, .4, 2, 0, 0, 0, 0x2a2a28); K.box('glow', .25, .15, .02, 3.6, .3, 2.31, 0, 0, 0, 0xff6a1a); stovepipe(K, 3.6, .8, 1.9, Hs.HT + .9);
+    if (!MODELS['props/wood-stove']) { K.box('metal', .6, .8, .6, 3.6, .4, 2, 0, 0, 0, 0x2a2a28); K.box('glow', .25, .15, .02, 3.6, .3, 2.31, 0, 0, 0, 0xff6a1a); stovepipe(K, 3.6, .8, 1.9, Hs.HT + .9); }
     for (let i = 0; i < 6; i++) K.box('plain', .12, .15, .28, -1 + i * .25, .3, BD / 2 - .5, 0, hr(-.3, .3), 0, hpick([0x3a2a1e, 0x4a3a2a, 0x2a2a28]));
     hput(inner, hmodel('props/radiator', .8, 'y'), BW / 2 - .25, .25, .6, -Math.PI / 2);
     const b0 = shopL2W(D, -5, -2.4), b1 = shopL2W(D, 5, -2.4); addColLine(b0.x, b0.z, b1.x, b1.z, .9);
@@ -2292,6 +2299,7 @@ function shopHouse(D) {
     hput(inner, hmodel('props/pipes', 2.2, 'x'), -BW / 2 + .6, 1.6, -1.6, Math.PI / 2);
     for (let i = 0; i < 6; i++) K.box('hull', 1.6, 1.1, .05, 1 + i * .06, .55, -BD / 2 + .5 + i * .1, -.15, 0, 0, tint(0xc0beb6, .06), 2);
   }
+  dressShop(D, K, inner, Hs);                       // (Nov 10) Bryce's props: the wood stove, gas bottles, medkits, radios
   // collision: back + side walls, counter, the side station (as before), and the side door gaps left open
   const P0 = shopL2W(D, -BW / 2, -BD / 2), P1 = shopL2W(D, BW / 2, -BD / 2), P2 = shopL2W(D, -BW / 2, BD / 2), P3 = shopL2W(D, BW / 2, BD / 2);
   addColLine(P0.x, P0.z, P1.x, P1.z, .45); addColLine(P0.x, P0.z, P2.x, P2.z, .45); addColLine(P1.x, P1.z, P3.x, P3.z, .45);
@@ -2315,6 +2323,7 @@ function buildYard() {
   // the power yard: Bryce's substation inside a fence, the genset beside it, a pole line out to the buildings
   const PX = 24, PZ = -8;
   const sub = hmodel('props/substation', 2.9); if (sub) { sub.position.set(PX, 0, PZ); sub.rotation.y = -Math.PI / 2; g.add(sub); }
+  dressYard(g);
   K.box('conc', 7.4, .2, 5.4, PX + .8, .1, PZ, 0, 0, 0, 0xb8b2a8, 2);
   const fence = [[PX - 2.8, PZ - 2.5], [PX + 4.4, PZ - 2.5], [PX + 4.4, PZ + 2.5], [PX + 1.4, PZ + 2.5]];
   for (let i = 0; i < fence.length - 1; i++) { const [ax, az] = fence[i], [bx, bz] = fence[i + 1], L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / 2.4);
@@ -2719,13 +2728,14 @@ function buildDropsite() {
   { const [x, z] = W(-L / 2 + 2, 0); SMOKES.push({ x, z, y: y0 + 6, k: 0 }); }
   const bl = new THREE.PointLight(0xff8a3a, 2, 34, 0); { const [x, z] = W(-L / 2 - 2, 0); bl.position.set(x, y0 + 3, z); } world.add(bl);
   // salvage: a locker with a starter kit, a cargo net, Arc supply crates, scrap all round
-  { const [x, z] = W(-4, 8); cache(world, x, z, -toCamp, 'none', 'arc', { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }); }
+  { const [x, z] = W(-4, 8), o = { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }; if (MODELS['props/locker']) npCache(world, 'locker', 1.73, x, z, -toCamp, 'arc', o); else cache(world, x, z, -toCamp, 'none', 'arc', o); }
   { const [x, z] = W(3, -8.5); cache(world, x, z, -toCamp, 'none', 'wild', { id: 'drop_cargo', name: 'Cargo net', big: 1, rolls: 2, refill: 3 }); }
   for (const [al, sd, l] of [[-15, 4, 'mixed'], [-8, -9, 'ammo'], [8, 9, 'scrap'], [14, -5, 'mixed']]) { const [x, z] = W(al, sd); supplyCrate(x, z, l); CRATES[CRATES.length - 1].table = 'arc'; }
   for (let i = 0; i < 14; i++) { const a = rnd() * 6.28, r = rr(8, 40), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } spawnScrap(x, z, 'wild'); }
   // a fire ring someone started before they left for Kestrel — a place to start your own camp
   { const [fx, fz] = W(-16, -12), fy = heightAt(fx, fz);
     for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x6a6660), fx + Math.cos(a) * .7, fy + .1, fz + Math.sin(a) * .7, world); } }
+  dressDropsite(D, toCamp, inWreck);
 }
 
 function buildLookout() {
@@ -3402,10 +3412,13 @@ function envSites() {
     const sl = slopeAt(x, z), pd = pathDist(x, z), sc = sl * 40 - Math.min(pd, 30) + (SHELTERS.some(s => Math.hypot(s.x - x, s.z - z) < 25) ? 50 : 0) + (Math.hypot(x - 80, z + 36) < 44 || Math.hypot(x + 80, z + 24) < 36 ? 50 : 0);
     if (pd > 15 && waterAt(x, z) < -1e8 && (!best || sc < best.sc)) best = { x, z, sc }; }
   if (best) S.push({ id: 'paddock', x: best.x, z: best.z, r: 16 });
+  S.push({ id: 'arches', x: POI.arches.x, z: POI.arches.z, r: 34 });            // (Nov 10) the Old Arches: no pines or boulders through the ruin
   // two city blocks: the factory and the street
   const C = CITY, cityOK = (x, z) => pathDist(x, z) > 20 && Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) > FOUNDRY.R + 45 && Math.hypot(x - C.x, z - C.z) < C.R - 60;
   const f = firstOK([[C.x + 170, C.z + 60], [C.x + 130, C.z - 150], [C.x - 170, C.z - 120], [C.x + 60, C.z + 200]], cityOK); if (f) S.push({ id: 'factory', x: f[0], z: f[1], r: 30, city: 1 });
   const s = firstOK([[C.x - 120, C.z + 190], [C.x - 200, C.z + 40], [C.x + 20, C.z - 230], [C.x + 230, C.z - 60]], (x, z) => cityOK(x, z) && (!f || Math.hypot(x - f[0], z - f[1]) > 80)); if (s) S.push({ id: 'street', x: s[0], z: s[1], r: 26, city: 1 });
+  // (Nov 10) the park: a cleared block for the park arch, away from the other two
+  const p = firstOK([[C.x + 40, C.z + 130], [C.x - 60, C.z - 160], [C.x + 150, C.z - 40], [C.x - 150, C.z + 90], [C.x + 90, C.z + 220]], (x, z) => cityOK(x, z) && [f, s].every(q => !q || Math.hypot(x - q[0], z - q[1]) > 85)); if (p) S.push({ id: 'park', x: p[0], z: p[1], r: 32, city: 1 });
   return S;
 }
 const envSite = id => envSites().find(s => s.id === id);
@@ -3530,12 +3543,377 @@ function buildEnvCity(cars) {
   const f = envSite('factory'), s = envSite('street');
   if (f) { const g = farGroup(f.x, f.z, 40), ry = .2, W = whole('e/factory'); if (W) { envPut(g, 'e/factory', f.x, envFloor(f.x, f.z, W.size.x, W.size.z, ry) - .3, f.z, ry); colRect(f.x, f.z, W.size.x - .6, W.size.z - .6, ry, .7, []); cache(g, f.x, f.z, 0, 'pry', 'city', { id: 'c_factory', name: 'Old factory floor', big: 1, rolls: 1, refill: 2 }); } }
   if (s) { const g = farGroup(s.x, s.z, 40), ry = -.15; envPut(g, 'e/street', s.x, heightAt(s.x, s.z) - .25, s.z, ry); const P = pieces('e/trashcans'); if (P.length) instParts(g, [P[0], P[1] || P[0]], [envM(s.x + 6, heightAt(s.x + 6, s.z), s.z + 3, ry)]); }
+  dressCity(f, whole('e/factory'), .2);
   // the drawn wrecks in the streets become real ones: one in six a bus
   const car = whole('e/car'), bus = whole('e/bus'); if (!car || !cars?.length) return false;
   const root = farGroup(CITY.x, CITY.z, CITY.R), cm = [], bm = [];
   for (const q of cars) { if (envKeepClear(q[0], q[2])) continue; const isBus = bus && rnd() < .16; (isBus ? bm : cm).push(envM(q[0], q[1] - .1, q[2], q[7], 1, q[6], q[8])); if (isBus) addColLine(q[0] - Math.sin(q[7]) * 4.5, q[2] - Math.cos(q[7]) * 4.5, q[0] + Math.sin(q[7]) * 4.5, q[2] + Math.cos(q[7]) * 4.5, 1.6); }
   instParts(root, car.parts, cm); if (bus) instParts(root, bus.parts, bm);
   return true;
+}
+
+/* ================= Bryce's second model batch (Nov 10): assets/models/props/ =================
+   36 models (compressed: GLTFLoader + MeshoptDecoder). Packs that were joined into one mesh per material (medbay-pack,
+   floor-modular, floor-section, floor-section-b) are split back into pieces by their geometry islands (`npSplit`);
+   repeated things are instanced (`instParts` from 1g-env.js). Where they go:
+   · the dropsite: a broken-off station section lying in the dirt beside the hull, in three pieces — windowed hull bays (wall-b
+     pairs) with the seats still bolted in, bunks, lootable lockers, fuel cells and medkits spilled round it, deck plates and
+     grating thrown along the furrow, the cargo-bay floor panel, a roof-plate lean-to
+   · the Arc (the raid holdout) — the only place the station's own interior (hallway, corridor) is used: an infirmary at the west end (the medbay pack, beds, lamps, medkits, a drop ceiling with
+     strip lights), a bunk room of stacked pods, lockers by the door, machinery round the core, and the radio room at the
+     far end of the east wing (wall screens, consoles, server racks, a rack of walkie-talkies, seats); you walk into the
+     infirmary through the white hallway, and the dark corridor runs from the core into the wing. The interior only draws when you can
+     see into the hull (`updArcInterior`).
+   · Kestrel: a wood stove in every building, gas bottles in the workshops and the power yard, the fuel tank by the genset,
+     medkits in the clinic, a walkie-talkie on the gun bench, salvage on Gus's bench
+   · Cinder City: the park arch as a landmark in its own cleared park, statues and pillars scattered through the streets as
+     ruins, fuel tanks beside the old factory
+   · the Old Arches: stone-arch-ruins on the hill north of Kestrel, a point of interest with loot you can see from the yard
+   The radio warnings before night 100 come in over the walkie-talkie (`radioDay` in 3-game.js). */
+const NEW_PROPS = ['bed', 'catwalk-bridge', 'ceiling-light', 'chairs-x4', 'cinema-camera', 'computer-console', 'corridor', 'floor-material', 'floor-modular', 'floor-panel',
+  'floor-section-b', 'floor-section', 'floor-tiles', 'fuel-cell', 'gas-bottle', 'hallway', 'keypad-panel', 'locker', 'medbay-pack', 'medkit-case', 'medkit-small', 'roof-panel',
+  'server-rack', 'server-tower', 'statue', 'stone-arch-ruins', 'stone-pillar', 'walkie-talkie', 'wall-2', 'wall-3', 'wall-4', 'wall-b', 'wall-c', 'wall-screen',
+  'fuel-tank', 'park-arch', 'wood-stove'].map(n => 'props/' + n);
+const npHas = n => !!MODELS['props/' + n];
+const npW = n => whole('props/' + n);
+// its own random stream, so placing these never moves anything else in the world
+let NP_S = 424242;
+const nrnd = () => (NP_S = (NP_S * 16807) % 2147483647, (NP_S - 1) / 2147483646), nr = (a, b) => a + nrnd() * (b - a);
+const HPI = Math.PI / 2;
+
+/* ---------- splitting packs: weld by position, find connected islands, gather islands whose boxes touch ---------- */
+const NP_SPLIT = {};
+function npSplit(name, gap = .05, perMesh = false) {
+  const key = name + gap + perMesh; if (NP_SPLIT[key]) return NP_SPLIT[key];
+  const root = MODELS['props/' + name]; if (!root) return [];
+  root.updateMatrixWorld(true);
+  const meshes = [], isl = [], v = new THREE.Vector3();
+  root.traverse(m => { if (m.isMesh) meshes.push(m); });
+  const data = meshes.map((m, mi) => {
+    const src = m.geometry, pos = src.attributes.position, n = pos.count, P = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; }
+    const weld = new Map(), id = new Int32Array(n);
+    for (let i = 0; i < n; i++) { const k = Math.round(P[i * 3] * 1e3) + ',' + Math.round(P[i * 3 + 1] * 1e3) + ',' + Math.round(P[i * 3 + 2] * 1e3); let w = weld.get(k); if (w === undefined) weld.set(k, w = weld.size); id[i] = w; }
+    const par = new Int32Array(weld.size).map((_, i) => i), find = a => { while (par[a] !== a) a = par[a] = par[par[a]]; return a; };
+    const ix = src.index ? src.index.array : Uint32Array.from({ length: n }, (_, i) => i), nt = ix.length / 3;
+    for (let t = 0; t < nt; t++) { const a = find(id[ix[t * 3]]), b = find(id[ix[t * 3 + 1]]); par[b] = a; par[find(id[ix[t * 3 + 2]])] = a; }
+    const by = new Map();
+    for (let t = 0; t < nt; t++) { const r = find(id[ix[t * 3]]); let I = by.get(r); if (!I) by.set(r, I = { mi, tris: [], box: new THREE.Box3() }); I.tris.push(t); for (let k = 0; k < 3; k++) { const j = ix[t * 3 + k]; I.box.expandByPoint(v.set(P[j * 3], P[j * 3 + 1], P[j * 3 + 2])); } }
+    for (const I of by.values()) isl.push(I);
+    return { P, ix };
+  });
+  const par = isl.map((_, i) => i), find = a => { while (par[a] !== a) a = par[a] = par[par[a]]; return a; };
+  const order = isl.map((_, i) => i).sort((a, b) => isl[a].box.min.x - isl[b].box.min.x), eb = new THREE.Box3();
+  for (let i = 0; i < order.length; i++) { const A = isl[order[i]]; eb.copy(A.box).expandByScalar(gap);
+    for (let j = i + 1; j < order.length; j++) { const B = isl[order[j]]; if (B.box.min.x > eb.max.x) break; if ((!perMesh || A.mi === B.mi) && eb.intersectsBox(B.box)) par[find(order[j])] = find(order[i]); } }
+  const groups = new Map(); isl.forEach((I, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(I); });
+  const out = [], nv = new THREE.Vector3();
+  for (const L of groups.values()) {
+    const box = new THREE.Box3(); for (const I of L) box.union(I.box);
+    const ctr = box.getCenter(new THREE.Vector3()), parts = [];
+    for (let mi = 0; mi < meshes.length; mi++) {
+      const mine = L.filter(I => I.mi === mi); if (!mine.length) continue;
+      const m = meshes[mi], src = m.geometry, { P, ix } = data[mi], uv = src.attributes.uv, nrm = src.attributes.normal, nm = new THREE.Matrix3().getNormalMatrix(m.matrixWorld);
+      const map = new Map(), pos = [], uvs = [], nor = [], idx = [];
+      for (const I of mine) for (const t of I.tris) for (let k = 0; k < 3; k++) { const j = ix[t * 3 + k]; let w = map.get(j);
+        if (w === undefined) { map.set(j, w = map.size); pos.push(P[j * 3] - ctr.x, P[j * 3 + 1] - box.min.y, P[j * 3 + 2] - ctr.z); if (uv) uvs.push(uv.getX(j), uv.getY(j)); if (nrm) { nv.fromBufferAttribute(nrm, j).applyMatrix3(nm).normalize(); nor.push(nv.x, nv.y, nv.z); } }
+        idx.push(w); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      if (nrm) g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); else g.computeVertexNormals();
+      g.setIndex(idx); g.computeBoundingBox(); g.computeBoundingSphere(); parts.push({ geo: g, mat: m.material });
+    }
+    out.push({ name: meshes[L[0].mi].name, parts, size: box.getSize(new THREE.Vector3()), ctr, base: box.min.y });
+  }
+  out.sort((a, b) => a.ctr.x - b.ctr.x || a.ctr.z - b.ctr.z);
+  return NP_SPLIT[key] = out;
+}
+
+/* collision for a ruin, from its own stone: every standing island taller than a man gets a post where it stands */
+function npStoneCols(name, ox, oz, ry, s, h) {
+  for (const P of npSplit(name, .05)) { if (P.size.y * s < 1.6 || P.base * s > 1) continue; const r = Math.min(P.size.x, P.size.z) * s * .5, L = Math.max(P.size.x, P.size.z) * s, n = Math.max(1, Math.round(L / (r * 2 + .01)));
+    for (let k = 0; k < n; k++) { const t = n > 1 ? (k / (n - 1) - .5) * (L - 2 * r) : 0, lx = P.ctr.x * s + (P.size.x >= P.size.z ? t : 0), lz = P.ctr.z * s + (P.size.x >= P.size.z ? 0 : t); const [x, z] = npL2W(ox, oz, ry, lx, lz); addCol(x, z, Math.max(.35, r), h); } }
+}
+
+/* a model with some meshes dropped by name and/or the triangles inside a box cut away (model space, before centring):
+   used to open the station's doors so its passages are walk-through */
+const NP_OPEN = {};
+function npOpened(name, drop, cut) {
+  if (NP_OPEN[name]) return NP_OPEN[name]; const W = npW(name), src = MODELS['props/' + name]; if (!W) return null;
+  const names = []; src.traverse(m => { if (m.isMesh) names.push(m.name); });
+  const box = new THREE.Box3(), parts = [];
+  W.parts.forEach((p, i) => { if (drop && drop.test(names[i])) return; let geo = p.geo;
+    if (cut) { const pos = geo.attributes.position, ix = geo.index ? geo.index.array : null, n = ix ? ix.length : pos.count, keep = [], v = new THREE.Vector3(), c = new THREE.Vector3();
+      for (let t = 0; t < n; t += 3) { c.set(0, 0, 0); for (let k = 0; k < 3; k++) c.add(v.fromBufferAttribute(pos, ix ? ix[t + k] : t + k)); c.multiplyScalar(1 / 3); if (!cut.containsPoint(c)) for (let k = 0; k < 3; k++) keep.push(ix ? ix[t + k] : t + k); }
+      geo = geo.clone(); geo.setIndex(keep); geo.computeBoundingSphere(); }
+    parts.push({ geo, mat: p.mat }); });
+  return NP_OPEN[name] = { parts, size: W.size };
+}
+
+/* ---------- placing ---------- */
+// one copy as plain meshes (bakes + culls with its group); s may be a number or [sx, sy, sz]
+function npPut(parent, src, x, y, z, ry = 0, s = 1, o = {}) {
+  const W = typeof src === 'string' ? npW(src) : src; if (!W) return null; const g = new THREE.Group();
+  for (const p of W.parts) { if (o.skip && o.skip(p)) continue; const m = new THREE.Mesh(p.geo, p.mat); m.castShadow = o.shadow ?? true; m.receiveShadow = true; g.add(m); }
+  g.position.set(x, y, z); g.rotation.set(o.rx || 0, ry, o.rz || 0); if (Array.isArray(s)) g.scale.set(...s); else g.scale.setScalar(s); parent.add(g); return g;
+}
+// many copies, instanced: list of [x, y, z, ry, s, rx, rz]
+function npInst(parent, src, list, shadow = true) {
+  const W = typeof src === 'string' ? npW(src) : src; if (!W || !list.length) return [];
+  return instParts(parent, W.parts, list.map(a => envM(a[0], a[1], a[2], a[3] || 0, a[4] ?? 1, a[5] || 0, a[6] || 0)), shadow);
+}
+const npPiece = (name, test, gap = .02, perMesh = true) => npSplit(name, gap, perMesh).filter(p => test(p.name));
+// a frame's local (x, z) to world, for collision
+const npL2W = (ox, oz, yaw, x, z) => [ox + x * Math.cos(yaw) + z * Math.sin(yaw), oz - x * Math.sin(yaw) + z * Math.cos(yaw)];
+// a cache whose box is swapped for a model (lockers, med cases)
+function npCache(parent, model, size, x, z, yaw, table, o) {
+  const C = cache(parent, x, z, yaw, 'none', table, o), W = npW(model); if (!W) return C;
+  C.g.children[0].visible = false; C.g.remove(C.g.children[0]);
+  const k = size / W.size.y; for (const p of W.parts) { const m = new THREE.Mesh(p.geo, p.mat); m.scale.setScalar(k); m.rotation.y = o.front ?? 0; m.castShadow = m.receiveShadow = true; C.g.add(m); }
+  return C;
+}
+
+/* ================= the Arc: infirmary, bunk room, radio room ================= */
+// the radio room is the far end of the east wing (the hull bends round to the south there): a point s metres along the wing's
+// centreline, o metres to its side, with the wing's direction there
+const wingAt = (s, o = 0) => { const p = WING.pts.reduce((b, q) => Math.abs(q.s - s) < Math.abs(b.s - s) ? q : b); return { x: p.x + p.nx * o, z: p.z + p.nz * o, tx: p.tx, tz: p.tz, nx: p.nx, nz: p.nz }; };
+const ARC_RADIO = wingAt(WING.len - 5.6), ARC_WALKIES = wingAt(WING.len - 9, -2.6);
+let arcInside = null; const ARC_LIGHTS = [];
+function dressArc() {
+  if (!npHas('bed')) return;
+  const C = ARC.C, F = -C + .14, X = ARC.x, Z = ARC.z;
+  // its own world group (so the bake merges inside it and it can be switched off when you can't see in); lit by the hull lamp
+  const g = new THREE.Group(); g.position.set(X, H0 + C, Z); world.add(g); arcInside = g;
+  const col = (x, z, r, h = 6) => addCol(X + x, Z + z, r, h), colL = (x0, z0, x1, z1, r) => addColLine(X + x0, Z + z0, X + x1, Z + z1, r);
+  const lite = !LOW;
+  // ceiling: strip lights down the roof, hung upside down (the light side of the model faces up)
+  { const L = []; for (let x = -ARC.LW + 6; x < ARC.LE - 3; x += lite ? 8 : 12) L.push([x, ARC.R + hullOff(x, 1, 0) - 1.15, 0, HPI, 2.2, Math.PI]); npInst(g, 'ceiling-light', L, false);
+    const W2 = []; for (let s = 5; s < WING.len - 3; s += 8) { const p = wingAt(s); W2.push([p.x - X, WING.C + WING.R + wingOff(s, HPI) - 1.15 - C, p.z - Z, Math.atan2(p.tx, p.tz), 1.8, Math.PI]); } npInst(g, 'ceiling-light', W2, false); }
+  // a white panelled partition closes off the infirmary (open to the south, where the catwalk runs and the hallway leads in)
+  const W2 = npW('wall-2');
+  npPut(g, W2, -22, F, -4.35, HPI, 1, { shadow: false }); colL(-22, -10, -22, 1.2, .6);
+
+  // ---- the infirmary (west end): a drop ceiling on pillars, four beds with blankets, lamps, carts, oxygen, medkits ----
+  { const bed = npPiece('medbay-pack', n => n.startsWith('Enf_Camilla')), man = npPiece('medbay-pack', n => n.startsWith('Enf_Manta')), lamp = npPiece('medbay-pack', n => n.startsWith('Enf_Lamparas')),
+      foco = npPiece('medbay-pack', n => n.startsWith('Enf_Foco')), pil = npPiece('medbay-pack', n => n.startsWith('Enf_Pilar')), cart = npPiece('medbay-pack', n => n.startsWith('Enf_Utensilios')),
+      oxy = npPiece('medbay-pack', n => n.startsWith('Enf_Bombona')), chair = npPiece('medbay-pack', n => n.startsWith('Enf_Silla')), pak = npPiece('medbay-pack', n => n.startsWith('Enf_Medpak')),
+      door = npPiece('medbay-pack', n => n.startsWith('Enf_Puerta'));
+    // the blue tiled floor
+    npPut(g, 'floor-tiles', -29, F + .012, -5, 0, [.9, 1, 1.3], { shadow: false });
+    // beds, heads to the north wall, each with the blanket where the pack had it
+    const BX = [-34, -31.3, -28.6, -25.9], bz = -9.2 + 1.21;
+    bed.forEach((B, i) => npInst(g, B, BX.filter((_, k) => k % bed.length === i).map(x => [x, F, bz])));
+    if (bed[0] && man.length) man.forEach((Mn, i) => { const B = bed[Math.min(i, bed.length - 1)], dx = Mn.ctr.x - B.ctr.x, dz = Mn.ctr.z - B.ctr.z, dy = Mn.base - B.base;
+      npInst(g, Mn, BX.filter((_, k) => k % man.length === i).map(x => [x + dx, F + dy, bz + dz])); });
+    for (const x of BX) colL(x, -9.3, x, -7.2, .6);
+    // carts between the beds, a chair, oxygen bottles in the corner
+    cart.forEach((P, i) => npInst(g, P, [[-32.65 + i * 5.4, F, -9.0, 0]]));
+    if (chair[0]) npInst(g, chair[0], [[-27.2, F, -5.6, Math.PI + .3]]);
+    oxy.forEach((P, i) => npInst(g, P, [[-35.1 + i * .5, F, -1.7 + (i % 2) * .4, nr(0, 6)]]));
+    // the drop ceiling: grated plates on the pack's pillars, lamps and light panels hung under it
+    const CY = 3.25;
+    for (const x of [-33.3, -29, -24.7]) npPut(g, 'roof-panel', x, F + CY, -6.2, 0, [.95, .6, .95], { shadow: false });
+    { const L = []; for (const x of [-35.4, -30.85, -26.95, -23.1]) for (const z of [-3.3]) L.push([x, F, z]); pil.forEach((P, i) => npInst(g, P, L.filter((_, k) => k % pil.length === i).map(a => [...a, 0, CY / P.size.y]))); for (const [x, , z] of L) col(x, z, .45); }
+    if (foco[0]) npInst(g, foco[0], BX.map(x => [x, F + CY - .12, bz + .2]), false);
+    lamp.forEach((P, i) => npInst(g, P, [[-32.65 + i * 5.4, F + CY - P.size.y, -7.4]], false));
+    npInst(g, 'ceiling-light', [-33.3, -29, -24.7].map(x => [x, F + CY - .02, -4.6, HPI, 1.4, Math.PI]), false);
+    // medkits: a wall pack on the north wall, red kits on the pillars, a case on each cart
+    if (pak[0]) npInst(g, pak[0], [[-22.75, F + 1.3, -2, -HPI]]);
+    npInst(g, 'medkit-small', [-35.4, -30.85, -26.95].map(x => [x + .45, F + 1.25, -3.3]));
+    npInst(g, 'medkit-case', [[-32.65, F + .86, -9.0, .3], [-27.25, F + .86, -9.0, -.2]]);
+    // the sealed hatch in the west bulkhead: the pack's door in its frame, a keypad beside it
+    door.forEach(P => npInst(g, P, [[-ARC.LW + .35 + (P.ctr.z - door[0].ctr.z), F + (P.base - door[0].base), -1.6, HPI]]));
+    npPut(g, 'keypad-panel', -ARC.LW + .2, F + 1.1, .3, HPI, .4, { shadow: false });
+  }
+
+  // ---- the bunk room: pods two high along the north wall, opening into the room ----
+  { const L = []; for (let x = -20.6; x < -5.5; x += 2.1) for (const y of [F, F + 1.2]) L.push([x, y, -9.5, -HPI]);
+    npInst(g, 'bed', lite ? L : L.filter((_, i) => i % 2 === 0), false); colL(-21.5, -9.4, -5.6, -9.4, .6);
+    // lockers by the door (three to a unit), doors facing the room
+    npInst(g, 'locker', [-2.66, -1.33, 0, 1.33, 2.66].map(x => [x, F, -9.55, -HPI]), false);
+  }
+  // ---- machinery round the core ----
+  npInst(g, 'wall-4', [11.85, 13.28, 14.71, 16.14].map(x => [x, F, -9.6, -HPI]), false); colL(11, -9.5, 17, -9.5, .5);
+  npInst(g, 'gas-bottle', [[17.6, F, -8.9], [17.7, F, -8.4, 1]], false);
+  npInst(g, 'fuel-cell', [[9.6, F, -8.8], [10.3, F, -9.2, .7], [9.9, F, -8.1, 2]], false);
+
+  // ---- the radio room: the far end of the east wing — screens on an end wall, the radio desk, racks down both sides ----
+  { const E = WING.len, at = (sv, o, y = F) => { const p = wingAt(sv, o); return [p.x - X, y, p.z - Z]; }, t = wingAt(E - 4), back = Math.atan2(-t.tx, -t.tz), fwd = Math.atan2(t.tx, t.tz), toN = Math.atan2(-t.nx, -t.nz), fromN = Math.atan2(t.nx, t.nz);
+    const cW = (s0, o0, s1, o1, r) => { const a = wingAt(s0, o0), b = wingAt(s1, o1); addColLine(a.x, a.z, b.x, b.z, r); };
+    npPut(g, W2, ...at(E - .9, 0), back, 1, { shadow: false }); cW(E - .9, -5.6, E - .9, 5.6, .6);
+    npInst(g, 'wall-screen', [-3.4, 0, 3.4].map(o => [...at(E - 1.5, o, F + 1.3), back]), false);
+    npInst(g, 'computer-console', [-2.2, 0, 2.2].map(o => [...at(E - 4.4, o), back]), false); for (const o of [-2.2, 0, 2.2]) { const p = wingAt(E - 4.4, o); addCol(p.x, p.z, .8); }
+    npInst(g, 'chairs-x4', [[...at(E - 8.2, 0), fwd]], false); cW(E - 8.2, -1.3, E - 8.2, 1.3, .4);
+    npInst(g, 'server-rack', [0, 1, 2, 3].slice(0, lite ? 4 : 2).map(k => [...at(E - 9.6 + k * 1.3, 4.6), toN]), false); cW(E - 10.3, 4.6, E - 4.7, 4.6, .6);
+    npInst(g, 'server-tower', [0, 1, 2, 3, 4, 5, 6, 7].map(k => [...at(E - 10.6 + k * .65, -4.6), fromN]), false); cW(E - 10.9, -4.6, E - 5.8, -4.6, .5);
+    // the floor under the desk: modular tiles from the pack
+    if (lite) { const T = npSplit('floor-modular', .05).filter(p => Math.abs(p.size.x - .8) < .05 && Math.abs(p.size.z - .8) < .05), by = T.map(() => []); let k = 0;
+      for (let sv = E - 6.4; sv < E - 2.2; sv += .8) for (let o = -2.8; o < 3; o += .8) by[k++ % T.length].push([...at(sv, o, F + .005), back + (k % 4) * HPI]);
+      T.forEach((P, i) => npInst(g, P, by[i], false)); }
+    // the walkie-talkie rack: a table of handsets on charge (take one: you'll hear the other settlements on it)
+    const wx = ARC_WALKIES.x - X, wz = ARC_WALKIES.z - Z, ty = shopKitTable(g, wx, F, wz, 1.6, .7);
+    npInst(g, 'walkie-talkie', [-.55, -.2, .15, .5].map((dx, i) => [wx + dx, ty, wz + (i % 2) * .08, nr(-.2, .2)]), false);
+    npInst(g, 'cinema-camera', [[wx + .5, ty, wz + .1, -.6, 1.6]], false); addCol(ARC_WALKIES.x, ARC_WALKIES.z, .8);
+  }
+  // the two passages (the station's own interior): the white hallway is the way into the infirmary, the dark corridor runs from
+  // the core into the east wing — both set across the open strip south of the partitions, so you walk through them
+  { const hy = H0 + .14;
+    // the hallway's closed end gets its door cut out; the corridor loses the doors at both ends
+    npPut(g, npOpened('hallway', null, new THREE.Box3(new THREE.Vector3(-.82, .26, -3.2), new THREE.Vector3(.82, 2.36, -2.5))), -22, F, 4.3, HPI, 1, { shadow: false }); colL(-24.9, 2.05, -19.1, 2.05, .25); colL(-24.9, 6.55, -19.1, 6.55, .25); addFloor(X - 22, Z + 4.3, 0, 2.9, 1.9, hy + .22);
+    npPut(g, npOpened('corridor', /Doorway_door/), 18.6, F, 4.3, HPI, 1.35, { shadow: false });
+    colL(13.2, 2.55, 24, 2.55, .3); colL(13.2, 6.05, 24, 6.05, .3); addFloor(X + 18.6, Z + 4.3, 0, 5.4, 1.4, hy + .42);
+    for (const ex of [13.1, 24.1]) for (const dz of [-1.25, 1.25]) col(ex, 4.3 + dz, .45, 3);   // the end frames either side of the opening
+    npInst(g, 'ceiling-light', [[16.2, F + 2.5, 4.3, HPI, 1, Math.PI], [21, F + 2.5, 4.3, HPI, 1, Math.PI]], false); }
+  // white trim panels along the south wall, either side of the blast door, and a keypad by the door outside
+  { const L = []; for (let x = -ARC.LW + 4; x < ARC.LE - 2; x += 2.6) if (Math.abs(x) > ARC.DOOR + 2) L.push([x, F, 9.55, Math.PI]); npInst(g, 'wall-c', L, false); }
+  npPut(g, 'keypad-panel', ARC.DOOR + 1.9, 1.6 - C, Math.sqrt(ARC.R ** 2 - (1.6 - C + .5) ** 2) + .25, -.12, .45, { shadow: false });
+  // room lights: cool over the radio desk, white in the infirmary, warm over the bunks (off whenever the interior isn't drawn,
+  // so they never take a slot in the light pool from the yard)
+  for (const [x, z, c, i] of [[ARC_RADIO.x - X, ARC_RADIO.z - Z, 0x9ad8ff, 2.2], [-29, -6, 0xf2f6ff, 2.4], [-13, -6, 0xffd8a8, 1.8]]) { const l = new THREE.PointLight(c, i, 22, 1.4); l.position.set(x, F + 3, z); l.userData.on = i; g.add(l); ARC_LIGHTS.push(l); }
+  g.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  DECOR_ANIM.push(updArcInterior);
+}
+// a plain metal table (drawn), returns its top height
+function shopKitTable(g, x, y, z, w, d) {
+  const m = S(0x5a5e60, { metalness: .5, roughness: .5 }); mesh(new THREE.BoxGeometry(w, .06, d), m, x, y + .82, z, g);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) mesh(new THREE.BoxGeometry(.05, .8, .05), M(0x3a3c3e), x + sx * (w / 2 - .06), y + .4, z + sz * (d / 2 - .06), g);
+  return y + .85;
+}
+// the interior only draws when the camera is inside the hull or looking in through the open blast door
+function updArcInterior() {
+  if (!arcInside) return; const cx = camera.position.x - ARC.x, cz = camera.position.z - ARC.z;
+  arcInside.visible = inHull(camera.position.x, camera.position.z) || (cz > ARC.W - 1 && cz < ARC.W + 70 && Math.abs(cx) < 12 + (cz - ARC.W) * 1.1 && hullDoor.t > .05);
+  for (const l of ARC_LIGHTS) l.intensity = arcInside.visible ? l.userData.on : 0;
+}
+
+/* ================= the dropsite: a broken-off station section in the dirt ================= */
+function dressDropsite(D, toCamp, inWreck) {
+  if (!npHas('hallway')) return;
+  const ax = Math.cos(toCamp), az = Math.sin(toCamp), yaw = -toCamp, W = (al, sd) => [D.x + ax * al - az * sd, D.z + az * al + ax * sd];
+  const root = farGroup(D.x, D.z, -150);                        // draws within ~330 m: the hull stays the landmark from Kestrel
+  // a chunk of the section: a group in the dropsite frame (x = along the furrow, z = across), on the ground at its centre
+  const chunk = (al, sd, rot = 0, floor = 0, tilt = 0) => { const [x, z] = W(al, sd), c = new THREE.Group(); c.position.set(x, heightAt(x, z) - floor + .03, z); c.rotation.set(0, yaw + rot, tilt); root.add(c); return { c, x, z, yaw: yaw + rot }; };
+  const wall = (K, x0, x1, z, r = .3) => { const [a, b] = npL2W(K.x, K.z, K.yaw, x0, z), [c, d] = npL2W(K.x, K.z, K.yaw, x1, z); addColLine(a, b, c, d, r); };
+  const SD = 18;                                                 // the section lies along the furrow, off the hull's south side
+
+  // the section: wall-b hull segments in mirrored pairs (windows both sides), broken into three pieces along the furrow
+  const WB = npW('wall-b');
+  const bay = (al, n, rot, tilt, sink = .2) => { const K = chunk(al, SD, rot, sink, tilt), h = n * 4.49 / 2;
+    for (let i = 0; i < n; i++) { const x = -h + 2.245 + i * 4.49; npPut(K.c, WB, x, 0, 1.2, 0); npPut(K.c, WB, x, 0, -1.2, Math.PI); }
+    wall(K, -h + .2, h - .2, 2.3); wall(K, -h + .2, h - .2, -2.3); return K; };
+  // the forward bay: the seats still bolted to the floor
+  { const K = bay(5.2, 3, .1, .02);
+    npInst(K.c, 'chairs-x4', [[-4.3, .2, 1.55, Math.PI], [-.6, .2, 1.55, Math.PI], ...(LOW ? [] : [[-2.2, .2, -1.55, 0]])]);
+    npInst(K.c, 'medkit-small', [[2.4, 1.2, 2.25, HPI + Math.PI]]);
+    npInst(K.c, 'bed', [[7.6, .05, .6, .2, 1, 0, -1.25]]); }                     // a bunk pod tipped out of the torn end
+  // the crew bay: bunks along both walls
+  const H = bay(-6.4, 2, -.08, -.03);
+  npInst(H.c, 'bed', [[-2.3, .2, 1.72, HPI], [-2.3, .2, -1.72, -HPI], [2.1, .2, 1.72, HPI]]);
+  // the last piece, sunk at one end where it ploughed in
+  const R = bay(-16.4, 2, .06, .05, .45);
+  npInst(R.c, 'ceiling-light', [[-2.2, 3.35, 0, HPI, 1, Math.PI], [2.2, 3.35, 0, HPI, 1, Math.PI]], false);
+  // lootable lockers: one in the crew bay, one in the sunk piece, and the section locker by the hull keeps its starter kit
+  { const p = npL2W(H.x, H.z, H.yaw, 2.1, -1.75); npCache(root, 'locker', 1.73, p[0], p[1], H.yaw - HPI, 'arc', { id: 'drop_locker2', name: 'Arc crew locker', rolls: 2, refill: 4, front: 0 }); }
+  { const p = npL2W(R.x, R.z, R.yaw, 1.2, 1.75); npCache(root, 'locker', 1.73, p[0], p[1], R.yaw + HPI, 'arc', { id: 'drop_locker3', name: 'Arc crew locker', rolls: 2, refill: 4, front: 0 }); }
+  // fuel cells and medkits spilled round it (two of the med cases still have something in them)
+  { const L = [], M2 = [], S2 = [];
+    for (let i = 0; i < 12; i++) { const al = nr(-26, 14), sd = SD + (nrnd() < .5 ? -1 : 1) * nr(3.4, 9); const [x, z] = W(al, sd); if (inWreck(x, z)) continue;
+      const tip = nrnd() < .5; (i % 3 === 0 ? M2 : i % 3 === 1 ? L : S2).push([x, heightAt(x, z) + (tip ? .3 : 0), z, nr(0, 6.3), 1, tip ? HPI : 0, 0]); }
+    npInst(root, 'fuel-cell', L); npInst(root, 'medkit-small', S2.map(a => [a[0], heightAt(a[0], a[2]) + .1, a[2], a[3], 1, 0, HPI]));
+    npInst(root, 'medkit-case', M2.slice(2));
+    M2.slice(0, 2).forEach((a, i) => npCache(root, 'medkit-case', .18, a[0], a[2], a[3], 'arc', { id: 'drop_med' + i, name: 'Arc med case', rolls: 1, keys: ['bandage'], refill: 5 })); }
+  // a triage spot: a stretcher from the medbay pack, oxygen, a cart, where someone patched people up after the landing
+  { const bed = npPiece('medbay-pack', n => n.startsWith('Enf_Camilla')), oxy = npPiece('medbay-pack', n => n.startsWith('Enf_Bombona')), cart = npPiece('medbay-pack', n => n.startsWith('Enf_Utensilios'));
+    const [x, z] = W(-3, SD + 6.5), y = heightAt(x, z);
+    if (bed[0]) npInst(root, bed[0], [[x, y, z, yaw + .4]]); if (oxy[0]) npInst(root, oxy[0], [[x + 1.4, y, z - .6, .5]]); if (cart[0]) npInst(root, cart[0], [[x - 1.2, y, z + .9, yaw - .3]]); addCol(x, z, 1.2, 1.2); }
+  // keypad beside the sealed airlock at the hull's far end
+  { const [x, z] = W(11.6, 2.8); npPut(root, 'keypad-panel', x, heightAt(x, z) + 1.2, z, yaw + HPI, .45, { shadow: false }); }
+  // thrown along the furrow: deck sections, grating, dark plates, a catwalk wrenched loose
+  { const FS = npSplit('floor-section', .05), FB = npSplit('floor-section-b', .05);
+    const deck = (P, al, sd, s, ry, rx, rz, sink) => { const [x, z] = W(al, sd); npInst(root, P, [[x, heightAt(x, z) - sink, z, yaw + ry, s, rx, rz]]); addCol(x, z, Math.min(P.size.x, P.size.z) * s * .35, 1.2); };
+    if (FS[0]) deck(FS[0], -36, -6, .45, .4, .12, -.1, .25);
+    if (FS[1]) deck(FS[1], -44, 7, .5, -.3, -.15, .2, .2);
+    if (FB[0]) deck(FB[0], -31, 11, .7, 1.2, .08, .35, .4);
+    if (FB[1]) deck(FB[1], -2, -6.9, .8, -.2, .9, 0, .2);
+    { const L = []; for (const [al, sd, r] of [[-22, -7, .5], [-40, -2, 2.1], [-12, 12.5, 1.1], [-48, 12, .3]]) { const [x, z] = W(al, sd); L.push([x, heightAt(x, z) + .1, z, yaw + r, .8, nr(-.3, .3), nr(-.2, .2)]); } npInst(root, 'wall-3', L); }
+    { const [x, z] = W(-1, SD - 5.6); npPut(root, 'catwalk-bridge', x, heightAt(x, z) + .5, z, yaw + .25, 1, { rz: .14, rx: -.08 }); addCol(x, z, 1.3, 1.2); } }
+  // the cargo-bay floor, ripped out whole and lying flat: level ground to build a camp on
+  { const [x, z] = W(10, -22); npPut(root, 'floor-panel', x, heightAt(x, z) + .02, z, yaw, 1, { shadow: false });
+    // the floor material's rusty plating, under the crew bay where it came to rest
+    const FM = npW('floor-material'); if (FM) { const p = FM.parts[0], mat = p.mat.clone(); if (mat.map) { mat.map = mat.map.clone(); mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping; mat.map.repeat.set(3, 2); mat.map.needsUpdate = true; }
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(12, 7), mat); pl.rotation.set(-HPI, 0, yaw); const [px, pz] = W(-6.4, SD + .6); pl.position.set(px, heightAt(px, pz) + .04, pz); pl.receiveShadow = true; root.add(pl); } }
+  // a roof plate propped on two poles over the fire ring: somewhere dry to start
+  { const [x, z] = W(-16, -9.6); npPut(root, 'roof-panel', x, heightAt(x, z) + 1.7, z, yaw + .3, [.8, 1, .55], { rx: .45 });
+    for (const s of [-1.5, 1.5]) { const [px, pz] = npL2W(x, z, yaw + .3, s, -1.1); mesh(new THREE.CylinderGeometry(.06, .07, 2.4, 6), M(0x5a4a3a), px, heightAt(px, pz) + 1.1, pz, root); } }
+}
+
+/* ================= Kestrel ================= */
+// a wood stove in every building, with its flue up through the roof
+const STOVE_AT = { craft: [4.75, -2.5], trade: [4.75, -2.6], med: [6.25, -2.7], wear: [4.75, -2.6], guns: [4.75, -2.5], cook: [4.75, -2.3], salvage: [4.75, -2.4], bunk: [3.6, 2, 0] };
+function dressShop(D, K, inner, Hs) {
+  const id = D.id, st = STOVE_AT[id];
+  if (st && npHas('wood-stove')) {
+    const ry = st[2] ?? -HPI, fx = st[0] + Math.sin(ry) * -.18, fz = st[1] + Math.cos(ry) * -.18;      // the flue sits 18 cm behind the firebox
+    npPut(inner, 'wood-stove', st[0], 0, st[1], ry); stovepipe(K, fx, 2.05, fz, Hs.HT - .35);
+    const w = shopL2W(D, st[0], st[1]); addCol(w.x, w.z, .5, 2);
+  }
+  const BW = D.bw, sx = -3.9, sz = 1.2;
+  if (id === 'craft') npInst(inner, 'gas-bottle', [[-BW / 2 + .5, 0, 3.3], [-BW / 2 + .85, 0, 3.6, 1], [-BW / 2 + .45, 0, 2.85, 2.2]]);
+  if (id === 'salvage') { npInst(inner, 'gas-bottle', [[-BW / 2 + .5, 0, 2.6], [-BW / 2 + .5, 0, 3.05, .8]]); npInst(inner, 'fuel-cell', [[2.2, 0, 3.1], [2.9, 0, 3.4, .9]]);
+    npPut(inner, 'cinema-camera', sx + .3, .99, sz + .2, .5, 1.5); npPut(inner, 'walkie-talkie', sx - .2, 1.02, sz + .3, 1.3, 1, { rx: -HPI }); }
+  if (id === 'guns') npPut(inner, 'walkie-talkie', sx + 6.3, 1.02, -1.4, .4, 1, { rx: -HPI });
+  if (id === 'med') { npInst(inner, 'medkit-small', [[-BW / 2 + .07, 1.35, .6], [-BW / 2 + .07, 1.35, -.2]]); npPut(inner, 'medkit-case', sx + .25, .98, sz - .05, .1); }
+}
+// the power yard: the fuel tank beside the genset, gas bottles by the fence
+function dressYard(g) {
+  if (!npHas('fuel-tank')) return;
+  npPut(g, 'fuel-tank', 20.6, 0, -11.9, HPI); addColLine(16.9, -11.9, 24.3, -11.9, 1.1);
+  npInst(g, 'gas-bottle', [[15.9, 0, -9.9], [16.35, 0, -9.65, 1.2], [16.15, 0, -10.35, 2.5]]); addCol(16.1, -10, .6, 2);
+}
+
+/* ================= Cinder City: the park and the ruins in the streets ================= */
+function dressCity(fSite, fW, fry) {
+  if (!npHas('park-arch')) return;
+  const P = envSite('park');
+  if (P) { const g = farGroup(P.x, P.z, 60), A = npW('park-arch'), s = 1.6, ry = .35;
+    // the arch (its flat base plane left out), standing on the lowest ground under it so it never floats
+    npPut(g, A, P.x, envFloor(P.x, P.z, A.size.x * s, 2.5 * s, ry) - .3, P.z, ry, s, { skip: p => { p.geo.computeBoundingBox(); return p.geo.boundingBox.max.y - p.geo.boundingBox.min.y < .05; } });
+    npStoneCols('park-arch', P.x, P.z, ry, s, 12);
+    // the statues facing it and a broken ring of pillars round the old lawn
+    const st = []; for (const sd of [-1, 1]) { const [x, z] = npL2W(P.x, P.z, ry, sd * 9, 14); st.push([x, heightAt(x, z) - .2, z, ry + Math.PI + sd * .3, 1]); addCol(x, z, 1.7, 9); } npInst(g, 'statue', st);
+    const pil = []; for (let i = 0; i < 18; i++) { const a = i / 18 * 6.283 + nr(-.08, .08), r = 22 + nr(-1, 1), x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r; if (nrnd() < .2) continue;
+      const fall = nrnd() < .25, y = heightAt(x, z); pil.push(fall ? [x, y + .55, z, nr(0, 6.3), 1, HPI, 0] : [x, y - .1, z, nr(0, 6.3), nr(.7, 1.15), nr(-.06, .06), nr(-.06, .06)]); if (!fall) addCol(x, z, .7, 5); }
+    npInst(g, 'stone-pillar', pil);
+    { const C = whole('e/conifer') ? 'e/conifer' : null; if (C) { const L = []; for (let i = 0; i < 9; i++) { const a = nr(0, 6.3), r = nr(26, 29), x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r; L.push(envM(x, heightAt(x, z) - .3, z, nr(0, 6), nr(.8, 1.2))); addCol(x, z, .4); } instParts(g, whole(C).parts, L); } }
+    cache(g, P.x + 4, P.z - 6, ry, 'pry', 'city', { id: 'c_park', name: 'Park keeper’s strongbox', rolls: 2, refill: 3 });
+  }
+  // ruins through the streets: statues on the crossroads, pillars along the kerbs (stood, leaning or fallen)
+  { const root = farGroup(CITY.x, CITY.z, CITY.R), st = [], pil = [], BLK = 44, N = Math.ceil(CITY.R / BLK);
+    const ok = (x, z, pad) => Math.hypot(x - CITY.x, z - CITY.z) < CITY.R - 40 && Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) > FOUNDRY.R + 15 && !envKeepClear(x, z, pad) && pathDist(x, z) > 7;
+    for (let gx = -N; gx < N; gx++) for (let gz = -N; gz < N; gz++) { const x = CITY.x + (gx + .5) * BLK, z = CITY.z + (gz + .5) * BLK;
+      if (!ok(x, z, 10)) continue; const r = nrnd();
+      if (r < .1) { st.push([x, heightAt(x, z) - .2, z, nr(0, 6.3), nr(.8, 1)]); addCol(x, z, 1.6, 8); }
+      else if (r < .45) for (let k = 0; k < 3; k++) { const px = x + nr(-6, 6), pz = z + nr(-6, 6), y = heightAt(px, pz), fall = nrnd() < .4;
+        pil.push(fall ? [px, y + .5, pz, nr(0, 6.3), nr(.8, 1), HPI, 0] : [px, y - .2, pz, nr(0, 6.3), nr(.5, 1.1), nr(-.12, .12), nr(-.12, .12)]); if (!fall) addCol(px, pz, .6, 4); } }
+    npInst(root, 'statue', st); npInst(root, 'stone-pillar', pil); }
+  // the old factory's fuel tanks
+  if (fSite && fW) { const g = farGroup(fSite.x, fSite.z, 40), L = [];
+    for (const [lx, lz] of [[fW.size.x / 2 + 4, -4], [fW.size.x / 2 + 4, 4]]) { const [x, z] = npL2W(fSite.x, fSite.z, fry, lx, lz); if (Math.hypot(x - fSite.x, z - fSite.z) < fSite.r + 14) { L.push([x, heightAt(x, z) - .1, z, fry]); addColLine(...npL2W(x, z, fry, 0, -3.7), ...npL2W(x, z, fry, 0, 3.7), 1.1); } }
+    npInst(g, 'fuel-tank', L); }
+}
+
+/* ================= the Old Arches: a ruin on the hill north of Kestrel ================= */
+function buildArches() {
+  const A = POI.arches, W = npW('stone-arch-ruins'); if (!W) return;
+  const g = farGroup(A.x, A.z, 900), s = 2.4, ry = .5;            // big enough to read from the yard; drawn out to ~1.4 km
+  npPut(g, W, A.x, envFloor(A.x, A.z, W.size.x * s, W.size.z * s * .5, ry) - .25, A.z, ry, s);
+  npStoneCols('stone-arch-ruins', A.x, A.z, ry, s, 10);
+  const pil = []; for (let i = 0; i < 10; i++) { const a = nr(0, 6.3), r = nr(23, 30), x = A.x + Math.cos(a) * r, z = A.z + Math.sin(a) * r, y = heightAt(x, z), fall = nrnd() < .4;
+    pil.push(fall ? [x, y + .5, z, nr(0, 6.3), 1, HPI, 0] : [x, y - .2, z, nr(0, 6.3), nr(.6, 1.2), nr(-.1, .1), nr(-.1, .1)]); if (!fall) addCol(x, z, .7, 5); }
+  npInst(g, 'stone-pillar', pil);
+  { const [x, z] = npL2W(A.x, A.z, ry, 2, 11); npInst(g, 'statue', [[x, heightAt(x, z) - .2, z, ry + Math.PI, .8]]); addCol(x, z, 1.4, 8); }
+  // what's under them: a sealed stone chest in the middle arch, a buried crate further back
+  { const [x, z] = npL2W(A.x, A.z, ry, -1.5, 2.2); cache(g, x, z, ry, 'pry', 'ruin', { id: 'arches_chest', name: 'Stone chest under the arches', big: 1, rolls: 3, refill: 5 }); }
+  { const [x, z] = npL2W(A.x, A.z, ry, 11, -7); cache(g, x, z, ry + 1, 'none', 'ruin', { id: 'arches_cache', name: 'Half-buried crate', rolls: 1, refill: 3 }); }
 }
 
 /* ================= people ================= */
@@ -5665,6 +6043,29 @@ function nextLine() {
   if (who === 'Radio' || who === 'Greyhold') sfx('radio');
   if (fn) fn();
 }
+/* (Nov 10) the warning before night 100 comes over the walkie-talkies: the other settlements call Kestrel as the clans gather.
+   Carry a radio (a walkie-talkie from the rack in the Arc's radio room, or one you find) and you hear each call at dawn;
+   without one the calls wait on the radio desk in the Arc. */
+const RADIO_CALLS = [
+  [70, 'Farlight', 'Kestrel, this is Farlight. The clans have stopped raiding each other. That never happens. They’re saving it for someone — and I think it’s you.'],
+  [85, 'Farlight', 'Kestrel, Farlight again. Ironjaw is buying up every round in the valley, and there are Greyhold trucks on the north road. Count the nights.'],
+  [92, 'Halvard', 'Anyone on this channel — it’s the scavvers at Halvard. War paint at Varnhold and Sunscar both. Eight nights, they’re saying. Eight.'],
+  [97, 'Farlight', 'Three nights, Kestrel. They’re camped along the rim. Bring everyone inside the wall and get the turrets fed.'],
+  [99, 'Farlight', 'Tomorrow night. Every clan, Ironjaw, Greyhold — all of them at once. Good luck, Kestrel. Farlight out.'],
+];
+const radioDue = () => { const h = G.flags.radio || {}; return RADIO_CALLS.filter(c => G.day >= c[0] && !h[c[0]]); };
+function radioPlay(due) { const h = G.flags.radio = G.flags.radio || {}; for (const c of due) h[c[0]] = 1; const c = due[due.length - 1]; G.flags.radioNag = 0; say([['Radio', `${c[1]}: ${c[2]}`]]); }
+function radioDay() {
+  if (G.flags.held100) return; const due = radioDue(); if (!due.length) return;
+  if (cnt('radio') > 0) { toast('Your walkie-talkie crackles', 2.4); radioPlay(due); }
+  else if (!G.flags.radioNag) { G.flags.radioNag = 1; toast('Someone is calling Kestrel — the radio desk in the Arc', 4); }
+}
+function radioListen() {
+  const due = radioDue(); if (due.length) { radioPlay(due); return; }
+  const last = [...RADIO_CALLS].reverse().find(c => G.day >= c[0]);
+  say([['Radio', last ? `${last[1]}, repeating: ${last[2]}` : pick(['Static. Under it, someone reading out numbers.', 'Farlight on the hour: prices for salt and rounds. Nothing for Kestrel.', 'Static, and a few bars of a song from somewhere far off.'])]]);
+}
+function takeWalkie() { G.flags.walkies = (G.flags.walkies || 0) + 1; newGear('radio', 1); sfx('pickup'); toast('Took a walkie-talkie · you’ll hear the other settlements on it', 3.2); setTimeout(radioDay, 1200); }
 function card(h, p, dur = 4) { $('cardh').textContent = h; $('cardp').textContent = p; $('card').classList.add('on'); setTimeout(() => $('card').classList.remove('on'), dur * 1000); }
 
 /* ================= cinematics ================= */
@@ -5742,6 +6143,8 @@ const INTERACT = [
   { id: 'smoke', at: () => SPOTS.smoke, r: 3.2, label: () => 'Drying rack · dry meat', act: () => openCraft('food') },
   { id: 'hulldoor', at: () => inHull(P.x, P.z) ? ARC_DOOR_IN : ARC_DOOR_OUT, r: 4.2, label: () => hullDoor.hp <= 0 ? (night.active ? 'The Arc’s doors are wrecked' : null) : hullDoor.open ? 'Seal the Arc’s blast doors' : 'Open the Arc’s blast doors', act: () => { if (hullDoor.hp <= 0) return; hullDoor.open = !hullDoor.open; sfx('gate'); toast(hullDoor.open ? 'Blast doors open' : `Blast doors sealed · ${Math.round(hullDoor.hp)} / ${hullDoor.max}`, 2); } },
   { id: 'fogheal', at: () => nearDowned(), r: 2.6, label: () => { const e = nearDowned(), id = FOG_MEDS.find(k => cnt(k) > 0); return `${e.shopName || 'Settler'} is down — ` + (id ? `treat them (${nameOf(id).toLowerCase()})` : 'you need a bandage or a medkit'); }, act: () => healDowned(nearDowned()) },
+  { id: 'radiodesk', at: () => arcInside ? ARC_RADIO : null, r: 2.7, label: () => radioDue().length ? 'Answer the radio · someone is calling Kestrel' : 'Listen to the radio', act: () => radioListen() },
+  { id: 'walkies', at: () => arcInside ? ARC_WALKIES : null, r: 2.3, label: () => cnt('radio') > 0 || (G.flags.walkies || 0) >= 4 ? null : 'Take a walkie-talkie', act: () => takeWalkie() },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
@@ -5857,7 +6260,7 @@ function dawnScene(won) {
   G.tod = .24; G.todTarget = null; G.day++;
   if (night.final && won) { G.flags.held100 = 1; card('THE HUNDREDTH NIGHT', 'Kestrel stands. The world is yours to take.', 6); }
   else toast(won ? `Day ${G.day}. Kestrel held.` : `Day ${G.day}. They got inside — we lost supplies.`, 4);
-  respawnBases(); save();
+  respawnBases(); save(); radioDay();
 }
 function respawnBases() {
   // a cleared base fills back up two days later
@@ -6366,7 +6769,7 @@ function updTime(dt) {
   else if (G.chapterDone && G.step >= 12 && !G.flags.reached) {
     // before you've reached Kestrel the raids aren't your fight: nights pass (a bit quicker) wherever you are
     G.tod += dt * (.56 / DAY_LEN) * (isNight() ? 2 : 1);
-    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); }
+    if (G.tod >= 1) { G.tod -= 1; G.day++; toast(`Day ${G.day}`, 2.4); save(); radioDay(); }
   }
   else if (G.chapterDone && G.step >= 12) {
     G.tod += dt * (.56 / DAY_LEN);
@@ -7045,7 +7448,7 @@ async function boot() {
   setLoad('READING THE RIVER'); await nextFrame();
   prepWater(); prepFlats();
   await buildHeightmap(); H0 = heightAt(0, 0);
-  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS]);
+  const mp = loadModels(['gun-night', 'gun-desert', 'sniper', 'fp-arms', 'civilian', 'michael', 'elias', 'dropship', 'cliff', 'ammo-crate', 'civilian-lo', 'michael-lo', 'elias-lo', 'keeper', 'keeper-lo', 'settler', 'settler-lo', 'gun-night-lo', 'gun-desert-lo', ...PROP_MODELS, ...FAUNA_MODELS, ...ENV_MODELS, ...NEW_PROPS]);
   await buildTerrain(); buildWater();
   setLoad('UNPACKING THE ARMORY'); await mp;
   setLoad('GROWING THE FOREST'); await nextFrame();
@@ -7053,7 +7456,7 @@ async function boot() {
   setLoad('RAISING KESTREL'); await nextFrame();
   buildArc(); buildWall(0); buildGate(); dressGate(0); buildTowers(); dressTowers(0, 0); buildCampProps(); dressSmokehouse(0); buildNearby();
   setLoad('WALKING THE VALLEY'); await nextFrame();
-  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay();
+  buildHalvard(); buildBurn(); buildDropsite(); buildAshmere(); buildLake(); buildLookout(); buildBridge(); buildScoutCamps(); buildRelay(); buildArches();
   setLoad('RAISING CINDER CITY'); await nextFrame(); buildBases(); buildSmoke();
   setLoad('WALKING THE OUTLANDS'); await nextFrame(); buildOutlands(); buildEnvSites();
   await buildFar();
@@ -7076,4 +7479,4 @@ async function boot() {
 boot();
 window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
-window.__E = { envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };
+window.__E = { ARC_RADIO, ARC_WALKIES, WING, envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };

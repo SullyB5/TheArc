@@ -217,16 +217,20 @@ function buildArc() {
     for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; const p = mesh(new THREE.CylinderGeometry(.15, .15, 6, 6), M(0x2a2a2a), Math.cos(a) * 2.2, 3, Math.sin(a) * 2.2, cg); p.rotation.set(Math.sin(a) * .3, 0, -Math.cos(a) * .3); }
     addCol(ARC_CORE.x, ARC_CORE.z, 2.4); }
   // bunks, lockers, crates — a place to hole up
-  for (let i = 0; i < 6; i++) { const x = -24 + i * 3.4, z = -ARC.W + 1.4; const b = new THREE.Group(); b.position.set(x, -C, z); b.rotation.y = arr(-.05, .05); g.add(b);
-    for (const y of [.5, 1.8]) { mesh(new THREE.BoxGeometry(2.2, .14, 1), M(0x5a5e60), 0, y, 0, b); mesh(new THREE.BoxGeometry(2, .16, .9), M(apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a])), 0, y + .14, 0, b); }
+  // (Nov 10) with Bryce's props loaded the bunks, lockers and strip lights are models (dressArc in 1h-props.js); the hull's own draws still run so nothing else moves
+  const propsIn = MODELS['props/bed'] != null;
+  for (let i = 0; i < 6; i++) { const x = -24 + i * 3.4, z = -ARC.W + 1.4, ry = arr(-.05, .05), cs = [apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a]), apick([0x6a7a5a, 0x8a8a80, 0x5a6a7a])]; if (propsIn) continue;
+    const b = new THREE.Group(); b.position.set(x, -C, z); b.rotation.y = ry; g.add(b);
+    [.5, 1.8].forEach((y, k) => { mesh(new THREE.BoxGeometry(2.2, .14, 1), M(0x5a5e60), 0, y, 0, b); mesh(new THREE.BoxGeometry(2, .16, .9), M(cs[k]), 0, y + .14, 0, b); });
     for (const sx of [-1.05, 1.05]) mesh(new THREE.BoxGeometry(.08, 2.4, .08), M(0x3a3a3a), sx, 1.2, .45, b);
     addCol(ARC.x + x, ARC.z + z, 1); }
-  for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7; mesh(new THREE.BoxGeometry(1, 2.2, .6), M(apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a])), x, 1.1 - C, z, g).rotation.y = arr(-.06, .06); }
+  for (let i = 0; i < 8; i++) { const x = -4 + i * 1.1, z = -ARC.W + .7, cl = apick([0x5a6a7a, 0x6a6e70, 0x4a5a6a]), ry = arr(-.06, .06); if (!propsIn) mesh(new THREE.BoxGeometry(1, 2.2, .6), M(cl), x, 1.1 - C, z, g).rotation.y = ry; }
   addColLine(ARC.x - 4, ARC.z - ARC.W + .7, ARC.x + 4, ARC.z - ARC.W + .7, .6);
-  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
+  for (const [x, z] of [[-14, 2], [-12, -2.5], [6, 3], [20, 4], [-22, 3]]) { if (propsIn && Math.abs(z - 4.3) < 2.5 && (Math.abs(x - 18.6) < 6 || Math.abs(x + 22) < 3.5)) { arr(-.3, .3); continue; }   // the passages stand there now
+    mesh(new THREE.BoxGeometry(1.4, 1.1, 1.1), M(0x4f5a3a), x, .55 - C, z, g).rotation.y = arr(-.3, .3); mesh(new THREE.BoxGeometry(1.1, .9, .9), M(0x5a4a36), x + .2, 1.55 - C, z, g).rotation.y = .4; addCol(ARC.x + x, ARC.z + z, .9); }
   // strip lights + one warm lamp so it isn't a cave
   const strip = new THREE.MeshBasicMaterial({ color: 0xffe2b0, toneMapped: false });
-  for (let x = -LW + 4; x < LE - 2; x += 8) { const l = mesh(new THREE.BoxGeometry(2.4, .1, .25), strip, x, R + hullOff(x, 1, 0) - 1.3, 0, g); l.castShadow = false; l.rotation.z = arr(-.04, .04); }
+  for (let x = -LW + 4; x < LE - 2; x += 8) { const rz = arr(-.04, .04); if (propsIn) continue; const l = mesh(new THREE.BoxGeometry(2.4, .1, .25), strip, x, R + hullOff(x, 1, 0) - 1.3, 0, g); l.castShadow = false; l.rotation.z = rz; }
   const hl = new THREE.PointLight(0xffd8a0, 2.4, 52, 1.2); hl.position.set(-4, R - 3, 0); g.add(hl);
   // collision: the shell (bullets pass over the south side above 8 m — that's the slit), the west end, the east end round
   // the opening into the wing, a gap for the door
@@ -278,6 +282,7 @@ function buildArc() {
   WING.pts.forEach((p, i) => { if (i % 2) return; for (const k of [-1, 1]) addCol(p.x + p.nx * k * (WING.W + .25), p.z + p.nz * k * (WING.W + .25), .6); });
   { const e = WING.end; addColLine(e.x - e.nx * WING.W, e.z - e.nz * WING.W, e.x + e.nx * WING.W, e.z + e.nz * WING.W, .6); }
   SHELTERS.push({ x: ARC.x, z: ARC.z, kind: 'arc', r: 0, hull: 1 });
+  dressArc();
   for (let i = 0; i < 74; i++) rnd();   // the hull used to draw from the world's stream: keep everything after it where it was
 
   // the side modules, broken off on the way down, now outside the wall

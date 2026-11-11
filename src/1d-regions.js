@@ -236,13 +236,14 @@ function buildDropsite() {
   { const [x, z] = W(-L / 2 + 2, 0); SMOKES.push({ x, z, y: y0 + 6, k: 0 }); }
   const bl = new THREE.PointLight(0xff8a3a, 2, 34, 0); { const [x, z] = W(-L / 2 - 2, 0); bl.position.set(x, y0 + 3, z); } world.add(bl);
   // salvage: a locker with a starter kit, a cargo net, Arc supply crates, scrap all round
-  { const [x, z] = W(-4, 8); cache(world, x, z, -toCamp, 'none', 'arc', { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }); }
+  { const [x, z] = W(-4, 8), o = { id: 'drop_locker', name: 'Arc section locker', rolls: 2, keys: ['bandage', 'rope', 'cloth'], refill: 0 }; if (MODELS['props/locker']) npCache(world, 'locker', 1.73, x, z, -toCamp, 'arc', o); else cache(world, x, z, -toCamp, 'none', 'arc', o); }
   { const [x, z] = W(3, -8.5); cache(world, x, z, -toCamp, 'none', 'wild', { id: 'drop_cargo', name: 'Cargo net', big: 1, rolls: 2, refill: 3 }); }
   for (const [al, sd, l] of [[-15, 4, 'mixed'], [-8, -9, 'ammo'], [8, 9, 'scrap'], [14, -5, 'mixed']]) { const [x, z] = W(al, sd); supplyCrate(x, z, l); CRATES[CRATES.length - 1].table = 'arc'; }
   for (let i = 0; i < 14; i++) { const a = rnd() * 6.28, r = rr(8, 40), x = D.x + Math.cos(a) * r, z = D.z + Math.sin(a) * r; if (inWreck(x, z)) { i--; continue; } spawnScrap(x, z, 'wild'); }
   // a fire ring someone started before they left for Kestrel — a place to start your own camp
   { const [fx, fz] = W(-16, -12), fy = heightAt(fx, fz);
     for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; mesh(new THREE.DodecahedronGeometry(.22, 0), M(0x6a6660), fx + Math.cos(a) * .7, fy + .1, fz + Math.sin(a) * .7, world); } }
+  dressDropsite(D, toCamp, inWreck);
 }
 
 function buildLookout() {
