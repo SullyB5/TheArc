@@ -46,12 +46,13 @@ function cache(parent, x, z, yaw, lock, table, o = {}) {
   const body = S(big ? 0x5a5e62 : lock === 'none' ? 0x6a5a3a : 0x4a5a4a, { metalness: .5, roughness: .5 });
   mesh(new THREE.BoxGeometry(big ? 2.6 : 1.5, big ? 1.6 : .9, big ? 1.4 : .8), body, 0, big ? .8 : .45, 0, g);
   if (lock !== 'none') { const lamp = new THREE.Mesh(new THREE.BoxGeometry(.18, .18, .05), new THREE.MeshBasicMaterial({ color: { pry: 0xffa040, cutter: 0xffd040, bypass: 0x40c0ff, card: 0xe8e8e8, chip: 0x60ffd0 }[lock], toneMapped: false })); lamp.position.set(0, big ? 1.2 : .65, big ? .72 : .42); g.add(lamp); }
-  g.position.set(x, heightAt(x, z), z); g.rotation.y = yaw; parent.add(g); addCol(x, z, big ? 1.3 : .8);
-  const C = { id: o.id || `c${CACHES.length}`, x, z, lock, table, rolls: o.rolls ?? 1, keys: o.keys || [], g, name: o.name, refill: o.refill ?? 3 };
+  const y = o.y ?? heightAt(x, z);   // (Nov 11) caches inside the city's buildings sit on their floor and bring their own walls
+  g.position.set(x, y, z); g.rotation.y = yaw; parent.add(g); if (!o.noCol) addCol(x, z, big ? 1.3 : .8);
+  const C = { id: o.id || `c${CACHES.length}`, x, z, y, lock, table, rolls: o.rolls ?? 1, keys: o.keys || [], g, name: o.name, refill: o.refill ?? 3 };
   CACHES.push(C); return C;
 }
 const cacheOpen = C => { const o = (G.flags.caches || {})[C.id]; return o != null && (C.refill <= 0 || G.day - o < C.refill); };
-function nearCache() { let b = null, bd = 2.8; for (const C of CACHES) { const d = Math.hypot(C.x - P.x, C.z - P.z); if (d < bd) { bd = d; b = C; } } return b; }
+function nearCache() { let b = null, bd = 2.8; for (const C of CACHES) { const d = Math.hypot(C.x - P.x, C.z - P.z); if (d < bd && Math.abs(C.y - P.y) < 2.6) { bd = d; b = C; } } return b; }   // not the floor above or below
 function cacheAction(C) {
   if (cacheOpen(C)) return { l: `${C.name || 'Stash'} · empty (refills in ${Math.max(1, C.refill - (G.day - G.flags.caches[C.id]))} days)`, act: () => {} };
   const [need, label] = LOCKS[C.lock], ok = !need || (GEAR_DEFS[need] ? has(GEAR_DEFS[need].kind) : cnt(need) > 0);
@@ -60,14 +61,15 @@ function cacheAction(C) {
     if (need && GEAR_DEFS[need]) wearTool(bestTool(GEAR_DEFS[need].kind), C.lock === 'bypass' ? 1 : 3);
     (G.flags.caches ||= {})[C.id] = G.day;
     const got = []; for (const k of C.keys) if (!cnt(k) || !ITEMS[k] || ITEMS[k].c !== 'story') { give(k, 1); got.push(nameOf(k)); }
-    got.push(...rollLoot(C.table, C.rolls)); sfx('buy'); puff(C.x, heightAt(C.x, C.z) + 1, C.z, 0xd8c890, 8, 2, .1, .5);
+    got.push(...rollLoot(C.table, C.rolls)); sfx('buy'); puff(C.x, C.y + 1, C.z, 0xd8c890, 8, 2, .1, .5);
     toast(got.slice(0, 7).join(' · ') || 'Nothing left', 4); save();
   } }) };
 }
 
 /* ---------- Cinder City ---------- */
 function buildCity() {
-  const root = farGroup(CITY.x, CITY.z, CITY.R), B = [], tops = [], rub = [], cars = [], awn = [], bush = [];
+  const root = farGroup(CITY.x, CITY.z, CITY.R), B0 = [], tops0 = [], rub0 = [], cars = [], awn0 = [], bush0 = [];
+  const addRes0 = addRes, addCol0 = addCol, SHELTERS0 = SHELTERS, supplyCityCrate0 = supplyCityCrate;
   const tint = () => pick([0xd8d2c6, 0xc8c0b2, 0xb8b2a8, 0xa8a49c, 0xc8b8a4, 0x9a968e]);
   const BLK = 44, N = Math.ceil(CITY.R / BLK);
   for (let gx = -N; gx <= N; gx++) for (let gz = -N; gz <= N; gz++) {
@@ -76,6 +78,9 @@ function buildCity() {
     if (Math.hypot(cx - FOUNDRY.x, cz - FOUNDRY.z) < FOUNDRY.R + 20) continue;
     if (envSites().some(s => s.city && Math.hypot(cx - s.x, cz - s.z) < s.r + 18)) continue;   // the factory + street blocks
     if (pathDist(cx, cz) < 12) continue;
+    // (Nov 11) blocks citySites() took (1j-city-interiors.js): roll everything as before so the rest of the world doesn't move, place nothing
+    const mine = citySiteAt(cx, cz), B = mine ? [] : B0, tops = mine ? [] : tops0, rub = mine ? [] : rub0, bush = mine ? [] : bush0, awn = mine ? [] : awn0;
+    const addRes = mine ? () => {} : addRes0, addCol = mine ? () => {} : addCol0, SHELTERS = mine ? [] : SHELTERS0, supplyCityCrate = mine ? () => rnd() : supplyCityCrate0;
     const k = dc / CITY.R, roll = rnd();
     if (roll < .1) { for (let i = 0; i < 6; i++) bush.push([cx + rr(-14, 14), heightAt(cx, cz), cz + rr(-14, 14), rr(1, 2.4), rr(1, 2.4), rr(1, 2.4), 0, rnd() * 6, 0, 0x3a5a2a]); continue; }   // overgrown lot
     const n = k < .35 ? 1 + (rnd() < .4) : k < .7 ? 2 + (rnd() < .5) : 3 + (rnd() < .4);
@@ -98,14 +103,15 @@ function buildCity() {
       if (rnd() < .3) { const s = supplyCityCrate(x + rr(-w / 2, w / 2), z + (rnd() < .5 ? -1 : 1) * (d / 2 + 2)); }
     }
     // streets: wrecks
-    for (let i = 0; i < 2; i++) if (rnd() < .55) { const along = rnd() < .5, sx = cx + (along ? rr(-18, 18) : 22 + rr(-2, 2)), sz = cz + (along ? 22 + rr(-2, 2) : rr(-18, 18)); cars.push([sx, heightAt(sx, sz) + .1, sz, 1, 1, 1, rr(-.06, .06), (along ? Math.PI / 2 : 0) + rr(-.4, .4), rr(-.06, .06), pick([0x8a5a3a, 0x6a6e6a, 0x7a4a2e, 0x4a5a6a, 0x9a8a5a])]); addCol(sx, sz, 1.5); }
+    for (let i = 0; i < 2; i++) if (rnd() < .55) { const along = rnd() < .5, sx = cx + (along ? rr(-18, 18) : 22 + rr(-2, 2)), sz = cz + (along ? 22 + rr(-2, 2) : rr(-18, 18)); cars.push([sx, heightAt(sx, sz) + .1, sz, 1, 1, 1, rr(-.06, .06), (along ? Math.PI / 2 : 0) + rr(-.4, .4), rr(-.06, .06), pick([0x8a5a3a, 0x6a6e6a, 0x7a4a2e, 0x4a5a6a, 0x9a8a5a])]); addCol0(sx, sz, 1.5); }
   }
   const carGeo = merge([{ geo: new THREE.BoxGeometry(1.9, .7, 4.4), m: tm(0, .65, 0), color: 0xffffff }, { geo: new THREE.BoxGeometry(1.7, .6, 2.2), m: tm(0, 1.3, -.2), color: 0xdddddd }, { geo: new THREE.BoxGeometry(1.75, .45, 1.9), m: tm(0, 1.32, -.2), color: 0x223038 }]);
   const fm = facadeMat();
-  for (const im of [instanced(boxGeo, fm, B), instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), tops), instanced(new THREE.DodecahedronGeometry(.6, 0), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), rub),
-    buildEnvCity(cars) ? null : instanced(carGeo, new THREE.MeshLambertMaterial({ map: texCorr, vertexColors: true }), cars), instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texConcrete }), awn), instanced(new THREE.DodecahedronGeometry(.6, 0), M(0x3a5a2a), bush, false)]) if (im) root.add(im);
+  for (const im of [instanced(boxGeo, fm, B0), instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), tops0), instanced(new THREE.DodecahedronGeometry(.6, 0), new THREE.MeshLambertMaterial({ map: texConcrete, flatShading: true }), rub0),
+    buildEnvCity(cars) ? null : instanced(carGeo, new THREE.MeshLambertMaterial({ map: texCorr, vertexColors: true }), cars), instanced(boxGeo, new THREE.MeshLambertMaterial({ map: texConcrete }), awn0), instanced(new THREE.DodecahedronGeometry(.6, 0), M(0x3a5a2a), bush0, false)]) if (im) root.add(im);
   buildFoundry(root);
-  for (let i = 0; i < 26; i++) { const a = rnd() * 6.28, r = rr(60, CITY.R - 30), x = CITY.x + Math.cos(a) * r, z = CITY.z + Math.sin(a) * r; if (Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) < FOUNDRY.R + 10) continue; cache(root, x, z, rnd() * 6, pick(['pry', 'pry', 'cutter', 'none']), pick(['city', 'city', 'mil']), { refill: 4 }); }
+  for (let i = 0; i < 26; i++) { const a = rnd() * 6.28, r = rr(60, CITY.R - 30); let x = CITY.x + Math.cos(a) * r, z = CITY.z + Math.sin(a) * r; if (Math.hypot(x - FOUNDRY.x, z - FOUNDRY.z) < FOUNDRY.R + 10) continue; [x, z] = cityShove(x, z); cache(root, x, z, rnd() * 6, pick(['pry', 'pry', 'cutter', 'none']), pick(['city', 'city', 'mil']), { refill: 4 }); }
+  buildCityInside(root);   // (Nov 11) the buildings you can go into, the line under the city, the hot zone, the Glasshouse
 }
 function supplyCityCrate(x, z) { supplyCrate(x, z, 'mixed'); const c = CRATES[CRATES.length - 1]; c.table = 'city'; return c; }
 
@@ -228,7 +234,7 @@ function buildBases() { buildCity(); for (const B of BASES) (B.fac === 'arc' ? b
 function baseGuards() {
   const F = FOUNDRY;
   for (let i = 0; i < 16; i++) { const a = rnd() * 6.28, r = rr(10, F.R - 8); spawnClan(i % 5 === 4 ? 'brute' : 'gunner', F.x + Math.cos(a) * r, F.z + Math.sin(a) * r, 'guard', 'iron'); }
-  for (let i = 0; i < 22; i++) { const a = rnd() * 6.28, r = rr(F.R + 30, CITY.R - 20); spawnClan(pick(['gunner', 'gunner', 'warrior']), CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r, 'guard', 'iron'); }
+  for (let i = 0; i < 22; i++) { const a = rnd() * 6.28, r = rr(F.R + 30, CITY.R - 20), [x, z] = cityShove(CITY.x + Math.cos(a) * r, CITY.z + Math.sin(a) * r); spawnClan(pick(['gunner', 'gunner', 'warrior']), x, z, 'guard', 'iron'); }   // (Nov 11) not inside the buildings or the quiet places
   for (const B of BASES) {
     if (B.fac === 'arc') { for (let i = 0; i < 6; i++) spawnNPC('extra', B.x + rr(-20, 20), B.z + rr(-20, 20), { wander: true }); const t = spawnNPC('trader', TRADER.x, TRADER.z, { model: 'civilian', tint: 0x6a8aa0, h: 1.72 }); t.trader = 1; t.shop = 'mara'; t.shopName = 'Mara'; named.trader = t; continue; }
     const n = B.fac === 'grey' ? 11 : 8;

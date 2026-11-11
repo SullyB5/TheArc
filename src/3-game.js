@@ -135,6 +135,7 @@ const INTERACT = [
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
   ...XINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
 const nearFStation = () => { for (const S of FACTION_ST) if (Math.hypot(S.x - P.x, S.z - P.z) < 3) return S; return null; };
@@ -691,7 +692,7 @@ function updPlayer(dt) {
     if (dl > 1e-4) { const st = Math.min(dl, acc * dt); P.vx += dvx / dl * st; P.vz += dvz / dl * st; }
     const ox = P.x, oz = P.z;
     P.x += P.vx * dt; P.z += P.vz * dt;
-    if (UG.at) pocketCollide(P, .42, ox, oz); else collide(P, .42, true);
+    if (UG.at) pocketCollide(P, .42, ox, oz); else { collide(P, .42, true); cityCollide(P, .42); }
     // what actually happened after bumping trees and walls becomes the new velocity, so you slide along things instead of sticking
     if (dt > 0) { const ax = (P.x - ox) / dt, az = (P.z - oz) / dt; if (Math.hypot(ax, az) < Math.hypot(P.vx, P.vz) + 2) { P.vx = ax; P.vz = az; } }
     hs = Math.hypot(P.vx, P.vz);
@@ -701,6 +702,7 @@ function updPlayer(dt) {
     if (P.winded) { P.breathT = (P.breathT || 0) - dt; if (P.breathT <= 0) { P.breathT = .75; noiseBurst(.32, 750, .8, .035, 'bandpass'); } }
     let gy = UG.at ? -1e9 : heightAt(P.x, P.z);
     const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
+    gy = cityGround(P.x, P.z, P.y, gy);   // basements and the line under the city
     if (P.swim) gy = Math.max(gy, wl - 1.3);
     // jump: pressing a beat early still counts, and so does a beat after you've stepped off an edge
     if (input.jump) P.jumpBuf = .15; input.jump = false; P.jumpBuf -= dt;
@@ -1234,9 +1236,9 @@ function frame(now) {
       if (e.type === 'clan' && d > 300 && e.mode !== 'raid' && e.state === 'idle') continue;
       if (e.type === 'clan') updClan(e, dt); else if (e.type === 'npc') updNPC(e, dt); else updAnimal(e, dt);
     }
-    updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
+    updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); updXplore(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
