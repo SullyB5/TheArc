@@ -163,7 +163,7 @@ function spawnGuards(p, refill) {
 }
 function updGuard(e, dt) {
   e.fireT -= dt; if (e.fireT > 0) return false;
-  let best = null, bd = 42; for (const t of ents) if (t.type === 'clan' && !t.dead) { const d = Math.hypot(t.x - e.x, t.z - e.z); if (d < bd) { bd = d; best = t; } }
+  let best = null, bd = 42; for (const t of ents) if (isFoe(t)) { const d = Math.hypot(t.x - e.x, t.z - e.z); if (d < bd) { bd = d; best = t; } }
   if (!best) { e.fireT = .5; return false; }
   e.fireT = rr(.6, 1.1); e.yaw = Math.atan2(best.x - e.x, best.z - e.z);
   const from = new THREE.Vector3(e.x, e.y + 1.4, e.z), to = new THREE.Vector3(best.x + rr(-.3, .3), best.y + 1.2, best.z + rr(-.3, .3));
@@ -186,7 +186,7 @@ function updPlaced(dt) {
     if (B.spikes) for (const e of ents) if (e.type === 'clan' && !e.dead && Math.hypot(e.x - p.x, e.z - p.z) < 2) { e.hp -= 35 * dt; e.slow = .5; if (e.hp <= 0) damage(e, 1, false, new THREE.Vector3(e.x, e.y + 1, e.z)); }
     if (B.turret && (slow ? (p.pw = pw) : p.pw)) {
       p.cool = (p.cool || 0) - dt;
-      if (p.cool <= 0) { let best = null, bd = 46; for (const e of ents) if (e.type === 'clan' && !e.dead) { const dd = Math.hypot(e.x - p.x, e.z - p.z); if (dd < bd) { bd = dd; best = e; } }
+      if (p.cool <= 0) { let best = null, bd = 46; for (const e of ents) if (isFoe(e)) { const dd = Math.hypot(e.x - p.x, e.z - p.z); if (dd < bd) { bd = dd; best = e; } }
         p.cool = best ? .4 : .5;
         if (best) { const h = p.g.userData.head; h.rotation.y = Math.atan2(best.x - p.x, best.z - p.z) - p.yaw + Math.PI; const from = new THREE.Vector3(p.x, heightAt(p.x, p.z) + 1.3, p.z), to = new THREE.Vector3(best.x, best.y + 1.2, best.z); tracer(from, to, 0xff8080); sfx('turret', Math.max(.15, 1 - d / 90)); if (rnd() < .75) damage(best, 26, false, to); } }
     }

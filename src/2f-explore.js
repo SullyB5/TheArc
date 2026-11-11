@@ -190,6 +190,7 @@ const XUSE = [];     // generic things to use: { x, y, z, r, pocket, label(), ac
 const XMARKS = {};   // map marks a log can reveal: id → { x, z, n }
 const XANIM = [];    // per-frame animations (doors, the collapsing floor, lamps)
 const XRAD = [];     // surface radiation: { x, z, r, k }
+const XRESTORE = []; // put doors, power, shelves and floors back the way the save has them (run when a game starts)
 
 /* ================= helpers ================= */
 const XMAT = {};
@@ -364,7 +365,7 @@ function xDoor(pk, id, lx, lz, axis, width, o = {}) {
   for (const s of [-1, 1]) { const ux = x + (axis === 'x' ? 0 : s * 1.1), uz = z + (axis === 'x' ? s * 1.1 : 0);
     xUse({ x: ux, y, z: uz, r: 1.8, pocket: pk, label: () => D.open ? null : canOpen() ? `Open ${D.label}` : `${D.label[0].toUpperCase() + D.label.slice(1)} · ${why()}`,
       act: () => { if (D.open) return; if (!canOpen()) { sfx('no'); toast(D.need === 'power' ? 'Dead. Nothing has power down here.' : `Locked — ${why()}`, 2.6); return; } setOpen(true); toast(`${D.label[0].toUpperCase() + D.label.slice(1)} grinds open`, 2.2); if (o.onOpen) o.onOpen(); } }); }
-  if ((G.flags.xd || {})[id]) { setOpen(true, true); D.t = 1; }
+  XRESTORE.push(() => { const o = !!(G.flags.xd || {})[id]; setOpen(o, true); D.t = o ? 1 : 0; });
   return D;
 }
 // the generator: put a fuse in and the pocket has power
@@ -376,10 +377,11 @@ function xGenerator(pk, lx, lz, yaw = 0) {
   xSolid(pk, lx - 1.3, lz - .8, lx + 1.3, lz + .8);
   const on = quiet => { pk.powered = true; lamp.material.color.set(0x5aff7a); for (const l of pk.plamps) { l.intensity = l.userData.I; if (l.userData.fx) l.userData.fx.material.color.setHex(l.userData.C); } if (!quiet) { (G.flags.xp ||= {})[pk.id] = 1; save(); } };
   pk.powerOn = on;
+  const off = () => { pk.powered = false; lamp.material.color.set(0xff3a2a); for (const l of pk.plamps) { l.intensity = 0; if (l.userData.fx) l.userData.fx.material.color.setHex(0x2a2a2a); } };
   xUse({ x, y, z, r: 2.4, pocket: pk, label: () => pk.powered ? 'Generator · running' : cnt('fuse') || cnt('fuse_box') ? 'Fit a fuse and start the generator' : 'Generator · dead (needs a fuse)',
     act: () => { if (pk.powered) return; const f = cnt('fuse_box') ? 'fuse_box' : cnt('fuse') ? 'fuse' : null; if (!f) { sfx('no'); toast('The fuse slot is empty. Fuses turn up in ruins and the city — or a stash.', 3); return; }
       startChan({ l: 'Fitting the fuse', t: 1.6, fn: () => { take(f, 1); on(); sfx('reload'); noiseBurst(1.4, 90, 1, .25); toast('The generator coughs and catches · power is back', 3); } }); } });
-  if ((G.flags.xp || {})[pk.id]) on(true);
+  XRESTORE.push(() => (G.flags.xp || {})[pk.id] ? on(true) : off());
 }
 // a lamp that only lights when the pocket has power (or always, if it has its own)
 function xPLamp(pk, lx, y, lz, color = 0xe8f0ff, I = 1.6, dist = 14) {
@@ -442,7 +444,7 @@ function xWeak(pk, lx0, lz0, lx1, lz1, id, fl) {
   W.cracks = []; for (let i = 0; i < 6; i++) { const c = mesh(new THREE.BoxGeometry(xr(.6, 1.6), .02, .05), xm('dark'), cx + xr(-w / 3, w / 3), pk.y + .01, cz + xr(-d / 3, d / 3), pk.g); c.rotation.y = xr(0, 3); W.cracks.push(c); pk.dyn.add(c); }
   FLOORS.push(W.floor = { cx, cz, c: 1, s: 0, hw: w / 2, hd: d / 2, y: pk.y });
   pk.weak.push(W);
-  if ((G.flags.xc || {})[id]) xCollapse(W, true);
+  XRESTORE.push(() => { if ((G.flags.xc || {})[id] && !W.gone) xCollapse(W, true); });
   return W;
 }
 function xCollapse(W, quiet) {
@@ -466,7 +468,7 @@ function buildExplore() {
   // the lamp you carry under the ground: a flashlight if you've got one, otherwise a lighter
   UG.lamp = new THREE.PointLight(0xffe0b0, 0, 10, 0); camera.add(UG.lamp); UG.lamp.position.set(.25, -.1, -.3);
   buildXHud();
-  window.__X = { sim: (n, dt = 1 / 30, pre) => { for (let i = 0; i < n; i++) { if (pre) pre(); G.t += dt; updPlayer(dt); updXplore(dt); if (typeof updChan === "function") updChan(dt); } }, xGoNow, XSITES, XCROSS, XCAMPS, XSTASH, POCKETS, UG, LOGS, XNOTES, XUSE, xGo, openLog, closeLog, pkValid };
+  window.__X = { sim: (n, dt = 1 / 30, pre) => { for (let i = 0; i < n; i++) { if (pre) pre(); G.t += dt; updPlayer(dt); updXplore(dt); if (typeof updChan === "function") updChan(dt); if (window.__simEnts) for (const e of [...ents]) if (e.type === "clan" && Math.hypot(e.x - P.x, e.z - P.z) < 300) updClan(e, dt); } }, xGoNow, XSITES, XCROSS, XCAMPS, XSTASH, POCKETS, UG, LOGS, XNOTES, XUSE, xGo, openLog, closeLog, pkValid };
   seed = s0;
 }
 function bakeExplore() {
@@ -535,7 +537,7 @@ function buildCellar(pk) {
   const moved = () => { SB.on = false; shelf.position.z = oz + 11.3; shelf.rotation.y = .25; };
   xUse({ x: ox - 2, y, z: oz + 9, r: 1.6, pocket: pk, label: () => SB.on ? ((G.flags.logs || {}).mb_rourke2 ? 'Shift the shelf · he said he moved things behind it' : 'The shelf rocks when you lean on it · shift it') : null,
     act: () => startChan({ l: 'Shifting the shelf', t: 1.4, fn: () => { moved(); (G.flags.xd ||= {}).cellar_shelf = 1; sfx('thud'); toast('There’s a gap in the wall behind it', 2.4); save(); } }) });
-  if ((G.flags.xd || {}).cellar_shelf) moved();
+  XRESTORE.push(() => { if ((G.flags.xd || {}).cellar_shelf) moved(); else { SB.on = true; shelf.position.z = oz + 9; shelf.rotation.y = 0; } });
   xSkeleton(g, ox - 8, y, oz + 9, XHPI, 1); xbox(g, .5, .45, .5, 'woodD', ox - 8, y + .22, oz + 9.1);
   xNote(g, 'mb_rourke3', ox - 7.2, y + .02, oz + 8.4, 0, pk);
   xPCache(pk, -8.5, 6.9, 0, 'none', 'ruin', { id: 'x_cellar_hidden', name: 'Rourke’s strongbox', rolls: 2, keys: ['revolver', 'ammo_9', 'fuse_box'], refill: 0 });
@@ -1063,5 +1065,6 @@ function xAfterLight() {
   scene.fog.color.setHex(0x050607); scene.fog.far = pk.fog; scene.fog.near = packFogNear(1);
   stars.material.opacity = 0;
 }
+function xRestore() { if (UG.at) { UG.at.g.visible = false; UG.at = null; } UG.tagEl.style.display = 'none'; const mm = $('minic'); if (mm) mm.style.visibility = ''; P.rad = 0; for (const f of XRESTORE) f(); }
 // Juno patching you up (or Rust medicine) clears radiation too
 { const ci = clearInjuries; clearInjuries = function () { ci(); P.rad = 0; }; }

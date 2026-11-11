@@ -127,14 +127,14 @@ const INTERACT = [
   // (Nov 10, Bryce) the settlement gate opens and shuts by hand, from either side
   { id: 'gate', at: () => GATE_SPOT, r: 6.5, label: () => gate.hp <= 0 ? null : gate.open ? 'Close the gate' : 'Open the gate', act: () => { if (gate.hp <= 0) return; gate.open = !gate.open; sfx('gate'); toast(gate.open ? 'Gate open' : 'Gate shut', 1.8); } },
   { id: 'fogheal', at: () => nearDowned(), r: 2.6, label: () => { const e = nearDowned(), id = FOG_MEDS.find(k => cnt(k) > 0); return `${e.shopName || 'Settler'} is down — ` + (id ? `treat them (${nameOf(id).toLowerCase()})` : 'you need a bandage or a medkit'); }, act: () => healDowned(nearDowned()) },
-  { id: 'radiodesk', at: () => arcInside ? ARC_RADIO : null, r: 2.7, label: () => radioDue().length ? 'Answer the radio · someone is calling Kestrel' : 'Listen to the radio', act: () => radioListen() },
+  { id: 'radiodesk', at: () => arcInside ? ARC_RADIO : null, r: 2.7, label: () => (radioDue().length ? 'Answer the radio · someone is calling Kestrel' : 'Listen to the radio') + `  ·  ${isTouch ? 'hold' : 'Q'}: talk to the factions`, act: () => radioListen(), next: () => facRadio() },
   { id: 'walkies', at: () => arcInside ? ARC_WALKIES : null, r: 2.3, label: () => cnt('radio') > 0 || (G.flags.walkies || 0) >= 4 ? null : 'Take a walkie-talkie', act: () => takeWalkie() },
   { id: 'crate', at: () => nearCrate(), r: 2.6, label: () => 'Search the crate', act: () => openCrate(nearCrate()) },
   { id: 'cache', at: () => nearCache(), r: 2.8, label: () => cacheAction(nearCache()).l, act: () => cacheAction(nearCache()).act() },
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
-  ...XINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  ...XINTERACT, ...FINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
@@ -271,14 +271,16 @@ function startNight() {
   if (night.final) { card('NIGHT 100', 'Everyone is coming', 5); say([['Kade', 'This is it. Every clan, Ironjaw, Greyhold — all of them. Hold the wall!']]); }
   else say([['Kade', G.day < 3 ? 'Horns in the trees. Everyone to the wall!' : pick(['Here they come again. To the wall!', 'Raiders! Close it up!', 'Lights out there — get inside!'])]]);
   if (Math.hypot(P.x, P.z) > CAMP_R) toast('Get inside the wall!', 4); else toast('If the wall goes, fall back into the Arc and seal the doors', 4);
+  facNight();
   nextWave();
 }
 function nextWave() {
-  night.wave++; night.left = Math.min(40, 4 + night.wave * 2 + Math.floor(G.day * (night.final ? 2.2 : .8))); night.spawnT = 1;
+  night.wave++; night.left = Math.min(40, Math.round((4 + night.wave * 2 + Math.floor(G.day * (night.final ? 2.2 : .8))) * facRaidScale())); night.spawnT = 1;
   if (night.wave > 1) { toast(`Wave ${night.wave}`); horn(82, 1.8, .2, 3); }
 }
 // who raids: the clans from the start, Ironjaw gunners from night 6, Greyhold soldiers from night 20, everyone on night 100
 function raiderKind() {
+  const fr = facRaider(); if (fr) return fr; if (!facAnyRaider()) return null;   // (Nov 11) who raids follows who's hostile — 2g-factions.js
   const r = rnd();
   if ((G.day >= 20 || night.final) && r < (night.final ? .2 : .1)) return ['soldier', 'grey'];
   if ((G.day >= 6 || night.final) && r < (night.final ? .45 : .28)) return ['gunner', 'iron'];
@@ -292,7 +294,7 @@ function updNight(dt) {
     if (night.spawnT <= 0) {
       night.spawnT = rr(.7, 1.6); night.left--;
       const a = rr(-1.7, 1.7) + (night.wave >= 3 && rnd() < .3 ? Math.PI : 0), r = rr(105, 125);
-      const [k, f] = raiderKind(); spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f);
+      const rk = raiderKind(); if (rk) { const [k, f, tr] = rk; const re = spawnClan(k, Math.sin(a) * r, Math.cos(a) * r, 'raid', f); if (tr) re.tribe = tr; }
     }
   } else if (!ents.some(e => e.type === 'clan' && e.mode === 'raid' && !e.dead)) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
@@ -448,6 +450,7 @@ function updClan(e, dt) {
   if (e.burn > 0) { e.burn -= dt; e.hp -= 12 * dt; if (Math.random() < dt * 8) puff(e.x, e.y + 1, e.z, 0xff7a2a, 1, 1, .12, .4, 2); if (e.hp <= 0) { damage(e, 1, true, new THREE.Vector3(e.x, e.y + 1, e.z)); return; } }
   if (e.stun > 0) { e.stun -= dt; p.body.rotation.z = Math.sin(e.t * 20) * .1; e.g.position.set(e.x, e.y, e.z); return; }
   if (e.blind > 0) e.blind -= dt;
+  if (facUpd(e, dt)) return;   // (Nov 11) factions: standing down, fights between groups, patrols, allies (2g-factions.js)
   const dxp = P.x - e.x, dzp = P.z - e.z, dp = Math.hypot(dxp, dzp);
   const insideP = Math.hypot(P.x, P.z) < CAMP_R, insideE = Math.hypot(e.x, e.z) < CAMP_R, gun = e.kind === 'gunner' || e.kind === 'soldier';
   const hullP = inHull(P.x, P.z), hullE = inHull(e.x, e.z);
@@ -471,7 +474,7 @@ function updClan(e, dt) {
     if (e.t > 4) { e.t = 0; e.tx = e.home.x + rr(-10, 10); e.tz = e.home.z + rr(-10, 10); }
     tx = e.tx ?? e.x; tz = e.tz ?? e.z; spd = 1.3;
     const sees = (e.mode === 'guard' ? (gun ? 46 : 30) : 34) * stealthK() * (e.fac === 'clan' && P.paint > 0 ? .6 : 1) * (isNight() ? .7 : 1) * wxSight();
-    if (dp < sees && !P.dead && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
+    if (dp < sees && !P.dead && !UG.at && facHostileE(e) && !(e.blind > 0) && !(insideP && !gate.open) && !inSmoke(P.x, P.z)) { e.state = 'chase'; sfx('grunt'); alertNear(e); }
   }
   if (e.state === 'raid') {
     const dE = Math.hypot(e.x, e.z);
@@ -583,7 +586,7 @@ function updTowers(dt) {
     if (UP.tur <= 0) continue;
     T.cool -= dt; if (T.cool > 0) continue;
     let best = null, bd = 48 + UP.tur * 6;
-    for (const e of ents) if (e.type === 'clan' && !e.dead) { const d = Math.hypot(e.x - T.x, e.z - T.z); if (d < bd) { bd = d; best = e; } }
+    for (const e of ents) if (isFoe(e)) { const d = Math.hypot(e.x - T.x, e.z - T.z); if (d < bd) { bd = d; best = e; } }
     if (!best) { T.cool = .3; continue; }
     T.cool = [0, 1.1, .8, .55][UP.tur];
     const a = Math.atan2(best.x - T.x, best.z - T.z); T.gun.rotation.y = a - T.a;
@@ -618,13 +621,14 @@ function die() {
 function damage(e, n, byPlayer, at) {
   if (e.dead) return;
   e.hp -= n;
+  if (byPlayer && e.type === 'clan') facHurt(e);
   puff(at.x, at.y, at.z, e.type === 'clan' ? 0x6a1a12 : 0x6a1a12, 5, 2, .08, .4);
   if (e.type === 'clan' && e.state !== 'chase' && e.state !== 'raid' && byPlayer) e.state = 'chase';
   if (e.sp) wildHit(e);
   else if (e.type === 'deer' && e.state !== 'flee') { e.state = 'flee'; e.t = rr(5, 8); }
   else if (e.type === 'boar') e.state = 'charge';
   if (e.hp <= 0) {
-    e.dead = true; e.deadT = 0; G.kills++;
+    e.dead = true; e.deadT = 0; G.kills++; if (e.type === 'clan') facDied(e, byPlayer);
     if (e.type === 'clan') { sfx('grunt'); const dr = clanDrop(e); if (rnd() < .55) { INV.scrap++; dr.unshift(['scrap', 1]); } if (byPlayer && dr.length) toast(dr.map(([id, n]) => `+${n} ${nameOf(id).toLowerCase()}`).join(' · '), 2); e.climbing = false; e.climbY = 0; e.g.position.y = e.y; }
     if (e.sp) { if (byPlayer) toast(`${e.sp.n} down — go butcher it`); }
     else if (e.type === 'deer' || e.type === 'boar') { if (byPlayer) toast(`${e.type === 'deer' ? 'Deer' : 'Boar'} down — go butcher it`); }
@@ -942,7 +946,7 @@ function gearTile(t, btns) {
 }
 function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['journal', 'Journal']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
+  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['journal', 'Journal'], ['factions', 'Factions']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
   const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
@@ -989,6 +993,8 @@ function renderInv() {
     for (const [id, n] of Object.entries(p.rec.inv)) body += itemTile(id, n, `<button data-take="${id}">←</button><button data-takeall="${id}">×all</button>`);
     for (const t of p.rec.gear) body += gearTile(t, `<button data-takeg="${t.u}">←</button>`);
     body += '</div></div></div>';
+  } else if (invTab === 'factions') {
+    body += factionsHTML();
   } else if (invTab === 'journal') {
     body += journalHTML();
   } else if (invTab === 'trade') {
@@ -1018,6 +1024,7 @@ $('inv').addEventListener('click', e => {
   if (d.tab) invTab = d.tab;
   else if (d.cat) craftCat = d.cat;
   else if (d.log) { toggleInv(false); openLog(d.log); return; }
+  else if (d.fa) facAction(d);
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
   else if (d.craft5) return craft(RECIPES[+d.craft5], 5);
@@ -1238,7 +1245,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1508,7 +1515,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
@@ -1589,7 +1596,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
