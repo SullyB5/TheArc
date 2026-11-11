@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/jsm/libs/meshopt_decoder.module.js';
+import { KTX2Loader } from './vendor/jsm/loaders/KTX2Loader.js';
 import { EffectComposer } from './vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from './vendor/jsm/postprocessing/ShaderPass.js';
@@ -42,11 +43,13 @@ const LOW = isTouch;                       // phones: fewer trees/grass, smaller
    View distance is a hard limit: past it everything sits inside the fog wall, and terrain, forest, props and districts
    past it aren't built or drawn — the GPU only works on what you can actually see. */
 /* (Nov 11) dir: where the models come from. Low reads assets/models-m/, the phone set made offline from assets/models/ by
-   tools/mobile.mjs (colour textures 512 px, detail maps 256 px, heavy meshes cut toward 20k triangles) — so a phone never has to
-   download and decode the full-size textures at all. Medium and High read assets/models-p/, the PC set: every colour texture at full size, only the normal/roughness/metal/AO
+   tools/ktx.mjs: GPU-compressed KTX2 textures (Basis Universal) that stay compressed in graphics memory — colour maps 1024 px
+   (ETC1S), normal maps 512 px (UASTC), roughness/metal/AO 512 px (ETC1S) — and heavy meshes cut toward 20k triangles. Sharper
+   than the old 512/256 px set for less graphics memory, and a phone never decodes a full-size image. Low also uses the PC
+   ground/metal textures (1024 px) with 4x filtering, so the ground stays sharp further out. Medium and High read assets/models-p/, the PC set: every colour texture at full size, only the normal/roughness/metal/AO
    maps halved (1024 px on guns, arms and people, 512 px on the rest) — about a third less graphics memory, no visible change.
    assets/models/ holds the originals both sets are made from. */
-const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models-p' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models-p' } };
+const TEX_LEVELS = { low: { label: 'Low', cap: 0, capD: 0, aniso: 4, file: 'pc', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models-p' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models-p' } };
 const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
@@ -362,7 +365,7 @@ canvas.addEventListener('webglcontextlost', ev => {
   if (next) { GFX.tex = next; saveGfx(); bootDone(); playDone(); setTimeout(() => location.reload(), 1200); }
   else { bootDone(); playDone(); }
 }, false);
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75));
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -683,6 +686,8 @@ const REGIONS = [
 
 /* ---------- models (from the ELYRA kit) ---------- */
 const gltf = new GLTFLoader(); gltf.setMeshoptDecoder(MeshoptDecoder);
+/* KTX2 textures (the phone set) are transcoded to whatever the GPU reads compressed: ASTC/ETC on iPhones, BC7/BC1-3 on PCs */
+gltf.setKTX2Loader(new KTX2Loader().setTranscoderPath('./vendor/jsm/libs/basis/').setWorkerLimit(LOW ? 2 : 4).detectSupport(renderer));
 const MODELS = {};
 const CLIPS = {};                                      // animations that came with a model (the rigged animals)
 /* phones: the model kit's textures are mostly 1024² (some 2048²) — ~640 MB on the GPU plus Safari's decoded copy, more than an
@@ -695,7 +700,7 @@ function shrinkTextures(root) {
     for (const m of [].concat(o.material)) {
       if (!m) continue;
       for (const k in m) {
-        const t = m[k]; if (!t || !t.isTexture || SHRUNK.has(t)) continue; SHRUNK.add(t);
+        const t = m[k]; if (!t || !t.isTexture || t.isCompressedTexture || SHRUNK.has(t)) continue; SHRUNK.add(t);
         const cap = k === 'map' || k === 'emissiveMap' ? TEX_CAP : TEX_CAP_DETAIL;
         const img = t.image, w = img && img.width, h = img && img.height;
         if (!w || !h || Math.max(w, h) <= cap) continue;
@@ -13277,7 +13282,7 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
-const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
 let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
 function adaptRes(raw) {
   if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;

@@ -1228,7 +1228,7 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
-const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
 let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
 function adaptRes(raw) {
   if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
