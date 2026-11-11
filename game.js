@@ -11016,7 +11016,7 @@ function respawnBases() {
 
 /* ================= night raids ================= */
 function startNight() {
-  night.active = true; night.wave = 0; night.core = 100;
+  night.active = true; night.wave = 0; night.core = 100; night.t = 0;
   night.final = G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
   if (night.final) siegeStart();   // (Nov 11) Night 100 in four stages — 2j-siege.js
   night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
@@ -11054,7 +11054,9 @@ function updNight(dt) {
     if (night.wave < night.waves) { night.between += dt; if (night.between > 9) { night.between = 0; nextWave(); } }
     else endNight(true);
   }
-  if (night.core <= 0) endNight(false);
+  if (night.core <= 0) { endNight(false); return; }
+  night.t = (night.t || 0) + dt;
+  if (night.active && night.t > (night.final ? NIGHT_MAX_FINAL : NIGHT_MAX)) { toast('First light — the raiders pull back', 3); endNight(true); }
 }
 function endNight(won) {
   setS().lastWin = won ? 1 : 0; const wasFinal = SIEGE.on;
@@ -11575,7 +11577,8 @@ function villageGuards() {
 
 /* ================= time + atmosphere ================= */
 const isNight = () => G.tod > .8 || G.tod < .22;
-const DAY_LEN = 420;
+const DAY_LEN = 210;   // (Nov 11) seconds of daylight, halved from 420
+const NIGHT_MAX = 150, NIGHT_MAX_FINAL = 600;   // (Nov 11) a raid night ends by then; whoever's left pulls back at dawn
 let hullFogK = 0;
 function updTime(dt) {
   if (night.active) { G.tod = lerp(G.tod, .92, dt * .2); }
