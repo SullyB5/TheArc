@@ -35,7 +35,7 @@ Start: you wake at the dropsite (south-west, ~400 m out) beside a section of the
 
 The Arc (Nov 10): the hull is dented, wavy and patched, with bent and snapped ribs; its east end carries on through a buckled joint into the east wing, which bends round to the south and is walk-in too (`WING`, `inWing`, `hullOff` in `1c-camp.js`). The streets and buildings sit a little off square.
 
-The Rust (red fog, Nov 10): the first one comes ~45 s after you first reach Kestrel (day 1), then every 7–10 days. In Kestrel the only cover is the Arc (outlands: road shelters); the fog clears inside the hull. It hurts more the longer you're out (~5 hp/s rising to ~15). Townsfolk run for the Arc, shopkeepers bar themselves in; one or two get caught, go down, and die ~70 s later unless you treat them (E, uses a bandage / medkit / Rust medicine). `fogNPC` in `3-game.js`.
+The Rust (red fog, Nov 10): the first one comes ~45 s after you first reach Kestrel (day 1), then every 7–10 days. The fog clears inside the hull. It hurts more the longer you're out (~5 hp/s rising to ~15). A roof does not stop it: only the sealed hull counts as cover (out in the world: gas mask, hazmat, breather, Rust medicine). Everyone in town runs for the Arc; one or two get caught, go down, and die ~70 s later unless you treat them (E, uses a bandage / medkit / Rust medicine). `fogNPC` in `3-game.js`.
 
 Open world: no chapters. Tier keys: clan insignia (2), Arc ID chip (3), Greyhold card (4), Dr. Arden's notebook (5), Gate Stone codes (6). Nights bring raids (clans, then Ironjaw from night 6, Greyhold from night 20); night 100 is the big one. Dying drops your bag where you fell.
 

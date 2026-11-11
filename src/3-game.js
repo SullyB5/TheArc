@@ -281,7 +281,8 @@ function endNight(won) {
 /* ================= the Rust (red fog) ================= */
 /* (Nov 10) the Rust comes every 7–10 days. In Kestrel the only cover is the Arc: the horn goes, everyone runs for the
    blast doors. One or two always get caught out — they go down in the fog, and unless you get a bandage or a medkit into
-   them they don't get up. Outside the walls the road shelters still count. */
+   them they don't get up. A roof doesn't stop fog: the only cover is the sealed hull. Out in the world it's gear
+   (gas mask, hazmat, breather, Rust medicine) or nothing. */
 function rustDue() { return G.day + 7 + Math.floor(rnd() * 4); }
 function startRust(scripted) {
   rust.state = 'warn'; rust.t = 40 + (has('detector') ? 25 : 0) + (G.flags.radioTower ? 10 : 0);
@@ -291,10 +292,10 @@ function startRust(scripted) {
   for (const e of pool) { e.straggler = false; e.rescued = false; e.fogDose = 0; }
   for (let i = 0, n = 1 + (rnd() < .5 ? 1 : 0); i < n && pool.length; i++) pool.splice(Math.floor(rnd() * pool.length), 1)[0].straggler = true;
   horn(110, 3, .22, 0); setTimeout(() => horn(110, 3, .22, 0), 3600);
-  say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get under a roof, NOW." : 'Mast horn — the Rust is coming. Everyone into the Arc!']]);
+  say([['Radio', scripted ? "That's the mast horn! Red fog off the ridge — get inside the Arc or get a mask on, NOW." : 'Mast horn — the Rust is coming. Everyone into the Arc! If you’re out there, mask up.']]);
 }
-function nearestShelter() { let b = null, bd = 1e9; for (const s of SHELTERS) { if (s.hull) continue; const d = Math.hypot(s.x - P.x, s.z - P.z); if (d < bd) { bd = d; b = s; } } if (Math.hypot(ARC_DOOR_OUT.x - P.x, ARC_DOOR_OUT.z - P.z) < bd) return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp: true }; return b; }
-function inShelter() { if (inHull(P.x, P.z)) return true; return SHELTERS.some(s => s.r > 0 && Math.hypot(s.x - P.x, s.z - P.z) < s.r); }
+function nearestShelter() { return { x: ARC_DOOR_OUT.x, z: ARC_DOOR_OUT.z, camp: true }; }
+function inShelter() { return inHull(P.x, P.z); }   // (Nov 10) fog gets under any roof: only the sealed hull keeps it out
 /* townsfolk in the fog: where to go, and what it does to them if they're out in it. Returns a move target or null. */
 function fogNPC(e, dt) {
   if (e.follow || Math.hypot(e.home.x, e.home.z) > CAMP_R) return null;
@@ -305,10 +306,9 @@ function fogNPC(e, dt) {
   }
   const on = rust.state === 'warn' || rust.state === 'active';
   if (!on) { e.fogSpot = null; return null; }
-  if (e.shop && !e.settler) return { x: e.home.x, z: e.home.z, spd: 3 };       // shopkeepers bar themselves in behind the counter
   if (!e.fogSpot) e.fogSpot = rnd() < .7 ? { x: ARC.x + rr(-24, 10), z: ARC.z + rr(-6, 5) } : (() => { const p = WING.pts[8 + Math.floor(rnd() * (WING.pts.length - 12))], o = rr(-4, 4); return { x: p.x + p.nx * o, z: p.z + p.nz * o }; })();
   const out = !inHull(e.x, e.z);
-  if (rust.state === 'active' && out && e.name !== 'watch' && !e.rescued) {
+  if (rust.state === 'active' && out && e.name !== 'watch' && !(e.shop && !e.settler) && !e.rescued) {
     e.fogDose = (e.fogDose || 0) + dt * (e.straggler ? 1.6 : 1);
     if (rnd() < dt * 1.2 && Math.hypot(e.x - P.x, e.z - P.z) < 18) sfx('cough', .6);
     if (e.fogDose > 9) { e.downed = true; e.dieT = 70; e.route = null; toast(`${e.shopName || 'Someone'} is down in the fog — get a bandage or a medkit into them!`, 4.5); return { x: e.x, z: e.z, spd: 0 }; }
@@ -528,6 +528,7 @@ function die() {
     $('dead').style.display = 'none'; P.dead = false; P.hp = 70; clearInjuries(); chan = null; P.food = Math.max(P.food, 50); P.fly = false;
     const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
     if (sp) { P.x = sp.x + 1.5; P.z = sp.z + 1.5; } else if (!G.flags.reached) { P.x = POI.dropsite.x + DROP_WAKE[0]; P.z = POI.dropsite.z + DROP_WAKE[1]; } else { P.x = SHOP.med.front.x; P.z = SHOP.med.front.z; }
+    if (G.flags.reached && rust.state !== 'none' && rust.state !== 'clear') { P.x = ARC_DOOR_IN.x; P.z = ARC_DOOR_IN.z - 3; }   // in a fog, they carried you into the Arc
     P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z); P.pitch = 0; P.slot = slotWeapon(0) ? 0 : P.slot; selectGunView(gunId());
     if (INV.res < 30) INV.res = 30;
     const who = sp ? 'You wake up at your bed' : G.flags.reached ? 'Juno patched you up' : 'You come to by the wreck';
@@ -805,8 +806,8 @@ function updHUD(dt) {
   hud.gunn.textContent = w.name + (w.g ? ` · ${Math.round(w.g.d / w.g.max * 100)}%` : '');
   renderTool();
   let alert = '';
-  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get inside the Arc`;
-  else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = Math.hypot(P.x, P.z) < CAMP_R + 20 ? 'Red fog — get inside the Arc!' : 'Red fog — get under a roof!';
+  if (rust.state === 'warn') alert = `Red fog in ${Math.ceil(rust.t)}s — get inside the Arc or mask up`;
+  else if (rust.state === 'active' && !P.safe && fogResist() < .95) alert = 'Red fog — get inside the Arc!';
   else if (night.active) alert = `${night.final ? 'NIGHT 100' : 'Hold Kestrel'} · wave ${night.wave}/${night.waves}`;
   else if (P.food <= 0) alert = 'Starving — eat something';
   else if (P.bleed > 0) alert = 'Bleeding — bandage it (5)';
@@ -830,7 +831,7 @@ function updHUD(dt) {
 /* ---------- the bag: Bag · Craft · Storage · Trade ---------- */
 let invOpen = false, invT = 0;
 function objectiveNow() {
-  if (rust.state === 'warn' || rust.state === 'active') return 'Get under a roof until the fog lifts';
+  if (rust.state === 'warn' || rust.state === 'active') return 'Get inside the Arc until the fog lifts';
   if (night.active) return `Hold Kestrel · wave ${night.wave}/${night.waves}`;
   return objText();
 }
