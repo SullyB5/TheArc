@@ -55,7 +55,7 @@ function pkEntUpd(e, dt) {
   let tx = e.x, tz = e.z, spd = 0;
   if (e.state === 'idle') {
     const sees = (gun ? 24 : 18) * stealthK() * (pk.powered === false ? .7 : 1);
-    if (dp < sees && sameLevel && !P.dead) { e.state = 'chase'; sfx('grunt'); for (const o of ents) if (o.pk === pk && !o.dead && o.state === 'idle' && Math.hypot(o.x - e.x, o.z - e.z) < 20) o.state = 'chase'; }
+    if (dp < sees && sameLevel && !P.dead && facHostileE(e)) { e.state = 'chase'; sfx('grunt'); for (const o of ents) if (o.pk === pk && !o.dead && o.state === 'idle' && Math.hypot(o.x - e.x, o.z - e.z) < 20) o.state = 'chase'; }
     else if (e.pkPatrol) { const w = e.pkPatrol[e.pi || 0]; if (Math.hypot(w.x - e.x, w.z - e.z) < 1) e.pi = ((e.pi || 0) + 1) % e.pkPatrol.length; tx = w.x; tz = w.z; spd = 1.6; }
     else if (e.inv) { tx = e.inv.x; tz = e.inv.z; spd = 2.2; if (Math.hypot(tx - e.x, tz - e.z) < 1.5) e.inv = null; }
   }
@@ -262,11 +262,11 @@ function s2Checkpoints() {
 function s2Spawn() {
   // the Mountain's and the tunnels' people, inside their pockets
   for (const [pk, src] of [[MTN, MTN.guardDefs], [HOLLOW, HOLLOW.guardDefs]]) {
-    if (ents.some(e => e.pk === pk && !e.dead)) continue;
+    if (ents.some(e => e.pk === pk && !e.dead) || pk === MTN && G.flags.greyGone) continue;
     for (const [k, a, b, o = {}] of src) pkSpawn(pk, k, a, b, { ...o, hollow: pk === HOLLOW, fac: pk === HOLLOW ? 'clan' : 'grey' });
   }
   // Greyhold checkpoints up top
-  for (const C of GCHECK) if (!ents.some(e => e.gcheck === C && !e.dead)) for (let i = 0; i < 3; i++) { const e = spawnClan('soldier', C.x + rr(-4, 4), C.z + rr(-4, 4), 'guard', 'grey'); e.tribe = 'grey'; e.gcheck = C; }
+  if (!G.flags.s2done) for (const C of GCHECK) if (!ents.some(e => e.gcheck === C && !e.dead)) for (let i = 0; i < 3; i++) { const e = spawnClan('soldier', C.x + rr(-4, 4), C.z + rr(-4, 4), 'guard', 'grey'); e.tribe = 'grey'; e.gcheck = C; }
   // the Hollowed in Whisper Cave now
   const cave = POCKETS.cave; if (cave && !ents.some(e => e.pk === cave && !e.dead)) for (const [a, b] of [[0, 18], [10, 17], [16, 18]]) pkSpawn(cave, 'warrior', a, b, { hollow: true, fac: 'clan', y: b === 18 && a === 16 ? -5 : 0 });
 }

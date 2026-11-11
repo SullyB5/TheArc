@@ -235,7 +235,7 @@ function missionsHTML() {
   let h = '<h4>Missions</h4><div class="jn">';
   if (m) { h += `<div style="padding:8px 10px;border:1px solid #f0a64066;border-left:4px solid #f0a640;border-radius:3px;background:#0002"><b>${m.t}</b> <small style="opacity:.7">from ${m.by}</small>`;
     m.steps.forEach((s, i) => { h += `<div style="opacity:${i < M2.st ? .5 : i === M2.st ? 1 : .35}"><small>${i < M2.st ? '✓' : i === M2.st ? '◆' : '·'} ${s.txt}</small></div>`; }); h += '</div>'; }
-  else { const nx = MISSIONS.find(x => !M2.done[x.id]); h += `<p class="dim">${nx ? 'Nothing right now — the next job will come to you.' : 'Season 1 is done.'}</p>`; }
+  else { const nx = MISSIONS.find(x => !M2.done[x.id]); h += `<p class="dim">${nx ? 'Nothing right now — the next job will come to you.' : 'The story is done — the valley is yours.'}</p>`; }
   const done = MISSIONS.filter(x => M2.done[x.id]); if (done.length) h += `<p class="pl"><small>Done: ${done.map(x => x.t).join(' · ')}</small></p>`;
   return h + '</div>';
 }
