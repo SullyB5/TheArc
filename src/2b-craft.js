@@ -119,7 +119,7 @@ function craft(r, times = 1) {
     for (const [k2, n] of s.ins) take(k2, n);
     if (r.tool) wearTool(bestTool(r.tool));
     if (GEAR_DEFS[r.o]) {
-      let q = null; if (nearStation('bench') || nearStation('forge')) { const x = rnd(); q = x < .08 ? 0 : x < .68 ? 1 : 2; }
+      let q = null; if (nearStation('bench') || nearStation('forge')) { const x = rnd() + (nearStation('forge') ? stLv('forge') * .12 : 0); q = x < .08 ? 0 : x < .68 ? 1 : 2; }
       const g = newGear(r.o, q); toast(`${QUAL[g.q].n} ${GEAR_DEFS[r.o].n.toLowerCase()} · ${g.max} uses`, 2.6);
     } else give(r.o, craftN(r));
     made++;
