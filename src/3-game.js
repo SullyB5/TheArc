@@ -1562,7 +1562,7 @@ function startGame(fresh) {
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
   showFlyBtn(); P.fly = false;
   gate.hp = gate.max;
-  document.body.classList.remove('title'); G.mode = 'play';
+  document.body.classList.remove('title'); G.mode = 'play'; playStart(); setTimeout(playDone, 12000);
   const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
   const wake = !sp && !G.flags.reached;
   P.x = sp ? sp.x + 1.5 : wake ? POI.dropsite.x + DROP_WAKE[0] : 3; P.z = sp ? sp.z + 1.5 : wake ? POI.dropsite.z + DROP_WAKE[1] : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z);

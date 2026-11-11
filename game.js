@@ -50,7 +50,7 @@ const GFX = (() => {
   /* (Nov 11) crash guard: boot() marks 'arc-boot' when it starts and clears it once the world has loaded. If the mark is still
      there, the last load died (a phone running out of graphics memory on High kills the page mid-load, and with High saved it
      would die every time) — so step textures down a level, save it, and say so on the title screen. */
-  let died = null; try { died = localStorage.getItem('arc-boot'); } catch (e) {}
+  let died = null; try { died = localStorage.getItem('arc-boot') || localStorage.getItem('arc-play'); localStorage.removeItem('arc-play'); } catch (e) {}
   if (died && g.tex !== 'low') {
     const from = g.tex; g.tex = g.tex === 'high' ? 'med' : 'low'; g.dropped = from;
     try { o.tex = g.tex; localStorage.setItem('arc-gfx', JSON.stringify(o)); } catch (e) {}
@@ -59,6 +59,12 @@ const GFX = (() => {
   return g;
 })();
 function bootDone() { try { localStorage.removeItem('arc-boot'); } catch (e) {} }
+/* the textures only go to the GPU when the world is first drawn — after Start, not at the menu — so the guard is armed again
+   for the first seconds of play (playStart / playDone). */
+function playStart() { try { localStorage.setItem('arc-play', GFX.tex); } catch (e) {} }
+function playDone() { try { localStorage.removeItem('arc-play'); } catch (e) {} }
+/* a phone out of graphics memory usually loses the WebGL context (a black screen) rather than killing the page: drop textures
+   a level and reload (the save is kept). Already on Low, there's nothing lower: say so instead of looping. */
 function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
@@ -339,6 +345,18 @@ function prepFlats() {
 /* ---------- renderer / scene / post ---------- */
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+let ctxLost = false;
+canvas.addEventListener('webglcontextlost', ev => {
+  ev.preventDefault(); if (ctxLost) return; ctxLost = true;
+  const next = GFX.tex === 'high' ? 'med' : GFX.tex === 'med' ? 'low' : null;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;background:#000;color:#ccc;font:16px sans-serif;letter-spacing:.1em';
+  el.textContent = next ? `GRAPHICS RAN OUT OF MEMORY — RELOADING ON ${TEX_LEVELS[next].label.toUpperCase()} TEXTURES…` : 'GRAPHICS RAN OUT OF MEMORY ON LOW TEXTURES — CLOSE OTHER APPS AND TABS, THEN RELOAD.';
+  document.body.appendChild(el);
+  try { if (typeof G !== 'undefined' && G.mode === 'play' && typeof save === 'function') save(); } catch (e) {}
+  if (next) { GFX.tex = next; saveGfx(); bootDone(); playDone(); setTimeout(() => location.reload(), 1200); }
+  else { bootDone(); playDone(); }
+}, false);
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.35 : 1.75));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
@@ -13573,7 +13591,7 @@ function startGame(fresh) {
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
   showFlyBtn(); P.fly = false;
   gate.hp = gate.max;
-  document.body.classList.remove('title'); G.mode = 'play';
+  document.body.classList.remove('title'); G.mode = 'play'; playStart(); setTimeout(playDone, 12000);
   const sp = G.flags.spawn && PLACED.some(p => BUILD_DEF[p.k].rest && Math.hypot(p.x - G.flags.spawn.x, p.z - G.flags.spawn.z) < 1) ? G.flags.spawn : null;
   const wake = !sp && !G.flags.reached;
   P.x = sp ? sp.x + 1.5 : wake ? POI.dropsite.x + DROP_WAKE[0] : 3; P.z = sp ? sp.z + 1.5 : wake ? POI.dropsite.z + DROP_WAKE[1] : 30; P.y = heightAt(P.x, P.z); P.pd = Math.hypot(P.x, P.z);
