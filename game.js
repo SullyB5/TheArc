@@ -43,8 +43,10 @@ const LOW = isTouch;                       // phones: fewer trees/grass, smaller
    past it aren't built or drawn — the GPU only works on what you can actually see. */
 /* (Nov 11) dir: where the models come from. Low reads assets/models-m/, the phone set made offline from assets/models/ by
    tools/mobile.mjs (colour textures 512 px, detail maps 256 px, heavy meshes cut toward 20k triangles) — so a phone never has to
-   download and decode the full-size textures at all. Medium and High read the original files, untouched. */
-const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models' } };
+   download and decode the full-size textures at all. Medium and High read assets/models-p/, the PC set: every colour texture at full size, only the normal/roughness/metal/AO
+   maps halved (1024 px on guns, arms and people, 512 px on the rest) — about a third less graphics memory, no visible change.
+   assets/models/ holds the originals both sets are made from. */
+const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models-p' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models-p' } };
 const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
