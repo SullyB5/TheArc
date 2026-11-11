@@ -97,8 +97,9 @@ async function buildEnvForest() {
     const pd = pathDist(x, z); if (pd > 60 && r > 160 && rnd() < .6) continue;
     const big = r < 130 && hero.length < (LOW ? 6 : 14) && rnd() < .12 && WH;
     const s = big ? rr(1.2, 1.6) : rr(.75, 1.25), y = heightAt(x, z) - .3, m = envM(x, y, z, rnd() * 6.28, s, rr(-.03, .03), rr(-.03, .03));
-    if (big) hero.push(m); else { const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB; (bins[b] ||= []).push(m); }
-    addCol(x, z, .4 * s); addRes('fir', x, z, s); k++;
+    const hid = xClear(x, z), mm = hid ? X_HIDE : m;   // (Nov 11) keep pines off the new places without moving any other
+    if (big) hero.push(mm); else { const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB; (bins[b] ||= []).push(mm); }
+    if (!hid) { addCol(x, z, .4 * s); addRes('fir', x, z, s); } k++;
   }
   for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
   if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
@@ -118,9 +119,9 @@ function buildEnvRocks() {
       if (pathDist(x, z) < 20 || waterAt(x, z) > -1e8 || !treeOK(x, z) || envKeepClear(x, z, 20) || slopeAt(x, z) < .25) continue;
       if (L.some(q => Math.hypot(q.x - x, q.z - z) < 60)) continue;
       const want = rr(7, 16), s = want / Math.max(DV.size.x, DV.size.z), ry = rnd() * 6.28;
-      L.push({ x, z, m: envM(x, envFloor(x, z, DV.size.x * s * .6, DV.size.z * s * .6, ry) - DV.size.y * s * .2, z, ry, s) });
-      for (let k = -1; k <= 1; k++) addCol(x + Math.sin(ry) * k * want * .3, z + Math.cos(ry) * k * want * .3, want * .3, 99);
-      addRes('boulder', x, z, want * .4);
+      const hid = xClear(x, z);
+      L.push({ x, z, m: hid ? X_HIDE : envM(x, envFloor(x, z, DV.size.x * s * .6, DV.size.z * s * .6, ry) - DV.size.y * s * .2, z, ry, s) });
+      if (!hid) { for (let k = -1; k <= 1; k++) addCol(x + Math.sin(ry) * k * want * .3, z + Math.cos(ry) * k * want * .3, want * .3, 99); addRes('boulder', x, z, want * .4); }
     }
     instParts(world, DV.parts, L.map(q => q.m));
   }
@@ -130,7 +131,7 @@ function buildEnvRocks() {
       const a = rnd() * 6.28, r = rr(16, R), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
       if (pathDist(x, z) < 8 || waterAt(x, z) > -1e8 || Math.hypot(x - POI.vault.x, z - POI.vault.z - 8) < 26 || Math.hypot(x - POI.lookout.x, z - POI.lookout.z) < 14) continue;
       const i = Math.floor(rnd() * bl.length), p = bl[i], s = rr(.8, 1.6);
-      L.push([i, envM(x, heightAt(x, z) - .3, z, rnd() * 6.28, s)]); addCol(x, z, Math.max(p.size.x, p.size.z) * s * .4); addRes('boulder', x, z, Math.max(p.size.x, p.size.z) * s * .4); j++;
+      const m = envM(x, heightAt(x, z) - .3, z, rnd() * 6.28, s), hid = xClear(x, z); L.push([i, hid ? X_HIDE : m]); if (!hid) { addCol(x, z, Math.max(p.size.x, p.size.z) * s * .4); addRes('boulder', x, z, Math.max(p.size.x, p.size.z) * s * .4); } j++;
     }
     place(bl, L);
   }

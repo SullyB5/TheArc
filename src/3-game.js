@@ -134,6 +134,7 @@ const INTERACT = [
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
+  ...XINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
 const nearFStation = () => { for (const S of FACTION_ST) if (Math.hypot(S.x - P.x, S.z - P.z) < 3) return S; return null; };
@@ -673,7 +674,7 @@ function updPlayer(dt) {
        and hills push back — steep climbs slow you, so mountains feel like mountains */
     let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
     if (ml < .15) P.runToggle = false;                            // the RUN button lets go when you stop
-    const wl = waterAt(P.x, P.z), depth = wl - P.y;
+    const wl = UG.at ? -1e9 : waterAt(P.x, P.z), depth = wl - P.y;   // (Nov 11) under the ground: no water, no terrain, the pocket's own rooms
     P.swim = depth > 1.25;
     const wantRun = !(P.frac > 0) && !P.over && (input.sprint || (isTouch && ml > .96) || P.runToggle) && my > .3 && !shopOpen && !input.ads && !input.fire && !P.swim && depth < .5;
     if (P.stam <= 0) P.winded = true; else if (P.winded && P.stam > 35) P.winded = false;
@@ -682,7 +683,7 @@ function updPlayer(dt) {
     let wx = fx * my + rx * mx, wz = fz * my + rz * mx;
     // slope along where you're heading
     let slopeK = 1;
-    if (ml > .05 && P.onGround) { const wl2 = Math.hypot(wx, wz), dx = wx / wl2, dz = wz / wl2, gr = (heightAt(P.x + dx * 1.6, P.z + dz * 1.6) - heightAt(P.x, P.z)) / 1.6; slopeK = clamp(1 - Math.max(0, gr - .22) * 1.1, .38, 1) * (gr < -.25 ? 1.06 : 1); }
+    if (ml > .05 && P.onGround && !UG.at) { const wl2 = Math.hypot(wx, wz), dx = wx / wl2, dz = wz / wl2, gr = (heightAt(P.x + dx * 1.6, P.z + dz * 1.6) - heightAt(P.x, P.z)) / 1.6; slopeK = clamp(1 - Math.max(0, gr - .22) * 1.1, .38, 1) * (gr < -.25 ? 1.06 : 1); }
     const spd = (sprint ? 9.6 : 5.4) * (shopOpen ? 0 : 1) * (P.swim ? .55 : depth > .4 ? .7 : 1) * (1 - P.ads * .45) * slopeK * (P.frac > 0 ? .62 : 1) * (P.over ? .65 : 1) * (1 + wearStat('mob'));
     wx *= spd; wz *= spd;
     const acc = P.swim ? 9 : !P.onGround ? 7 : ml > .05 ? 42 : 30;
@@ -690,7 +691,7 @@ function updPlayer(dt) {
     if (dl > 1e-4) { const st = Math.min(dl, acc * dt); P.vx += dvx / dl * st; P.vz += dvz / dl * st; }
     const ox = P.x, oz = P.z;
     P.x += P.vx * dt; P.z += P.vz * dt;
-    collide(P, .42, true);
+    if (UG.at) pocketCollide(P, .42, ox, oz); else collide(P, .42, true);
     // what actually happened after bumping trees and walls becomes the new velocity, so you slide along things instead of sticking
     if (dt > 0) { const ax = (P.x - ox) / dt, az = (P.z - oz) / dt; if (Math.hypot(ax, az) < Math.hypot(P.vx, P.vz) + 2) { P.vx = ax; P.vz = az; } }
     hs = Math.hypot(P.vx, P.vz);
@@ -698,7 +699,7 @@ function updPlayer(dt) {
     if (sprint && hs > 3) { P.stam = Math.max(0, P.stam - dt * 11); P.stamT = 1; }
     else { P.stamT -= dt; if (P.stamT <= 0) P.stam = Math.min(100, P.stam + dt * (hs > 1 ? 13 : 24)); }
     if (P.winded) { P.breathT = (P.breathT || 0) - dt; if (P.breathT <= 0) { P.breathT = .75; noiseBurst(.32, 750, .8, .035, 'bandpass'); } }
-    let gy = heightAt(P.x, P.z);
+    let gy = UG.at ? -1e9 : heightAt(P.x, P.z);
     const fl = floorAt(P.x, P.z, P.y); if (fl > gy) gy = fl;
     if (P.swim) gy = Math.max(gy, wl - 1.3);
     // jump: pressing a beat early still counts, and so does a beat after you've stepped off an edge
@@ -840,6 +841,7 @@ function updTime(dt) {
   sun.position.set(P.x + ld.x * 160, P.y + ld.y * 160, P.z + ld.z * 160); sun.target.position.set(P.x, P.y, P.z);
   sun.color.copy(s.sun); sun.intensity = s.sunI * (1 - rk * .6);
   hemi.intensity = s.hemiI * 1.45 * (1 - rk * .3); hemi.color.copy(s.top).lerp(_cb.set(0xcfd8dc), .5);
+  xAfterLight();
   stars.material.opacity = clamp((isNight() ? 1 : 0) - rk, 0, 1) * smooth(.15, .3, Math.abs(G.tod - .5) * 2 - .3) * 1.2;
   const camFar = camera.far;
   sky.position.copy(camera.position); sky.scale.setScalar(camFar * .92); stars.position.copy(camera.position); stars.scale.setScalar(camFar * .9);
@@ -938,7 +940,7 @@ function gearTile(t, btns) {
 }
 function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  const T = [['bag', 'Bag'], ['craft', 'Craft']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
+  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['journal', 'Journal']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
   const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
@@ -985,6 +987,8 @@ function renderInv() {
     for (const [id, n] of Object.entries(p.rec.inv)) body += itemTile(id, n, `<button data-take="${id}">←</button><button data-takeall="${id}">×all</button>`);
     for (const t of p.rec.gear) body += gearTile(t, `<button data-takeg="${t.u}">←</button>`);
     body += '</div></div></div>';
+  } else if (invTab === 'journal') {
+    body += journalHTML();
   } else if (invTab === 'trade') {
     const L = tradeStock(), groups = bagGroups();
     const SD = shopDef(), mk = SD.mark;
@@ -1011,6 +1015,7 @@ $('inv').addEventListener('click', e => {
   if (d.x) return toggleInv(false);
   if (d.tab) invTab = d.tab;
   else if (d.cat) craftCat = d.cat;
+  else if (d.log) { toggleInv(false); openLog(d.log); return; }
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
   else if (d.craft5) return craft(RECIPES[+d.craft5], 5);
@@ -1231,7 +1236,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); updXplore(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1366,6 +1371,7 @@ function updCull(dt) {
 }
 const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x); return [-Math.cos(a) * 27 - Math.sin(a) * 3, -Math.sin(a) * 27 + Math.cos(a) * 3]; })();   // where you come to: in the furrow, looking into the torn end
 function checkRegions() {
+  if (UG.at) return;
   const seen = G.flags.seen = G.flags.seen || {};
   if (!G.flags.reached && Math.hypot(P.x, P.z) < CAMP_R + 10) {
     G.flags.reached = 1; G.flags.firstRustT = 45; save();
@@ -1440,6 +1446,7 @@ function drawMap() {
     g.fillStyle = regionColor(R); g.beginPath(); g.arc(x, y, 3 * k, 0, 7); g.fill();
     g.fillStyle = '#000a'; g.fillText(R.name, x + k, y - 5 * k); g.fillStyle = '#efe9dc'; g.fillText(R.name, x, y - 6 * k);
   }
+  drawXMarks(g, S, k);
   const at = objAt(); if (at) { const [x, y] = toMap(at.x, at.z, S); g.strokeStyle = '#f0a640'; g.lineWidth = 2 * k; g.beginPath(); g.arc(x, y, 6 * k, 0, 7); g.stroke(); }
   const [px, py] = toMap(P.x, P.z, S); playerArrow(g, px, py, 1.1 * k);
   $('mapday').textContent = `Day ${G.day} of 100 · ${exploredPct()}% explored`;
@@ -1580,7 +1587,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); bakeWorld(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
