@@ -954,7 +954,7 @@ function gearTile(t, btns) {
 }
 function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['settle', 'Settlement'], ['journal', 'Journal'], ['factions', 'Factions']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
+  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['settle', 'Settlement'], ['journal', 'Journal'], ['factions', 'Factions']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']); if (travelOn()) T.push(['travel', 'Travel']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
   const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
@@ -1005,6 +1005,8 @@ function renderInv() {
     setRepair(); body += settlementHTML();
   } else if (invTab === 'factions') {
     body += factionsHTML();
+  } else if (invTab === 'travel') {
+    body += travelHTML();
   } else if (invTab === 'journal') {
     body += missionsHTML() + sideHTML() + journalHTML();
   } else if (invTab === 'trade') {
@@ -1037,6 +1039,7 @@ $('inv').addEventListener('click', e => {
   else if (d.fa) facAction(d);
   else if (d.sj || d.sp || d.st || d.sg || d.sc) setAction(d, e.shiftKey);
   else if (d.su || d.sv || d.kc) finAction(d);
+  else if (d.tp) return travelGo(d.tp);
   else if (d.sjt || d.sjx || d.sjh) sideAction(d);
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);

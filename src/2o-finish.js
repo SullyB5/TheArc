@@ -299,3 +299,31 @@ function updFinish(dt) {
   bpLearn(); restrictTick(1); storyStock(); cosmeticsSync();
   if (inKestrel() && (chatT2 -= 1) <= 0) { chatT2 = rr(25, 45); chatPairs(); }
 }
+
+/* ---------- Travel (testing): teleport to every site, bunker and underground place ----------
+   Shows as a "Travel" tab in the bag once the secret unlock is on (tap the health bar 7 times fast), or with ?travel in the URL. */
+const TRAVEL_URL = /[?&]travel\b/.test(location.search);
+const travelOn = () => TRAVEL_URL || !!G.flags.dev;
+const SITE_NAMES = { millbrook: 'Millbrook', kvrn: 'KVRN Relay Station', cave: 'Whisper Cave', summit: 'Kestrel Ridge (summit)', tunA: 'Coldwater Line — west portal', tunB: 'Coldwater Line — east portal', hesper: 'Fort Hesper', bright: 'Brightwater Annex', longfall: 'The Long Fall', route9: 'Route 9', ember: 'Ember Rest', blackdoor: 'The Black Door' };
+const PK_NAMES = { cellar: 'Millbrook cellar', cave: 'Whisper Cave', tunnel: 'Coldwater Line tunnel', hesper: 'Fort Hesper bunker', lab: 'Brightwater lab', survey: 'Survey Station', site9: 'Site Nine', mtn: 'The Mountain (Greyhold)', hollow: 'The Drift (Hollowed tunnels)' };
+let TRAVEL = null;
+function travelList() {
+  if (TRAVEL) return TRAVEL; const L = [], near = (x, z, r) => { const d = Math.hypot(x, z) || 1; return { x: x - x / d * r, z: z - z / d * r }; }, add = (g, n, o, r = 6) => { if (!o || !isFinite(o.x)) return; const s = near(o.x, o.z, r); L.push({ g, n, go: () => xGoNow(null, { x: s.x, z: s.z, yaw: Math.atan2(o.x - s.x, o.z - s.z) }) }); };
+  add('Home', 'Kestrel (camp gate)', { x: 0, z: CAMP_R + 4 }, 0);
+  for (const id in XSITES || {}) { const S = XSITES[id]; add('Places', SITE_NAMES[id] || S.name, S, (S.r || 10) + 4); }
+  for (const id in POCKETS) { const pk = POCKETS[id]; if (pk.in) L.push({ g: 'Underground', n: PK_NAMES[id] || id, go: () => xGoNow(pk, pk.in) }); if (pk.out) L.push({ g: 'Underground entrances', n: (PK_NAMES[id] || id) + ' — entrance', go: () => xGoNow(null, pk.out) }); }
+  for (const f of ['thorn', 'pines', 'ridge', 'root', 'iron', 'grey', 'arc']) { const C = FAC[f].cap(); add('Faction homes', `${FAC[f].n} — ${f === 'arc' ? 'Farlight' : f === 'grey' ? 'Greyhold Station' : 'home'}`, C, (C && C.R || FAC[f].cap_r * .6) + 6); }
+  for (const Z of RESTRICT) add('Faction homes', `${FAC[Z.f].n} — ${Z.n} (restricted)`, Z, 3);
+  for (const O of OUTPOSTS) add('Outposts', O.n + ' (' + O.id + ')', O, 8);
+  add('Season 1 story', 'Thornkin war camp', WARCAMP, 10);
+  add('Season 2', 'Hollowed nest (Drift entrance hill)', HOLLOW_NEST, 22); add('Season 2', 'The Spoke', SPOKE, 8); add('Season 2', 'The fog tower', FOGTOWER, 8);
+  GCHECK.forEach((c, i) => add('Season 2', 'Greyhold checkpoint ' + (i + 1), c, 6));
+  XCAMPS.forEach((c, i) => add('Camps & stashes', 'Old camp ' + (i + 1), c, 4)); XSTASH.forEach((c, i) => add('Camps & stashes', 'Hidden stash ' + (i + 1), c, 3));
+  if (XSURVEY && XSURVEY.x) add('Places', 'Survey mast', XSURVEY, 6);
+  return TRAVEL = L;
+}
+function travelHTML() {
+  const L = travelList(), gs = [...new Set(L.map(t => t.g))];
+  return `<p class="dim">Testing shortcut · tap a place to go there instantly.</p>` + gs.map(g => `<h4>${g}</h4><div style="display:flex;flex-wrap:wrap;gap:6px">${L.map((t, i) => [t, i]).filter(([t]) => t.g === g).map(([t, i]) => `<button data-tp="${i}">${t.n}</button>`).join('')}</div>`).join('');
+}
+function travelGo(i) { const t = travelList()[+i]; if (!t) return; toggleInv(false); t.go(); P.hp = Math.max(P.hp, 1); toast('→ ' + t.n, 2); }

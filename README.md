@@ -138,3 +138,4 @@ Season 2 (Nov 11, Parts 10–11): after Aftermath, day 101 — the Spoke comes d
 - **Settlement:** an outer gatehouse project on the south road. Settlers sit round the fire in the evening and talk, with speech bubbles. Traders stock better goods as the story advances.
 - **Events:** Greyhold equipment shipments, a quarrel between two friendly factions (side with one, or pay to split it), and temporary radiation hot zones with salvage in the middle.
 - **Balance:** the Mountain turret fires every 0.6 s (was 0.45) and hits 40% of the time (was 50%).
+- **Travel (testing):** once the secret unlock is on (tap the health bar 7 times quickly), or with `?travel` in the URL, the bag gets a Travel tab. It teleports you to every site, underground place and its entrance, faction home and restricted ground, outpost, Season 2 location, camp and stash (80 spots).
