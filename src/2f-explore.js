@@ -1054,7 +1054,7 @@ function updXplore(dt) {
   xRadT -= dt; if (xRadT <= 0) { xRadT = .2; const on = P.rad > 1; UG.radEl.style.display = on ? 'block' : 'none'; if (on) { UG.radEl.firstElementChild.style.width = P.rad + '%'; UG.radEl.firstElementChild.style.background = P.rad > 40 ? '#e0d040' : '#6aff6a'; } }
   // the lamp you carry: only below ground
   if (UG.lamp) { const fl = pk && has('light'); UG.lamp.intensity = pk ? (fl ? 3.2 : 1.3) : 0; UG.lamp.distance = fl ? 28 : 12; }
-  if (pk) STEP_SURF = pk.surf;
+  if (pk) { STEP_SURF = pk.surf; xAfterLight(); }   // again after the weather has had its say
 }
 // lighting below ground: no sun, a dim fill, a short dark haze (called from updTime after the sky is set)
 function xAfterLight() {

@@ -4050,7 +4050,7 @@ function updWeather(dt) {
   if (!rustOut) { wx.t -= dt; if (wx.t <= 0) wxSet(wxPick(wx.id), wx.quiet); wx.quiet = false; }
   const T = rustOut ? WX.clear : WX[wx.id], ease = 1 - Math.exp(-dt / (rustOut ? 3 : 9));
   for (const k of WX_KEYS) wx.cur[k] += (T[k] - wx.cur[k]) * ease;
-  const c = wx.cur, inside = hullFogK, out = 1 - inside;
+  const c = wx.cur, inside = UG.at ? 1 : hullFogK, out = 1 - inside;   // (Nov 11) under the ground counts as inside
   // daylight only: weather doesn't make the night any darker
   const dayK = clamp(sun.intensity / 1.2, 0, 1), dim = 1 - (1 - c.light) * dayK * out;
   sun.intensity *= dim; hemi.intensity *= 1 - (1 - c.light) * dayK * .7 * out;
@@ -7353,7 +7353,7 @@ function updXplore(dt) {
   xRadT -= dt; if (xRadT <= 0) { xRadT = .2; const on = P.rad > 1; UG.radEl.style.display = on ? 'block' : 'none'; if (on) { UG.radEl.firstElementChild.style.width = P.rad + '%'; UG.radEl.firstElementChild.style.background = P.rad > 40 ? '#e0d040' : '#6aff6a'; } }
   // the lamp you carry: only below ground
   if (UG.lamp) { const fl = pk && has('light'); UG.lamp.intensity = pk ? (fl ? 3.2 : 1.3) : 0; UG.lamp.distance = fl ? 28 : 12; }
-  if (pk) STEP_SURF = pk.surf;
+  if (pk) { STEP_SURF = pk.surf; xAfterLight(); }   // again after the weather has had its say
 }
 // lighting below ground: no sun, a dim fill, a short dark haze (called from updTime after the sky is set)
 function xAfterLight() {

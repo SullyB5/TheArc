@@ -110,7 +110,7 @@ function updWeather(dt) {
   if (!rustOut) { wx.t -= dt; if (wx.t <= 0) wxSet(wxPick(wx.id), wx.quiet); wx.quiet = false; }
   const T = rustOut ? WX.clear : WX[wx.id], ease = 1 - Math.exp(-dt / (rustOut ? 3 : 9));
   for (const k of WX_KEYS) wx.cur[k] += (T[k] - wx.cur[k]) * ease;
-  const c = wx.cur, inside = hullFogK, out = 1 - inside;
+  const c = wx.cur, inside = UG.at ? 1 : hullFogK, out = 1 - inside;   // (Nov 11) under the ground counts as inside
   // daylight only: weather doesn't make the night any darker
   const dayK = clamp(sun.intensity / 1.2, 0, 1), dim = 1 - (1 - c.light) * dayK * out;
   sun.intensity *= dim; hemi.intensity *= 1 - (1 - c.light) * dayK * .7 * out;
