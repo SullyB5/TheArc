@@ -134,7 +134,7 @@ const INTERACT = [
   { id: 'trader', at: () => nearShopNPC(), r: 4.4, label: () => { const e = nearShopNPC(), x = KEEPER_Q[e.name]; return `Trade with ${e.shopName}` + (x ? `  ·  ${isTouch ? 'hold' : 'Q'}: ${x.l()}` : ''); }, act: () => openTrade(nearShopNPC()), next: () => { const x = KEEPER_Q[nearShopNPC()?.name]; if (x) x.act(); } },
   { id: 'fstation', at: () => nearFStation(), r: 3, label: () => 'Farlight ' + STATION_N[nearFStation().st[0]].toLowerCase() + ' · craft', act: () => openCraft(nearFStation().st.includes('lab') ? 'med' : nearFStation().st.includes('forge') ? 'mat' : 'tool') },
   { id: 'bag', at: () => nearBag(), r: 2.6, label: () => 'Pick up your dropped bag', act: () => pickBag() },
-  ...XINTERACT, ...FINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
+  ...XINTERACT, ...FINTERACT, ...SINTERACT,   // (Nov 11) notes, recordings, hatches, doors, generators (2f-explore.js)
   { id: 'city', at: () => cityNear(), r: 3.2, label: () => cityNear()?._l, act: () => cityNear()?.act() },   // (Nov 11) Cinder City's insides: 1j-city-interiors.js
   { id: 'climb', at: () => POI.lookout, r: 3.6, label: () => P.y < POI.lookoutTop - 3 ? 'Climb the lookout' : 'Climb down', act: () => climbLookout() },
 ];
@@ -303,6 +303,7 @@ function updNight(dt) {
   if (night.core <= 0) endNight(false);
 }
 function endNight(won) {
+  setS().lastWin = won ? 1 : 0;
   night.active = false; gate.open = true; gate.hp = gate.max; hullDoor.hp = hullDoor.max; hullDoor.open = true;
   for (const e of [...ents]) if (e.type === 'clan' && e.mode === 'raid') removeEnt(e);
   if (!won) INV.scrap = Math.floor(INV.scrap * .6);
@@ -541,6 +542,7 @@ function updAnimal(e, dt) {
   e.y = heightAt(e.x, e.z); e.g.position.set(e.x, e.y, e.z); e.g.rotation.y = e.yaw;
 }
 function updNPC(e, dt) {
+  if (setNPC(e, dt)) return;   // (Nov 11) survivors out on outdoor jobs are away from Kestrel all day — 2h-settlement.js
   const p = e.p, dp = Math.hypot(P.x - e.x, P.z - e.z);
   let tx = e.x, tz = e.z, spd = 0;
   if (e.follow) {
@@ -573,7 +575,7 @@ function updNPC(e, dt) {
   } else if (Math.hypot(e.home.x - e.x, e.home.z - e.z) > .6) { tx = e.home.x; tz = e.home.z; spd = 2; }
   if (e.guard && !night.active && rnd() < dt * .5) updGuard(e, dt);
   if (e === curShopE && invOpen && invTab === 'trade') { spd = 0; e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4); }
-  if (night.active && !e.follow && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
+  if (night.active && !e.follow && !e.guard && (e.name === 'extra' || e.settler) && Math.hypot(e.home.x, e.home.z) < CAMP_R) { if (!e.hullSpot) e.hullSpot = { x: ARC.x + rr(-22, 6), z: ARC.z + rr(-6, 4) }; tx = e.hullSpot.x; tz = e.hullSpot.z; spd = Math.hypot(tx - e.x, tz - e.z) > .8 ? 3.2 : 0; }
   { const f = fogNPC(e, dt); if (e.dead) return; if (f) { tx = f.x; tz = f.z; spd = f.spd; } }
   const v = spd ? moveEnt(e, tx, tz, spd, dt) : 0;
   if (!v && dp < 6 && !cine && !e.downed) e.yaw += angWrap(Math.atan2(P.x - e.x, P.z - e.z) - e.yaw) * Math.min(1, dt * 4);
@@ -946,7 +948,7 @@ function gearTile(t, btns) {
 }
 function renderInv() {
   const hh = Math.floor((G.tod * 24 + 24) % 24), mm = Math.floor((G.tod * 24 * 60) % 60 / 15) * 15;
-  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['journal', 'Journal'], ['factions', 'Factions']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
+  const T = [['bag', 'Bag'], ['craft', 'Craft'], ['settle', 'Settlement'], ['journal', 'Journal'], ['factions', 'Factions']]; if (storeAt && Math.hypot(storeAt.x - P.x, storeAt.z - P.z) < 5) T.push(['store', nameOf(storeAt.k)]); if (nearTrader()) T.push(['trade', 'Trade']);
   if (!T.some(t => t[0] === invTab)) invTab = 'bag';
   const tabs = `<div class="tabs">${T.map(([k, n]) => `<button data-tab="${k}" class="${invTab === k ? 'on' : ''}">${n}</button>`).join('')}<button data-gfx="1" title="Settings">Settings</button><button class="xb" data-x="1">✕</button></div>`;
   const tags = statusTags().map(([t, c]) => `<span class="tag" style="--c:${c}">${t}</span>`).join('');
@@ -993,6 +995,8 @@ function renderInv() {
     for (const [id, n] of Object.entries(p.rec.inv)) body += itemTile(id, n, `<button data-take="${id}">←</button><button data-takeall="${id}">×all</button>`);
     for (const t of p.rec.gear) body += gearTile(t, `<button data-takeg="${t.u}">←</button>`);
     body += '</div></div></div>';
+  } else if (invTab === 'settle') {
+    setRepair(); body += settlementHTML();
   } else if (invTab === 'factions') {
     body += factionsHTML();
   } else if (invTab === 'journal') {
@@ -1025,6 +1029,7 @@ $('inv').addEventListener('click', e => {
   else if (d.cat) craftCat = d.cat;
   else if (d.log) { toggleInv(false); openLog(d.log); return; }
   else if (d.fa) facAction(d);
+  else if (d.sj || d.sp || d.st || d.sg) setAction(d, e.shiftKey);
   else if (d.only) craftOnly = !craftOnly;
   else if (d.craft) return craft(RECIPES[+d.craft], e.shiftKey ? 5 : 1);
   else if (d.craft5) return craft(RECIPES[+d.craft5], 5);
@@ -1245,7 +1250,7 @@ function frame(now) {
     }
     updPets(dt); updTowers(dt); updSpears(dt); updProj(dt); updPlaced(dt); updFarGroups(P.x, P.z); updCity(dt);
     if (night.active) updNight(dt);
-    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updHUD(dt);
+    updRust(dt); updTime(dt); updWeather(dt); cityAfterWeather(); updXplore(dt); updFactions(dt); updSettlement(dt); updHUD(dt);
     // scrap pickup
     for (const s of SCRAPS) if (s.alive && Math.hypot(s.x - P.x, s.z - P.z) < 1.9 && !P.dead) {
       s.alive = false; s.g.visible = false; INV.scrap++; sfx('pickup');
@@ -1515,7 +1520,7 @@ function startGame(fresh) {
   G.step = 13; G.chapterDone = true;
   G.flags.seen = G.flags.seen || {}; if (s && G.flags.reached == null) G.flags.reached = 1;   // saves from before the dropsite start already know Kestrel
   if (G.flags.reached) G.flags.seen.kestrel = 1; INV.rations = INV.rations || 0;
-  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); gHinted = !!G.flags.craftHint;
+  invInit(); eqInit(); restorePlaced(); showBag(); xRestore(); facRestore(); setRestore(); gHinted = !!G.flags.craftHint;
   for (const k in TIER_KEYS) if (cnt(k) && TIER_KEYS[k] > tierNow()) G.flags.tier = TIER_KEYS[k];
   resetExplore(G.flags.exp); toolSig = '';
   P.slot = 0; applyUpgrades(); selectGunView(gunId());
@@ -1596,7 +1601,7 @@ async function boot() {
   // (Nov 10) Kestrel's watch: Keeper foot soldiers (Bryce's rigged model), two on the gate facing out and three walking the streets
   for (const sx of [-1, 1]) spawnNPC('watch', sx * (GATE_X + 1.6), CAMP_R - 5, { model: 'keeper', armed: true, yaw: 0, h: rr(1.78, 1.86) });
   for (let i = 0; i < 3; i++) { const n = pick(WALK.nodes); spawnNPC('watch', n.x + rr(-1, 1), n.z + rr(-1, 1), { model: 'keeper', armed: true, wander: true, h: rr(1.76, 1.86) }); }
-  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
+  ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
   menu();
