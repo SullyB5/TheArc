@@ -41,7 +41,10 @@ const LOW = isTouch;                       // phones: fewer trees/grass, smaller
    Textures apply on load (the page reloads when you change them); view distance applies live.
    View distance is a hard limit: past it everything sits inside the fog wall, and terrain, forest, props and districts
    past it aren't built or drawn — the GPU only works on what you can actually see. */
-const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc' } };
+/* (Nov 11) dir: where the models come from. Low reads assets/models-m/, the phone set made offline from assets/models/ by
+   tools/mobile.mjs (colour textures 512 px, detail maps 256 px, heavy meshes cut toward 20k triangles) — so a phone never has to
+   download and decode the full-size textures at all. Medium and High read the original files, untouched. */
+const TEX_LEVELS = { low: { label: 'Low', cap: 512, capD: 256, aniso: 2, file: 'phone', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models' } };
 const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
@@ -701,9 +704,20 @@ function shrinkTextures(root) {
     }
   });
 }
+/* (Nov 11) on phones at most four model files download and unpack at once: all ~140 at the same moment put every file's
+   bytes, buffers and decoded images in memory together, which is what iOS kills the tab for */
+const MODEL_DIR = TEXQ.dir || 'models', LOAD_MAX = LOW ? 4 : 16;
+let loadAct = 0; const loadQ = [];
+function loadGLB(url) {
+  return new Promise((ok, no) => {
+    loadQ.push(() => gltf.loadAsync(url).then(ok, no).finally(() => { loadAct--; pump(); }));
+    pump();
+  });
+  function pump() { while (loadAct < LOAD_MAX && loadQ.length) { loadAct++; loadQ.shift()(); } }
+}
 async function loadModels(names, quiet) {
   let done = 0;
-  await Promise.all(names.map(n => gltf.loadAsync(`assets/models/${n}.glb`).then(g => {
+  await Promise.all(names.map(n => loadGLB(`assets/${MODEL_DIR}/${n}.glb`).then(g => {
     if (TEX_CAP) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
