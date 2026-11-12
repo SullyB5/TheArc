@@ -76,6 +76,9 @@ function playDone() { try { localStorage.removeItem('arc-play'); } catch (e) {} 
 function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
+/* (Nov 11, perf) every building's inside (its `inner` group: lining, props, gun racks, stoves) — drawn only when you're
+   close enough to see in. Before this they drew from ~300 m, so all eleven shops' insides cost draws from anywhere in town. */
+const INTERIORS = [];
 const SFX = TEXQ.file;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -367,6 +370,7 @@ canvas.addEventListener('webglcontextlost', ev => {
 }, false);
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;                       // (Nov 11, perf) redrawn every other frame in frame(): the shadow pass was ~500 draws
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -716,6 +720,14 @@ function shrinkTextures(root) {
 /* (Nov 11) on phones at most four model files download and unpack at once: all ~140 at the same moment put every file's
    bytes, buffers and decoded images in memory together, which is what iOS kills the tab for */
 const MODEL_DIR = TEXQ.dir || 'models', LOAD_MAX = LOW ? 4 : 16;
+/* (Nov 11, perf) "transmission" glass from imported models (the stoves' door glass, the "Glass" pieces) makes three.js
+   render the whole scene a second time, every frame, whenever one is on screen — it doubled the draws across Kestrel.
+   Plain see-through glass looks the same at this size. */
+function noTransmission(m) {
+  if (!m || !(m.transmission > 0)) return;
+  const t = m.transmission; m.transmission = 0; m.transparent = true; m.depthWrite = false;
+  m.opacity = Math.min(m.opacity ?? 1, .25 + (1 - t) * .6); m.needsUpdate = true;
+}
 let loadAct = 0; const loadQ = [];
 function loadGLB(url) {
   return new Promise((ok, no) => {
@@ -729,7 +741,7 @@ async function loadModels(names, quiet) {
   await Promise.all(names.map(n => loadGLB(`assets/${MODEL_DIR}/${n}.glb`).then(g => {
     if (TEX_CAP) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
-    g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
+    g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) { if (m && m.metalness > .6) m.metalness = .6; noTransmission(m); } } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }
 /* a copy of a model, scaled so its height (or length along an axis) is `size`, standing on y=0 and centred */

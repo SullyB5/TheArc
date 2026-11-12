@@ -88,7 +88,7 @@ const envKeepClear = (x, z, pad = 4) => envSites().some(s => Math.hypot(x - s.x,
 /* ---------- the pines ---------- */
 async function buildEnvForest() {
   const W = whole('e/conifer'), WH = whole('e/conifer_hi'); if (!W) return;
-  const BT = 200, NB = Math.ceil(HALF * 2 / BT), bins = {}, hero = [];
+  const BT = 300, NB = Math.ceil(HALF * 2 / BT), bins = {}, hero = []; // (Nov 11, perf) 300 m bins, was 200: about half the pine draws
   const n = LOW ? 260 : 620; let k = 0, guard = 0;
   while (k < n && guard++ < n * 30) {
     // denser near the wall and along the paths, thinning out to ~420 m
@@ -103,7 +103,7 @@ async function buildEnvForest() {
   }
   for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
   if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
-  for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.needsUpdate = true; }
+  for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.transparent = false; m.depthWrite = true; m.needsUpdate = true; }   // (Nov 11, perf) cut-out, not blended: drawn in the opaque pass with depth, no sorting or overdraw
   await nextFrame();
 }
 

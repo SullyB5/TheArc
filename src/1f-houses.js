@@ -627,7 +627,9 @@ function shopHouse(D) {
   } else if (id === 'guns') {
     // rifles racked on the back wall (the real models), crates of ammo, the gun bench (the station), sandbags along the front
     const rifles = ['gun-night', 'gun-desert', 'sniper', 'gun-night', 'gun-desert'];
-    rifles.forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-Math.PI / 2 + .12, r === 'sniper' ? -Math.PI / 2 : 0, 0); m.position.set(-3.6 + i * .95, 1.55, -BD / 2 + .42); inner.add(m); m.traverse(o => { if (o.isMesh) o.castShadow = false; }); });
+    // (Nov 11, perf) the racked rifles are the full gun models (~140 draws between them): their own group, drawn only up close
+    const rack = new THREE.Group(); inner.add(rack); INTERIORS.push({ g: rack, x: D.cx, z: D.cz, r: 0, near: 14, on: true });
+    rifles.forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-Math.PI / 2 + .12, r === 'sniper' ? -Math.PI / 2 : 0, 0); m.position.set(-3.6 + i * .95, 1.55, -BD / 2 + .42); rack.add(m); m.traverse(o => { if (o.isMesh) o.castShadow = false; }); });
     K.box('board', 5.4, .08, .25, -1.7, 1.02, -BD / 2 + .42, 0, 0, 0, 0x4a3a2c); K.box('board', 5.4, .06, .14, -1.7, 2.1, -BD / 2 + .32, 0, 0, 0, 0x4a3a2c);
     for (const [x, y, z, r] of [[sx, .22, sz, .1], [sx + .2, .64, sz + .1, .4], [sx + .1, .22, sz + 1.1, -.2], [3.8, .22, 2, .3]]) { if (MODELS['ammo-crate']) { const c = modelCopy('ammo-crate', .42); c.position.set(x, y, z); c.rotation.y = r; inner.add(c); } else crate(K, x, y, z, r, 1, 0x4f5a3a); }
     K.box('metal', 1.2, .06, 2.4, sx + 6.5, .95, -1.8, 0, Math.PI / 2, 0, 0x5a5e60); K.box('metal', 1.1, .9, 2.2, sx + 6.5, .45, -1.8, 0, Math.PI / 2, 0, 0x3a3e40);
@@ -732,6 +734,9 @@ function shopHouse(D) {
   const st = shopL2W(D, sx, sz); addCol(st.x, st.z, .8);
   SHELTERS.push({ x: D.cx, z: D.cz, kind: 'house', r: 3.6 });
   K.build(inner, !LOW, true);
+  // (Nov 11, perf) under a roof the sun never reaches these, so their shadows were a second draw each for nothing
+  inner.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  INTERIORS.push({ g: inner, x: D.cx, z: D.cz, r: Math.hypot(BW, BD) / 2, on: true });
 }
 
 /* ---------- the yard between the buildings: power, cables, the notice board, lights, blast walls at the gate ---------- */

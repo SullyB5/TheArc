@@ -228,7 +228,7 @@ function petAt(key, x, z, home, range) {
 }
 function updPets(dt) {
   for (const e of PETS) {
-    const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < 160; if (d > 170) continue;
+    const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < (e.sp.sh < .6 ? 55 : 160); if (d > 170) continue;   // (Nov 11, perf) hens: 7 skinned parts each, unseen past ~50 m
     const F = e.sp, p = e.p; e.t -= dt; let spd = 0;
     if (e.t <= 0) { e.t = rr(3, 9); e.state = rnd() < .45 ? 'walk' : 'graze'; const a = rnd() * 6.28, r = Math.sqrt(rnd()) * e.range; e.tx = e.home.x + Math.cos(a) * r; e.tz = e.home.z + Math.sin(a) * r; }
     if (e.state === 'walk') spd = F.walk;

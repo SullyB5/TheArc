@@ -76,6 +76,9 @@ function playDone() { try { localStorage.removeItem('arc-play'); } catch (e) {} 
 function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
+/* (Nov 11, perf) every building's inside (its `inner` group: lining, props, gun racks, stoves) — drawn only when you're
+   close enough to see in. Before this they drew from ~300 m, so all eleven shops' insides cost draws from anywhere in town. */
+const INTERIORS = [];
 const SFX = TEXQ.file;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -367,6 +370,7 @@ canvas.addEventListener('webglcontextlost', ev => {
 }, false);
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;                       // (Nov 11, perf) redrawn every other frame in frame(): the shadow pass was ~500 draws
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -716,6 +720,14 @@ function shrinkTextures(root) {
 /* (Nov 11) on phones at most four model files download and unpack at once: all ~140 at the same moment put every file's
    bytes, buffers and decoded images in memory together, which is what iOS kills the tab for */
 const MODEL_DIR = TEXQ.dir || 'models', LOAD_MAX = LOW ? 4 : 16;
+/* (Nov 11, perf) "transmission" glass from imported models (the stoves' door glass, the "Glass" pieces) makes three.js
+   render the whole scene a second time, every frame, whenever one is on screen — it doubled the draws across Kestrel.
+   Plain see-through glass looks the same at this size. */
+function noTransmission(m) {
+  if (!m || !(m.transmission > 0)) return;
+  const t = m.transmission; m.transmission = 0; m.transparent = true; m.depthWrite = false;
+  m.opacity = Math.min(m.opacity ?? 1, .25 + (1 - t) * .6); m.needsUpdate = true;
+}
 let loadAct = 0; const loadQ = [];
 function loadGLB(url) {
   return new Promise((ok, no) => {
@@ -729,7 +741,7 @@ async function loadModels(names, quiet) {
   await Promise.all(names.map(n => loadGLB(`assets/${MODEL_DIR}/${n}.glb`).then(g => {
     if (TEX_CAP) shrinkTextures(g.scene);
     MODELS[n] = g.scene; if (g.animations && g.animations.length) { MODELS[n + ':anims'] = g.animations; CLIPS[n] = g.animations; } done++; if (!quiet) setLoad(`UNPACKING THE ARMORY ${done}/${names.length}`);
-    g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) if (m && m.metalness > .6) m.metalness = .6; } });
+    g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; for (const m of [].concat(o.material)) { if (m && m.metalness > .6) m.metalness = .6; noTransmission(m); } } });
   }).catch(e => console.warn('model', n, e && e.message))));
 }
 /* a copy of a model, scaled so its height (or length along an axis) is `size`, standing on y=0 and centred */
@@ -2418,7 +2430,9 @@ function shopHouse(D) {
   } else if (id === 'guns') {
     // rifles racked on the back wall (the real models), crates of ammo, the gun bench (the station), sandbags along the front
     const rifles = ['gun-night', 'gun-desert', 'sniper', 'gun-night', 'gun-desert'];
-    rifles.forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-Math.PI / 2 + .12, r === 'sniper' ? -Math.PI / 2 : 0, 0); m.position.set(-3.6 + i * .95, 1.55, -BD / 2 + .42); inner.add(m); m.traverse(o => { if (o.isMesh) o.castShadow = false; }); });
+    // (Nov 11, perf) the racked rifles are the full gun models (~140 draws between them): their own group, drawn only up close
+    const rack = new THREE.Group(); inner.add(rack); INTERIORS.push({ g: rack, x: D.cx, z: D.cz, r: 0, near: 14, on: true });
+    rifles.forEach((r, i) => { const m = hmodel(r, .95, r === 'sniper' ? 'x' : 'z'); if (!m) return; m.rotation.set(-Math.PI / 2 + .12, r === 'sniper' ? -Math.PI / 2 : 0, 0); m.position.set(-3.6 + i * .95, 1.55, -BD / 2 + .42); rack.add(m); m.traverse(o => { if (o.isMesh) o.castShadow = false; }); });
     K.box('board', 5.4, .08, .25, -1.7, 1.02, -BD / 2 + .42, 0, 0, 0, 0x4a3a2c); K.box('board', 5.4, .06, .14, -1.7, 2.1, -BD / 2 + .32, 0, 0, 0, 0x4a3a2c);
     for (const [x, y, z, r] of [[sx, .22, sz, .1], [sx + .2, .64, sz + .1, .4], [sx + .1, .22, sz + 1.1, -.2], [3.8, .22, 2, .3]]) { if (MODELS['ammo-crate']) { const c = modelCopy('ammo-crate', .42); c.position.set(x, y, z); c.rotation.y = r; inner.add(c); } else crate(K, x, y, z, r, 1, 0x4f5a3a); }
     K.box('metal', 1.2, .06, 2.4, sx + 6.5, .95, -1.8, 0, Math.PI / 2, 0, 0x5a5e60); K.box('metal', 1.1, .9, 2.2, sx + 6.5, .45, -1.8, 0, Math.PI / 2, 0, 0x3a3e40);
@@ -2523,6 +2537,9 @@ function shopHouse(D) {
   const st = shopL2W(D, sx, sz); addCol(st.x, st.z, .8);
   SHELTERS.push({ x: D.cx, z: D.cz, kind: 'house', r: 3.6 });
   K.build(inner, !LOW, true);
+  // (Nov 11, perf) under a roof the sun never reaches these, so their shadows were a second draw each for nothing
+  inner.traverse(o => { if (o.isMesh) o.castShadow = false; });
+  INTERIORS.push({ g: inner, x: D.cx, z: D.cz, r: Math.hypot(BW, BD) / 2, on: true });
 }
 
 /* ---------- the yard between the buildings: power, cables, the notice board, lights, blast walls at the gate ---------- */
@@ -4546,7 +4563,7 @@ const envKeepClear = (x, z, pad = 4) => envSites().some(s => Math.hypot(x - s.x,
 /* ---------- the pines ---------- */
 async function buildEnvForest() {
   const W = whole('e/conifer'), WH = whole('e/conifer_hi'); if (!W) return;
-  const BT = 200, NB = Math.ceil(HALF * 2 / BT), bins = {}, hero = [];
+  const BT = 300, NB = Math.ceil(HALF * 2 / BT), bins = {}, hero = []; // (Nov 11, perf) 300 m bins, was 200: about half the pine draws
   const n = LOW ? 260 : 620; let k = 0, guard = 0;
   while (k < n && guard++ < n * 30) {
     // denser near the wall and along the paths, thinning out to ~420 m
@@ -4561,7 +4578,7 @@ async function buildEnvForest() {
   }
   for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
   if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
-  for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.needsUpdate = true; }
+  for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.transparent = false; m.depthWrite = true; m.needsUpdate = true; }   // (Nov 11, perf) cut-out, not blended: drawn in the opaque pass with depth, no sorting or overdraw
   await nextFrame();
 }
 
@@ -5018,7 +5035,7 @@ function shopKitTable(g, x, y, z, w, d) {
 // the interior only draws when the camera is inside the hull or looking in through the open blast door
 function updArcInterior() {
   if (!arcInside) return; const cx = camera.position.x - ARC.x, cz = camera.position.z - ARC.z;
-  arcInside.visible = inHull(camera.position.x, camera.position.z) || (cz > ARC.W - 1 && cz < ARC.W + 70 && Math.abs(cx) < 12 + (cz - ARC.W) * 1.1 && hullDoor.t > .05);
+  arcInside.visible = inHull(camera.position.x, camera.position.z) || (cz > ARC.W - 1 && cz < ARC.W + 32 &&Math.abs(cx) < 12 + (cz - ARC.W) * 1.1 && hullDoor.t > .05);
   for (const l of ARC_LIGHTS) l.intensity = arcInside.visible ? l.userData.on : 0;
 }
 
@@ -6344,7 +6361,7 @@ function petAt(key, x, z, home, range) {
 }
 function updPets(dt) {
   for (const e of PETS) {
-    const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < 160; if (d > 170) continue;
+    const d = Math.hypot(e.x - P.x, e.z - P.z); e.g.visible = d < (e.sp.sh < .6 ? 55 : 160); if (d > 170) continue;   // (Nov 11, perf) hens: 7 skinned parts each, unseen past ~50 m
     const F = e.sp, p = e.p; e.t -= dt; let spd = 0;
     if (e.t <= 0) { e.t = rr(3, 9); e.state = rnd() < .45 ? 'walk' : 'graze'; const a = rnd() * 6.28, r = Math.sqrt(rnd()) * e.range; e.tx = e.home.x + Math.cos(a) * r; e.tz = e.home.z + Math.sin(a) * r; }
     if (e.state === 'walk') spd = F.walk;
@@ -13279,7 +13296,7 @@ function save() {
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
 /* ================= main loop ================= */
-let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
+let last = performance.now(), saveT = 0, titleT = 0, regionT = 1, shadowTick = 0;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
 const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
@@ -13345,6 +13362,7 @@ function frame(now) {
   }
   updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
+  shadowTick++; renderer.shadowMap.needsUpdate = (shadowTick & 1) === 0 || shadowTick < 4;
   composer.render(dt);
 }
 
@@ -13390,7 +13408,10 @@ function bakeable(o) {
   const m = o.material, g = o.geometry;
   if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.visible || o.layers.mask !== 1 || o.renderOrder || !o.frustumCulled) return false;
   if (Array.isArray(m) || !m.visible || m.transparent || m.alphaTest > 0 || m.isMeshBasicMaterial || m.isShaderMaterial || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return false;
-  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || Object.keys(o.userData).length) return false;
+  // (Nov 11, perf) the GLTF loader stamps userData.name on every imported mesh, which used to keep every prop model
+  // (crates, stoves, lockers, racks, the station pieces) out of the bake: one draw per piece. A bare name doesn't count.
+  const ud = Object.keys(o.userData);
+  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || (ud.length && !(ud.length === 1 && ud[0] === 'name'))) return false;
   return true;
 }
 function bakeGroup(root, dyn, cellSize = 30) {
@@ -13431,7 +13452,7 @@ function bakeGroup(root, dyn, cellSize = 30) {
 }
 function bakeDyn() {
   const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
-    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...DROP_TOWER.dyn, ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...DROP_TOWER.dyn, ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g), ...INTERIORS.filter(I => I.near).map(I => I.g)]);
   d.delete(undefined); d.delete(null); return d;
 }
 function bakeWorld() {
@@ -13450,9 +13471,10 @@ function buildCull() {
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
     if (skip.has(o) || o.isSprite) continue;
-    let inst = false; const meshes = [];
-    o.traverse(c => { if (c.isInstancedMesh) inst = true; else if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
-    if (inst || !meshes.length) continue;
+    // (Nov 11, perf) groups holding instanced props (lockers, bottles, racks…) used to be skipped, so they drew from anywhere
+    const meshes = [];
+    o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
+    if (!meshes.length || INTERIORS.some(I => I.g === o)) continue;
     box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
     if (sph.radius > 90) continue;
     if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
@@ -13462,9 +13484,16 @@ function buildCull() {
 function updCull(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = .2;
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
+  // (Nov 11, perf) was 70 m + 40× the radius (a 6 m building drew to ~310 m); now ~130 m for a building, ~70 m for a crate
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
     if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+  }
+  // building insides: only once you're near enough to look in (inside the Bunkhouse, the others are hidden too)
+  const near = LOW ? 22 : 30;
+  for (const I of INTERIORS) {
+    const on = Math.hypot(I.x - cx, I.z - cz) - I.r < (I.near || near);
+    if (on !== I.on) { I.on = on; I.g.visible = on; }
   }
 }
 const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x); return [-Math.cos(a) * 27 - Math.sin(a) * 3, -Math.sin(a) * 27 + Math.cos(a) * 3]; })();   // where you come to: in the furrow, looking into the torn end

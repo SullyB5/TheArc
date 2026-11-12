@@ -345,7 +345,7 @@ function shopKitTable(g, x, y, z, w, d) {
 // the interior only draws when the camera is inside the hull or looking in through the open blast door
 function updArcInterior() {
   if (!arcInside) return; const cx = camera.position.x - ARC.x, cz = camera.position.z - ARC.z;
-  arcInside.visible = inHull(camera.position.x, camera.position.z) || (cz > ARC.W - 1 && cz < ARC.W + 70 && Math.abs(cx) < 12 + (cz - ARC.W) * 1.1 && hullDoor.t > .05);
+  arcInside.visible = inHull(camera.position.x, camera.position.z) || (cz > ARC.W - 1 && cz < ARC.W + 32 &&Math.abs(cx) < 12 + (cz - ARC.W) * 1.1 && hullDoor.t > .05);
   for (const l of ARC_LIGHTS) l.intensity = arcInside.visible ? l.userData.on : 0;
 }
 

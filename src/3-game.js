@@ -1225,7 +1225,7 @@ function save() {
 function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null'); } catch (e) { return null; } }
 
 /* ================= main loop ================= */
-let last = performance.now(), saveT = 0, titleT = 0, regionT = 1;
+let last = performance.now(), saveT = 0, titleT = 0, regionT = 1, shadowTick = 0;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
 const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
@@ -1291,6 +1291,7 @@ function frame(now) {
   }
   updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
+  shadowTick++; renderer.shadowMap.needsUpdate = (shadowTick & 1) === 0 || shadowTick < 4;
   composer.render(dt);
 }
 
@@ -1336,7 +1337,10 @@ function bakeable(o) {
   const m = o.material, g = o.geometry;
   if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.visible || o.layers.mask !== 1 || o.renderOrder || !o.frustumCulled) return false;
   if (Array.isArray(m) || !m.visible || m.transparent || m.alphaTest > 0 || m.isMeshBasicMaterial || m.isShaderMaterial || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return false;
-  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || Object.keys(o.userData).length) return false;
+  // (Nov 11, perf) the GLTF loader stamps userData.name on every imported mesh, which used to keep every prop model
+  // (crates, stoves, lockers, racks, the station pieces) out of the bake: one draw per piece. A bare name doesn't count.
+  const ud = Object.keys(o.userData);
+  if (!g.attributes.position || !g.attributes.normal || g.morphAttributes.position || (ud.length && !(ud.length === 1 && ud[0] === 'name'))) return false;
   return true;
 }
 function bakeGroup(root, dyn, cellSize = 30) {
@@ -1377,7 +1381,7 @@ function bakeGroup(root, dyn, cellSize = 30) {
 }
 function bakeDyn() {
   const d = new Set([...ents.map(e => e.g), ...CHUNKS.values(), ...OCELLS.values(), smokeGroup, ...beaconSmoke, ...SCRAPS.map(s => s.g), ...CRATES.map(c => c.g), ...CACHES.map(c => c.g),
-    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...DROP_TOWER.dyn, ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
+    ...gateDoors.flatMap(g => [g.pivot, g.door]), ...hullDoors.map(h => h.g), ...DROP_TOWER.dyn, ...towers.flatMap(T => [T.gun, T.lamp]), ...PLACED.map(p => p.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g), ...INTERIORS.filter(I => I.near).map(I => I.g)]);
   d.delete(undefined); d.delete(null); return d;
 }
 function bakeWorld() {
@@ -1396,9 +1400,10 @@ function buildCull() {
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
     if (skip.has(o) || o.isSprite) continue;
-    let inst = false; const meshes = [];
-    o.traverse(c => { if (c.isInstancedMesh) inst = true; else if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
-    if (inst || !meshes.length) continue;
+    // (Nov 11, perf) groups holding instanced props (lockers, bottles, racks…) used to be skipped, so they drew from anywhere
+    const meshes = [];
+    o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
+    if (!meshes.length || INTERIORS.some(I => I.g === o)) continue;
     box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
     if (sph.radius > 90) continue;
     if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
@@ -1408,9 +1413,16 @@ function buildCull() {
 function updCull(dt) {
   cullT -= dt; if (cullT > 0) return; cullT = .2;
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
+  // (Nov 11, perf) was 70 m + 40× the radius (a 6 m building drew to ~310 m); now ~130 m for a building, ~70 m for a crate
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(70 + c.r * 40, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
     if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+  }
+  // building insides: only once you're near enough to look in (inside the Bunkhouse, the others are hidden too)
+  const near = LOW ? 22 : 30;
+  for (const I of INTERIORS) {
+    const on = Math.hypot(I.x - cx, I.z - cz) - I.r < (I.near || near);
+    if (on !== I.on) { I.on = on; I.g.visible = on; }
   }
 }
 const DROP_WAKE = (() => { const a = Math.atan2(-POI.dropsite.z, -POI.dropsite.x); return [-Math.cos(a) * 27 - Math.sin(a) * 3, -Math.sin(a) * 27 + Math.cos(a) * 3]; })();   // where you come to: in the furrow, looking into the torn end
