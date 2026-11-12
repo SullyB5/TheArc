@@ -12743,6 +12743,10 @@ function unlockEverything() {
   for (const id in ITEMS) { const I = ITEMS[id], want = I.c === 'story' ? 1 : I.c === 'ammo' ? 500 : I.c === 'build' ? 10 : 99; if (cnt(id) < want) give(id, want - cnt(id)); }
   for (const id in GEAR_DEFS) if (!INV.tools.some(t => t.id === id)) give(id, 1, 2);
   INV.scrap = Math.max(INV.scrap, 9999); INV.res = Math.max(INV.res, RES_MAX); INV.resH = Math.max(INV.resH, RESH_MAX);
+  // (Nov 11, Bryce: couldn't upgrade the base after the secret) projects outside the wall are paid from the Kestrel stores,
+  // not your bag — so stock the stores with enough of every material to build every project on the works board
+  try { const st = stores(), need = {}; for (const id of PROJ_IDS) for (const [k, n] of Object.entries(PROJECTS[id].cost)) need[k] = (need[k] || 0) + n;
+    for (const k in need) st[k] = Math.max(st[k] || 0, need[k] * 2); } catch (e) {}
   G.flags.tier = 6; showFlyBtn(); sfx('buy'); toast(first ? 'Everything unlocked · every item, a bottomless bag, and the FLY button' : 'Topped up · every item restocked', 4);
   if (invOpen) renderInv(); save();
 }
