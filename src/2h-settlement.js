@@ -236,7 +236,7 @@ function settlementHTML() {
     const Pj = PROJECTS[id], J = S.proj[id] || {}, cost = Object.entries(Pj.cost), can = cost.every(([k, n]) => sCnt(k) >= n);
     const state = J.done ? '<b style="color:#7fc4b8">built</b>' : S.cur === id ? `building · ${Math.min(100, Math.round((J.pts || 0) / Pj.w * 100))}% (${S.ros.filter(R => R.job === 'build').length} builders)` : '';
     h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${Pj.n}</b> <small style="opacity:.75">${Pj.d}</small> ${state ? '· ' + state : ''}`;
-    if (!J.done && S.cur !== id) h += `<div><small>${cost.map(([k, n]) => `<span style="color:${sCnt(k) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(k).toLowerCase()} ${sCnt(k)}/${n}</span>`).join(' · ')}</small> <button data-sp="${id}"${can && home && !S.cur ? '' : ' class="dis"'}>${S.cur ? 'one at a time' : 'Start'}</button></div>`;
+    if (!J.done && (S.cur !== id || G.flags.dev)) h += `<div><small>${cost.map(([k, n]) => `<span style="color:${sCnt(k) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(k).toLowerCase()} ${sCnt(k)}/${n}</span>`).join(' · ')}</small> <button data-sp="${id}"${G.flags.dev || (can && home && !S.cur) ? '' : ' class="dis"'}>${G.flags.dev ? 'Build now' : S.cur ? 'one at a time' : 'Start'}</button></div>`;
     h += '</div>';
   }
   const items = Object.entries(S.stores).filter(([, n]) => n > 0);
@@ -248,10 +248,19 @@ function setAction(d, shift) {
   const S = setS();
   if (d.sc) { if (d.sc === '-') compSet(null); else { if (!inKestrel()) { sfx('no'); return; } compSet(d.sc); } save(); return; }
   if (d.sj) { if (!inKestrel()) { sfx('no'); return; } const R = S.ros.find(x => x.id === d.sid); if (R) { R.job = d.sj; sfx('pickup'); } }
+  else if (d.sp && G.flags.dev) { devFinishProject(d.sp); }
   else if (d.sp) { const Pj = PROJECTS[d.sp]; if (S.cur || !inKestrel() || !Object.entries(Pj.cost).every(([k, n]) => sCnt(k) >= n)) { sfx('no'); return; } for (const [k, n] of Object.entries(Pj.cost)) sAdd(k, -n); S.proj[d.sp] = { pts: 0 }; S.cur = d.sp; buildProject(d.sp, 1); sfx('buy'); toast(`${Pj.n} started · put people on Building to finish it`, 3); }
   else if (d.st) { if (!nearStores()) return; const n = shift ? sCnt(d.st) : Math.min(sCnt(d.st), 5); sAdd(d.st, -n); give(d.st, n); sfx('pickup'); }
   else if (d.sg) { if (!nearStores()) return; const n = shift ? cnt(d.sg) : Math.min(cnt(d.sg), 5); take(d.sg, n); sAdd(d.sg, n); sfx('pickup'); }
   save();
+}
+
+// (Nov 11, Bryce) with the secret unlock on, any project goes up the moment you press it — free, from anywhere, no builders
+function devFinishProject(id) {
+  const S = setS(), Pj = PROJECTS[id]; if (!Pj || (S.proj[id] || {}).done) return;
+  S.proj[id] = { pts: Pj.w, done: 1 }; if (S.cur === id) S.cur = null;
+  buildProject(id, 2); if (id === 'towers' && typeof setTowerGuards === 'function') setTowerGuards();
+  sfx('buy'); toast(`${Pj.n} built`, 2.4); save();
 }
 
 /* ---------- talking, chatter ---------- */

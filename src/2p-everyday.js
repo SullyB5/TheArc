@@ -604,7 +604,7 @@ function updEveryday(dt) {
 let e2Away = null;
 const e2FarFromHome = () => Math.hypot(P.x, P.z) > CAMP_R + 140 || !!UG.at;
 { const sn1 = startNight; startNight = function () {
-  if (G.flags.reached && !night.active && G.day < 99 && !SIEGE.on && e2FarFromHome()) {
+  if (!devForce && G.flags.reached && !night.active && G.day < 99 && !SIEGE.on && e2FarFromHome()) {
     if (!e2Away || e2Away.day !== G.day) { e2Away = { day: G.day }; toast('Horns back at Kestrel. You’re too far out — the watch will hold it without you tonight', 4.2); }
     return;
   }
@@ -663,24 +663,26 @@ function e2Works() {
   const btns = [];
   for (const u of UPS) { const W = WORKS[u.id], lv = UP[u.id], max = lv >= u.max, cost = u.cost[lv];
     h += `<div style="padding:6px 8px;margin:4px 0;border:1px solid #fff2;border-left:4px solid ${max ? '#7fc4b8' : '#f0a640'};border-radius:3px"><b>${W.n}</b> <small style="opacity:.7">level ${lv}/${u.max}</small><br><small>Now: ${W.lv[lv]}</small>${max ? '' : `<br><small style="color:#f0d090">Next: ${W.lv[lv + 1]} — ${cost} scrap · ${W.where}</small>`}</div>`;
-    if (!max) btns.push({ k: 'wup', v: u.id, t: `Upgrade ${W.n.toLowerCase()} → level ${lv + 1} (${cost} scrap)`, dis: INV.scrap < cost }); }
+    if (!max) btns.push({ k: 'wup', v: u.id, t: `Upgrade ${W.n.toLowerCase()} → level ${lv + 1} (${cost} scrap)`, dis: !G.flags.dev && INV.scrap < cost }); }
   h += `<h3 style="font:700 17px 'Barlow Condensed',sans-serif;margin:12px 0 4px;color:#f0a640">PROJECTS OUTSIDE THE WALL</h3>`;
   for (const id of PROJ_IDS) { const Pj = PROJECTS[id], J = S.proj[id] || {}, cost = Object.entries(Pj.cost), can = cost.every(([k, n]) => sCnt(k) >= n);
     const st = J.done ? 'built' : S.cur === id ? `being built (${Math.round((J.pts || 0) / Pj.w * 100)}% · ${S.ros.filter(R => R.job === 'build').length} on Building)` : 'not started';
     h += `<div style="padding:6px 8px;margin:4px 0;border:1px solid #fff2;border-left:4px solid ${J.done ? '#7fc4b8' : S.cur === id ? '#e8c070' : '#6a6458'};border-radius:3px"><b>${Pj.n}</b> <small style="opacity:.7">${st}</small><br><small>${Pj.d}</small>${J.done || S.cur === id ? '' : `<br><small style="color:${can ? '#f0d090' : '#c08070'}">Costs ${cost.map(([k, n]) => `${n} ${nameOf(k).toLowerCase()} (${sCnt(k)})`).join(', ')} from the stores</small>`}</div>`;
-    if (!J.done && S.cur !== id) btns.push({ k: 'wpj', v: id, t: `Start: ${Pj.n}`, dis: !!S.cur || !can }); }
+    if (!J.done && (S.cur !== id || G.flags.dev)) btns.push({ k: 'wpj', v: id, t: G.flags.dev ? `Build now: ${Pj.n}` : `Start: ${Pj.n}`, dis: !G.flags.dev && (!!S.cur || !can) }); }
   if (S.cur) h += `<p style="opacity:.7"><small>One project at a time — ${PROJECTS[S.cur].n} is going up now.</small></p>`;
   btns.push({ k: 'close', t: 'Done' });
   e2Panel('KESTREL WORKS', h, btns);
 }
 function e2WorksUp(id) {
   const u = UPS.find(x => x.id === id), lv = UP[id]; if (!u || lv >= u.max) return; const cost = u.cost[lv];
-  if (INV.scrap < cost) { sfx('no'); toast(`Need ${cost} scrap`); return; }
-  INV.scrap -= cost; UP[id]++; sfx('buy'); applyUpgrades(id); save();
+  if (!G.flags.dev && INV.scrap < cost) { sfx('no'); toast(`Need ${cost} scrap`); return; }
+  if (!G.flags.dev) INV.scrap -= cost; UP[id]++; sfx('buy'); applyUpgrades(id); save();
   const W = WORKS[id]; e2Close(); card(`${W.n.toUpperCase()} · LEVEL ${UP[id]}`, W.lv[UP[id]], 5);
   e2ShowMe(W.at(), W.where);
 }
 function e2WorksProject(id) {
+  if (G.flags.dev) { devFinishProject(id); e2Close(); const P2 = PROJECTS[id], Pl = id === 'lookout' || id === 'market' ? E2_PLOTS[id] : id === 'gatehouse' ? { x: 0, z: CAMP_R + 34 } : projPlot(id);
+    card(P2.n.toUpperCase(), 'Built · ' + P2.d, 4); if (Pl) e2ShowMe([Pl], 'outside the wall'); return; }
   const S = setS(), Pj = PROJECTS[id]; if (S.cur || !Object.entries(Pj.cost).every(([k, n]) => sCnt(k) >= n)) { sfx('no'); return; }
   setAction({ sp: id }); e2Close();
   const Pl = id === 'lookout' || id === 'market' ? E2_PLOTS[id] : id === 'gatehouse' ? { x: 0, z: CAMP_R + 34 } : projPlot(id);

@@ -239,8 +239,8 @@ shopEl.addEventListener('click', e => {
   const t = e.target.closest('.tile'); if (!t) return;
   const u = UPS.find(x => x.id === t.dataset.id), lv = UP[u.id];
   if (lv >= u.max) return;
-  if (INV.scrap < u.cost[lv]) { sfx('no'); toast(`Need ${u.cost[lv]} scrap`); return; }
-  INV.scrap -= u.cost[lv]; UP[u.id]++; sfx('buy'); applyUpgrades(u.id);
+  if (!G.flags.dev && INV.scrap < u.cost[lv]) { sfx('no'); toast(`Need ${u.cost[lv]} scrap`); return; }
+  if (!G.flags.dev) INV.scrap -= u.cost[lv]; UP[u.id]++; sfx('buy'); applyUpgrades(u.id);
   renderShop(); shopEl.querySelector(`[data-id="${u.id}"]`)?.classList.add('buy');
   if (G.step === 4 && u.id === 'wall') { setStep(5); closeShop(); say([['Kade', 'Look at that. Almost looks like we meant to live here.'], ['Kade', "Juno's asking for you. Med tent."]]); }
   save();
@@ -276,7 +276,7 @@ function respawnBases() {
 /* ================= night raids ================= */
 function startNight() {
   night.active = true; night.wave = 0; night.core = 100; night.t = 0;
-  night.final = G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
+  night.final = devForce ? devForce === 'final' : G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
   if (night.final) siegeStart();   // (Nov 11) Night 100 in four stages — 2j-siege.js
   night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
   gate.open = false; sfx('gate'); G.tod = .9; G.todTarget = null;
@@ -675,9 +675,19 @@ function unlockEverything() {
   // (Nov 11, Bryce: couldn't upgrade the base after the secret) projects outside the wall are paid from the Kestrel stores,
   // not your bag — so stock the stores with enough of every material to build every project on the works board
   try { const st = stores(), need = {}; for (const id of PROJ_IDS) for (const [k, n] of Object.entries(PROJECTS[id].cost)) need[k] = (need[k] || 0) + n;
-    for (const k in need) st[k] = Math.max(st[k] || 0, need[k] * 2); } catch (e) {}
+    for (const k in need) st[k] = Math.max(st[k] || 0, need[k] * 2);
+    const S = setS(); if (S.cur) devFinishProject(S.cur); } catch (e) {}
   G.flags.tier = 6; showFlyBtn(); sfx('buy'); toast(first ? 'Everything unlocked · every item, a bottomless bag, and the FLY button' : 'Topped up · every item restocked', 4);
   if (invOpen) renderInv(); save();
+}
+/* (Nov 11, Bryce) testing buttons in the Travel tab: start a raid now, or the Night 100 siege now */
+var devForce = null;
+function devRaid(kind) {
+  if (G.mode !== 'play' || !G.flags.dev) return;
+  if (night.active) { sfx('no'); toast('A raid is already on', 2.4); return; }
+  toggleInv(false);
+  if (campD(P.x, P.z) > CAMP_R + 40 || (typeof UG !== 'undefined' && UG.at)) { try { travelList()[0].go(); } catch (e) {} }
+  devForce = kind; try { startNight(); } finally { devForce = null; }
 }
 function showFlyBtn() { $('bFly').style.display = G.flags.dev ? 'grid' : 'none'; }
 $('bFly').addEventListener('click', e => { e.stopPropagation(); if (G.flags.dev) toggleFly(); });
@@ -1060,6 +1070,7 @@ $('inv').addEventListener('click', e => {
   else if (d.sj || d.sp || d.st || d.sg || d.sc) setAction(d, e.shiftKey);
   else if (d.su || d.sv || d.kc) finAction(d);
   else if (d.tp) return travelGo(d.tp);
+  else if (d.dr) return devRaid(d.dr);
   else if (d.sjt || d.sjx || d.sjh) sideAction(d);
   else if (d.e2) { e2Action(d); if (!invOpen) return; }
   else if (d.only) craftOnly = !craftOnly;
@@ -1664,7 +1675,7 @@ async function boot() {
   loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });
 }
 boot();
-window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
+window.__arc = { G, P, INV, UP, night, devRaid: k => devRaid(k), inv: (v, t) => { if (t) invTab = t; toggleInv(v); }, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
 window.__E = { ARC_RADIO, ARC_WALKIES, WING, envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };
 Object.assign(window.__T, { updNPC, updRust, fogCountdown, setPause, zoomOf, useInteract, input });

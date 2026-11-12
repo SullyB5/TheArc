@@ -47,7 +47,7 @@ function workshopHTML() {
   const home = inKestrel(), atB = nearStation('bench');
   let h = `<h4>Workshops</h4><div class="jn">`;
   for (const k in STUP) { const U = STUP[k], lv = stLv(k), next = U.cost[lv];
-    h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${U.n}</b> · level ${lv + 1}/3 <small style="opacity:.7">${U.d}</small>${next ? `<div><small>${Object.entries(next).map(([i, n]) => `<span style="color:${cnt(i) + sCnt(i) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(i).toLowerCase()} ${cnt(i) + sCnt(i)}/${n}</span>`).join(' · ')}</small> <button data-su="${k}"${home && haveAll(next) ? '' : ' class="dis"'}>Upgrade</button></div>` : ' <small style="color:#7fc4b8">· done</small>'}</div>`; }
+    h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${U.n}</b> · level ${lv + 1}/3 <small style="opacity:.7">${U.d}</small>${next ? `<div><small>${Object.entries(next).map(([i, n]) => `<span style="color:${cnt(i) + sCnt(i) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(i).toLowerCase()} ${cnt(i) + sCnt(i)}/${n}</span>`).join(' · ')}</small> <button data-su="${k}"${G.flags.dev || (home && haveAll(next)) ? '' : ' class="dis"'}>Upgrade</button></div>` : ' <small style="color:#7fc4b8">· done</small>'}</div>`; }
   h += `</div><h4>Salvage${atB ? '' : ' · <small>at a workbench</small>'}</h4>`;
   if (atB) { const L = INV.tools.map((t, i) => [t, i]).filter(([t]) => !busy(t)); h += `<div class="row">${L.length ? L.map(([t, i]) => { const s = salvageOf(t); return itemTile(t.id, 1, `<button data-sv="${i}" title="${Object.entries(s).filter(([, n]) => n).map(([k, n]) => n + ' ' + nameOf(k).toLowerCase()).join(', ')}">Strip</button>`); }).join('') : '<p class="dim">Nothing to strip.</p>'}</div>`; }
   else h += '<p class="dim">Stand at a workbench to strip gear you don’t need for scrap and parts.</p>';
@@ -55,7 +55,7 @@ function workshopHTML() {
 }
 
 function finAction(d) {
-  if (d.su) { const U = STUP[d.su], lv = stLv(d.su), c = U && U.cost[lv]; if (!c || !inKestrel() || !haveAll(c)) { sfx('no'); return; } payAll(c); (G.flags.stLv ||= {})[d.su] = lv + 1; sfx('pickup'); toast(`${U.n} upgraded · level ${lv + 2}`, 2.4); save(); }
+  if (d.su) { const U = STUP[d.su], lv = stLv(d.su), c = U && U.cost[lv]; if (!c || (!G.flags.dev && (!inKestrel() || !haveAll(c)))) { sfx('no'); return; } if (!G.flags.dev) payAll(c); (G.flags.stLv ||= {})[d.su] = lv + 1; sfx('pickup'); toast(`${U.n} upgraded · level ${lv + 2}`, 2.4); save(); }
   else if (d.sv) { const t = INV.tools[+d.sv]; if (!t || busy(t) || !nearStation('bench')) { sfx('no'); return; } const out = salvageOf(t); unequip(t); INV.tools.splice(INV.tools.indexOf(t), 1); for (const [k, n] of Object.entries(out)) if (n) { if (k === 'scrap') INV.scrap = (INV.scrap || 0) + n; else give(k, n); } sfx('metal'); toast('Stripped for ' + Object.entries(out).filter(([, n]) => n).map(([k, n]) => n + ' ' + nameOf(k).toLowerCase()).join(', '), 2.6); save(); }
   else if (d.kc) { const K = KCOL[d.kc]; if (!K || !K[2]()) { sfx('no'); return; } G.flags.kcol = d.kc; cosmeticsSync(); sfx('pickup'); save(); }
 
@@ -324,6 +324,7 @@ function travelList() {
 }
 function travelHTML() {
   const L = travelList(), gs = [...new Set(L.map(t => t.g))];
-  return `<p class="dim">Testing shortcut · tap a place to go there instantly.</p>` + gs.map(g => `<h4>${g}</h4><div style="display:flex;flex-wrap:wrap;gap:6px">${L.map((t, i) => [t, i]).filter(([t]) => t.g === g).map(([t, i]) => `<button data-tp="${i}">${t.n}</button>`).join('')}</div>`).join('');
+  const raids = G.flags.dev ? `<h4>Raids</h4><div style="display:flex;flex-wrap:wrap;gap:6px"><button data-dr="raid">Start a raid now</button><button data-dr="final">Start the Night 100 raid</button></div><p class="dim"><small>${night.active ? 'A raid is on right now.' : 'Takes you to the Kestrel gate if you’re far out, then the horns go.'}</small></p>` : '';
+  return raids + `<p class="dim">Testing shortcut · tap a place to go there instantly.</p>` + gs.map(g => `<h4>${g}</h4><div style="display:flex;flex-wrap:wrap;gap:6px">${L.map((t, i) => [t, i]).filter(([t]) => t.g === g).map(([t, i]) => `<button data-tp="${i}">${t.n}</button>`).join('')}</div>`).join('');
 }
 function travelGo(i) { const t = travelList()[+i]; if (!t) return; toggleInv(false); t.go(); P.hp = Math.max(P.hp, 1); toast('→ ' + t.n, 2); }

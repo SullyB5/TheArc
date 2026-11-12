@@ -9570,7 +9570,7 @@ function settlementHTML() {
     const Pj = PROJECTS[id], J = S.proj[id] || {}, cost = Object.entries(Pj.cost), can = cost.every(([k, n]) => sCnt(k) >= n);
     const state = J.done ? '<b style="color:#7fc4b8">built</b>' : S.cur === id ? `building · ${Math.min(100, Math.round((J.pts || 0) / Pj.w * 100))}% (${S.ros.filter(R => R.job === 'build').length} builders)` : '';
     h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${Pj.n}</b> <small style="opacity:.75">${Pj.d}</small> ${state ? '· ' + state : ''}`;
-    if (!J.done && S.cur !== id) h += `<div><small>${cost.map(([k, n]) => `<span style="color:${sCnt(k) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(k).toLowerCase()} ${sCnt(k)}/${n}</span>`).join(' · ')}</small> <button data-sp="${id}"${can && home && !S.cur ? '' : ' class="dis"'}>${S.cur ? 'one at a time' : 'Start'}</button></div>`;
+    if (!J.done && (S.cur !== id || G.flags.dev)) h += `<div><small>${cost.map(([k, n]) => `<span style="color:${sCnt(k) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(k).toLowerCase()} ${sCnt(k)}/${n}</span>`).join(' · ')}</small> <button data-sp="${id}"${G.flags.dev || (can && home && !S.cur) ? '' : ' class="dis"'}>${G.flags.dev ? 'Build now' : S.cur ? 'one at a time' : 'Start'}</button></div>`;
     h += '</div>';
   }
   const items = Object.entries(S.stores).filter(([, n]) => n > 0);
@@ -9582,10 +9582,19 @@ function setAction(d, shift) {
   const S = setS();
   if (d.sc) { if (d.sc === '-') compSet(null); else { if (!inKestrel()) { sfx('no'); return; } compSet(d.sc); } save(); return; }
   if (d.sj) { if (!inKestrel()) { sfx('no'); return; } const R = S.ros.find(x => x.id === d.sid); if (R) { R.job = d.sj; sfx('pickup'); } }
+  else if (d.sp && G.flags.dev) { devFinishProject(d.sp); }
   else if (d.sp) { const Pj = PROJECTS[d.sp]; if (S.cur || !inKestrel() || !Object.entries(Pj.cost).every(([k, n]) => sCnt(k) >= n)) { sfx('no'); return; } for (const [k, n] of Object.entries(Pj.cost)) sAdd(k, -n); S.proj[d.sp] = { pts: 0 }; S.cur = d.sp; buildProject(d.sp, 1); sfx('buy'); toast(`${Pj.n} started · put people on Building to finish it`, 3); }
   else if (d.st) { if (!nearStores()) return; const n = shift ? sCnt(d.st) : Math.min(sCnt(d.st), 5); sAdd(d.st, -n); give(d.st, n); sfx('pickup'); }
   else if (d.sg) { if (!nearStores()) return; const n = shift ? cnt(d.sg) : Math.min(cnt(d.sg), 5); take(d.sg, n); sAdd(d.sg, n); sfx('pickup'); }
   save();
+}
+
+// (Nov 11, Bryce) with the secret unlock on, any project goes up the moment you press it — free, from anywhere, no builders
+function devFinishProject(id) {
+  const S = setS(), Pj = PROJECTS[id]; if (!Pj || (S.proj[id] || {}).done) return;
+  S.proj[id] = { pts: Pj.w, done: 1 }; if (S.cur === id) S.cur = null;
+  buildProject(id, 2); if (id === 'towers' && typeof setTowerGuards === 'function') setTowerGuards();
+  sfx('buy'); toast(`${Pj.n} built`, 2.4); save();
 }
 
 /* ---------- talking, chatter ---------- */
@@ -11079,7 +11088,7 @@ function workshopHTML() {
   const home = inKestrel(), atB = nearStation('bench');
   let h = `<h4>Workshops</h4><div class="jn">`;
   for (const k in STUP) { const U = STUP[k], lv = stLv(k), next = U.cost[lv];
-    h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${U.n}</b> · level ${lv + 1}/3 <small style="opacity:.7">${U.d}</small>${next ? `<div><small>${Object.entries(next).map(([i, n]) => `<span style="color:${cnt(i) + sCnt(i) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(i).toLowerCase()} ${cnt(i) + sCnt(i)}/${n}</span>`).join(' · ')}</small> <button data-su="${k}"${home && haveAll(next) ? '' : ' class="dis"'}>Upgrade</button></div>` : ' <small style="color:#7fc4b8">· done</small>'}</div>`; }
+    h += `<div style="padding:6px 8px;border:1px solid #fff2;border-radius:3px;background:#0002"><b>${U.n}</b> · level ${lv + 1}/3 <small style="opacity:.7">${U.d}</small>${next ? `<div><small>${Object.entries(next).map(([i, n]) => `<span style="color:${cnt(i) + sCnt(i) >= n ? '#7fc4b8' : '#e0a040'}">${nameOf(i).toLowerCase()} ${cnt(i) + sCnt(i)}/${n}</span>`).join(' · ')}</small> <button data-su="${k}"${G.flags.dev || (home && haveAll(next)) ? '' : ' class="dis"'}>Upgrade</button></div>` : ' <small style="color:#7fc4b8">· done</small>'}</div>`; }
   h += `</div><h4>Salvage${atB ? '' : ' · <small>at a workbench</small>'}</h4>`;
   if (atB) { const L = INV.tools.map((t, i) => [t, i]).filter(([t]) => !busy(t)); h += `<div class="row">${L.length ? L.map(([t, i]) => { const s = salvageOf(t); return itemTile(t.id, 1, `<button data-sv="${i}" title="${Object.entries(s).filter(([, n]) => n).map(([k, n]) => n + ' ' + nameOf(k).toLowerCase()).join(', ')}">Strip</button>`); }).join('') : '<p class="dim">Nothing to strip.</p>'}</div>`; }
   else h += '<p class="dim">Stand at a workbench to strip gear you don’t need for scrap and parts.</p>';
@@ -11087,7 +11096,7 @@ function workshopHTML() {
 }
 
 function finAction(d) {
-  if (d.su) { const U = STUP[d.su], lv = stLv(d.su), c = U && U.cost[lv]; if (!c || !inKestrel() || !haveAll(c)) { sfx('no'); return; } payAll(c); (G.flags.stLv ||= {})[d.su] = lv + 1; sfx('pickup'); toast(`${U.n} upgraded · level ${lv + 2}`, 2.4); save(); }
+  if (d.su) { const U = STUP[d.su], lv = stLv(d.su), c = U && U.cost[lv]; if (!c || (!G.flags.dev && (!inKestrel() || !haveAll(c)))) { sfx('no'); return; } if (!G.flags.dev) payAll(c); (G.flags.stLv ||= {})[d.su] = lv + 1; sfx('pickup'); toast(`${U.n} upgraded · level ${lv + 2}`, 2.4); save(); }
   else if (d.sv) { const t = INV.tools[+d.sv]; if (!t || busy(t) || !nearStation('bench')) { sfx('no'); return; } const out = salvageOf(t); unequip(t); INV.tools.splice(INV.tools.indexOf(t), 1); for (const [k, n] of Object.entries(out)) if (n) { if (k === 'scrap') INV.scrap = (INV.scrap || 0) + n; else give(k, n); } sfx('metal'); toast('Stripped for ' + Object.entries(out).filter(([, n]) => n).map(([k, n]) => n + ' ' + nameOf(k).toLowerCase()).join(', '), 2.6); save(); }
   else if (d.kc) { const K = KCOL[d.kc]; if (!K || !K[2]()) { sfx('no'); return; } G.flags.kcol = d.kc; cosmeticsSync(); sfx('pickup'); save(); }
 
@@ -11356,7 +11365,8 @@ function travelList() {
 }
 function travelHTML() {
   const L = travelList(), gs = [...new Set(L.map(t => t.g))];
-  return `<p class="dim">Testing shortcut · tap a place to go there instantly.</p>` + gs.map(g => `<h4>${g}</h4><div style="display:flex;flex-wrap:wrap;gap:6px">${L.map((t, i) => [t, i]).filter(([t]) => t.g === g).map(([t, i]) => `<button data-tp="${i}">${t.n}</button>`).join('')}</div>`).join('');
+  const raids = G.flags.dev ? `<h4>Raids</h4><div style="display:flex;flex-wrap:wrap;gap:6px"><button data-dr="raid">Start a raid now</button><button data-dr="final">Start the Night 100 raid</button></div><p class="dim"><small>${night.active ? 'A raid is on right now.' : 'Takes you to the Kestrel gate if you’re far out, then the horns go.'}</small></p>` : '';
+  return raids + `<p class="dim">Testing shortcut · tap a place to go there instantly.</p>` + gs.map(g => `<h4>${g}</h4><div style="display:flex;flex-wrap:wrap;gap:6px">${L.map((t, i) => [t, i]).filter(([t]) => t.g === g).map(([t, i]) => `<button data-tp="${i}">${t.n}</button>`).join('')}</div>`).join('');
 }
 function travelGo(i) { const t = travelList()[+i]; if (!t) return; toggleInv(false); t.go(); P.hp = Math.max(P.hp, 1); toast('→ ' + t.n, 2); }
 
@@ -11965,7 +11975,7 @@ function updEveryday(dt) {
 let e2Away = null;
 const e2FarFromHome = () => Math.hypot(P.x, P.z) > CAMP_R + 140 || !!UG.at;
 { const sn1 = startNight; startNight = function () {
-  if (G.flags.reached && !night.active && G.day < 99 && !SIEGE.on && e2FarFromHome()) {
+  if (!devForce && G.flags.reached && !night.active && G.day < 99 && !SIEGE.on && e2FarFromHome()) {
     if (!e2Away || e2Away.day !== G.day) { e2Away = { day: G.day }; toast('Horns back at Kestrel. You’re too far out — the watch will hold it without you tonight', 4.2); }
     return;
   }
@@ -12024,24 +12034,26 @@ function e2Works() {
   const btns = [];
   for (const u of UPS) { const W = WORKS[u.id], lv = UP[u.id], max = lv >= u.max, cost = u.cost[lv];
     h += `<div style="padding:6px 8px;margin:4px 0;border:1px solid #fff2;border-left:4px solid ${max ? '#7fc4b8' : '#f0a640'};border-radius:3px"><b>${W.n}</b> <small style="opacity:.7">level ${lv}/${u.max}</small><br><small>Now: ${W.lv[lv]}</small>${max ? '' : `<br><small style="color:#f0d090">Next: ${W.lv[lv + 1]} — ${cost} scrap · ${W.where}</small>`}</div>`;
-    if (!max) btns.push({ k: 'wup', v: u.id, t: `Upgrade ${W.n.toLowerCase()} → level ${lv + 1} (${cost} scrap)`, dis: INV.scrap < cost }); }
+    if (!max) btns.push({ k: 'wup', v: u.id, t: `Upgrade ${W.n.toLowerCase()} → level ${lv + 1} (${cost} scrap)`, dis: !G.flags.dev && INV.scrap < cost }); }
   h += `<h3 style="font:700 17px 'Barlow Condensed',sans-serif;margin:12px 0 4px;color:#f0a640">PROJECTS OUTSIDE THE WALL</h3>`;
   for (const id of PROJ_IDS) { const Pj = PROJECTS[id], J = S.proj[id] || {}, cost = Object.entries(Pj.cost), can = cost.every(([k, n]) => sCnt(k) >= n);
     const st = J.done ? 'built' : S.cur === id ? `being built (${Math.round((J.pts || 0) / Pj.w * 100)}% · ${S.ros.filter(R => R.job === 'build').length} on Building)` : 'not started';
     h += `<div style="padding:6px 8px;margin:4px 0;border:1px solid #fff2;border-left:4px solid ${J.done ? '#7fc4b8' : S.cur === id ? '#e8c070' : '#6a6458'};border-radius:3px"><b>${Pj.n}</b> <small style="opacity:.7">${st}</small><br><small>${Pj.d}</small>${J.done || S.cur === id ? '' : `<br><small style="color:${can ? '#f0d090' : '#c08070'}">Costs ${cost.map(([k, n]) => `${n} ${nameOf(k).toLowerCase()} (${sCnt(k)})`).join(', ')} from the stores</small>`}</div>`;
-    if (!J.done && S.cur !== id) btns.push({ k: 'wpj', v: id, t: `Start: ${Pj.n}`, dis: !!S.cur || !can }); }
+    if (!J.done && (S.cur !== id || G.flags.dev)) btns.push({ k: 'wpj', v: id, t: G.flags.dev ? `Build now: ${Pj.n}` : `Start: ${Pj.n}`, dis: !G.flags.dev && (!!S.cur || !can) }); }
   if (S.cur) h += `<p style="opacity:.7"><small>One project at a time — ${PROJECTS[S.cur].n} is going up now.</small></p>`;
   btns.push({ k: 'close', t: 'Done' });
   e2Panel('KESTREL WORKS', h, btns);
 }
 function e2WorksUp(id) {
   const u = UPS.find(x => x.id === id), lv = UP[id]; if (!u || lv >= u.max) return; const cost = u.cost[lv];
-  if (INV.scrap < cost) { sfx('no'); toast(`Need ${cost} scrap`); return; }
-  INV.scrap -= cost; UP[id]++; sfx('buy'); applyUpgrades(id); save();
+  if (!G.flags.dev && INV.scrap < cost) { sfx('no'); toast(`Need ${cost} scrap`); return; }
+  if (!G.flags.dev) INV.scrap -= cost; UP[id]++; sfx('buy'); applyUpgrades(id); save();
   const W = WORKS[id]; e2Close(); card(`${W.n.toUpperCase()} · LEVEL ${UP[id]}`, W.lv[UP[id]], 5);
   e2ShowMe(W.at(), W.where);
 }
 function e2WorksProject(id) {
+  if (G.flags.dev) { devFinishProject(id); e2Close(); const P2 = PROJECTS[id], Pl = id === 'lookout' || id === 'market' ? E2_PLOTS[id] : id === 'gatehouse' ? { x: 0, z: CAMP_R + 34 } : projPlot(id);
+    card(P2.n.toUpperCase(), 'Built · ' + P2.d, 4); if (Pl) e2ShowMe([Pl], 'outside the wall'); return; }
   const S = setS(), Pj = PROJECTS[id]; if (S.cur || !Object.entries(Pj.cost).every(([k, n]) => sCnt(k) >= n)) { sfx('no'); return; }
   setAction({ sp: id }); e2Close();
   const Pl = id === 'lookout' || id === 'market' ? E2_PLOTS[id] : id === 'gatehouse' ? { x: 0, z: CAMP_R + 34 } : projPlot(id);
@@ -12310,8 +12322,8 @@ shopEl.addEventListener('click', e => {
   const t = e.target.closest('.tile'); if (!t) return;
   const u = UPS.find(x => x.id === t.dataset.id), lv = UP[u.id];
   if (lv >= u.max) return;
-  if (INV.scrap < u.cost[lv]) { sfx('no'); toast(`Need ${u.cost[lv]} scrap`); return; }
-  INV.scrap -= u.cost[lv]; UP[u.id]++; sfx('buy'); applyUpgrades(u.id);
+  if (!G.flags.dev && INV.scrap < u.cost[lv]) { sfx('no'); toast(`Need ${u.cost[lv]} scrap`); return; }
+  if (!G.flags.dev) INV.scrap -= u.cost[lv]; UP[u.id]++; sfx('buy'); applyUpgrades(u.id);
   renderShop(); shopEl.querySelector(`[data-id="${u.id}"]`)?.classList.add('buy');
   if (G.step === 4 && u.id === 'wall') { setStep(5); closeShop(); say([['Kade', 'Look at that. Almost looks like we meant to live here.'], ['Kade', "Juno's asking for you. Med tent."]]); }
   save();
@@ -12347,7 +12359,7 @@ function respawnBases() {
 /* ================= night raids ================= */
 function startNight() {
   night.active = true; night.wave = 0; night.core = 100; night.t = 0;
-  night.final = G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
+  night.final = devForce ? devForce === 'final' : G.day >= 100 && !G.flags.held100 && !G.flags.fell100;
   if (night.final) siegeStart();   // (Nov 11) Night 100 in four stages — 2j-siege.js
   night.waves = night.final ? 12 : Math.min(2 + Math.ceil(G.day / 3), 8);
   gate.open = false; sfx('gate'); G.tod = .9; G.todTarget = null;
@@ -12746,9 +12758,19 @@ function unlockEverything() {
   // (Nov 11, Bryce: couldn't upgrade the base after the secret) projects outside the wall are paid from the Kestrel stores,
   // not your bag — so stock the stores with enough of every material to build every project on the works board
   try { const st = stores(), need = {}; for (const id of PROJ_IDS) for (const [k, n] of Object.entries(PROJECTS[id].cost)) need[k] = (need[k] || 0) + n;
-    for (const k in need) st[k] = Math.max(st[k] || 0, need[k] * 2); } catch (e) {}
+    for (const k in need) st[k] = Math.max(st[k] || 0, need[k] * 2);
+    const S = setS(); if (S.cur) devFinishProject(S.cur); } catch (e) {}
   G.flags.tier = 6; showFlyBtn(); sfx('buy'); toast(first ? 'Everything unlocked · every item, a bottomless bag, and the FLY button' : 'Topped up · every item restocked', 4);
   if (invOpen) renderInv(); save();
+}
+/* (Nov 11, Bryce) testing buttons in the Travel tab: start a raid now, or the Night 100 siege now */
+var devForce = null;
+function devRaid(kind) {
+  if (G.mode !== 'play' || !G.flags.dev) return;
+  if (night.active) { sfx('no'); toast('A raid is already on', 2.4); return; }
+  toggleInv(false);
+  if (campD(P.x, P.z) > CAMP_R + 40 || (typeof UG !== 'undefined' && UG.at)) { try { travelList()[0].go(); } catch (e) {} }
+  devForce = kind; try { startNight(); } finally { devForce = null; }
 }
 function showFlyBtn() { $('bFly').style.display = G.flags.dev ? 'grid' : 'none'; }
 $('bFly').addEventListener('click', e => { e.stopPropagation(); if (G.flags.dev) toggleFly(); });
@@ -13131,6 +13153,7 @@ $('inv').addEventListener('click', e => {
   else if (d.sj || d.sp || d.st || d.sg || d.sc) setAction(d, e.shiftKey);
   else if (d.su || d.sv || d.kc) finAction(d);
   else if (d.tp) return travelGo(d.tp);
+  else if (d.dr) return devRaid(d.dr);
   else if (d.sjt || d.sjx || d.sjh) sideAction(d);
   else if (d.e2) { e2Action(d); if (!invOpen) return; }
   else if (d.only) craftOnly = !craftOnly;
@@ -13735,7 +13758,7 @@ async function boot() {
   loadModels(WEAPON_MODELS, true).then(() => { for (const k in GUNV) if (WEAPONS[k]?.model?.startsWith('w/')) { GUNV[k].removeFromParent(); delete GUNV[k]; } if (curGunId) selectGunView(curGunId); });
 }
 boot();
-window.__arc = { G, P, INV, UP, night, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
+window.__arc = { G, P, INV, UP, night, devRaid: k => devRaid(k), inv: (v, t) => { if (t) invTab = t; toggleInv(v); }, rust, ents, gate, updNight, updClan, startNight, startRust, setStep, skipCine: () => skipCine(), get cine() { return cine; } };
 window.__T = { spawnClan, inHull, hullDoor, SHOP, ARC, nearShopNPC, openTrade, findInteract, get named() { return named; }, get chanObj() { return chan; }, slotWeapon, equipTo, selectSlot, throwNext, CACHES, cacheAction, BASES, FOUNDRY, CITY, PLACED, tradeStock, rollLoot, newGear, ITEMS, RECIPES, GEAR_DEFS, cnt, give, craft, eatItem, healBest, nearNode, wildInteract, openCraft, placeKit, nearStation, get chan() { return chan; }, updTerrain, updForest, CLOUDS, FAR_SMOKE, get far() { return { farTerrMesh, horizonMesh, farTrees }; }, scene, cam: camera, heightAt, floorAt, waterAt, THREE, CHUNKS, OCELLS, renderer, useSlot, toggleInv, toggleMap };
 window.__E = { ARC_RADIO, ARC_WALKIES, WING, envSites, PETS, DUCKS, POI, BASES, CITY, FAUNA, WEAPONS, get models() { return Object.keys(MODELS); }, selectGunView, PATHS };
 Object.assign(window.__T, { updNPC, updRust, fogCountdown, setPause, zoomOf, useInteract, input });
