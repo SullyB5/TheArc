@@ -157,6 +157,8 @@ function treeOK(x, z) {
   if (slopeAt(x, z) > 1.5) return false;
   return true;
 }
+const CLIFF_TINT = new Map();
+function cliffTint(src) { let m = CLIFF_TINT.get(src); if (!m) { m = src.clone(); m.color = new THREE.Color(0x8c8a84); CLIFF_TINT.set(src, m); } return m; }
 async function buildForest() {
   const BT = 200, NB = Math.ceil(HALF * 2 / BT);
   const kinds = [{ geo: firGeo(), n: LOW ? 7800 : 14500, list: {} }, { geo: alderGeo(), n: LOW ? 900 : 1800, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
@@ -181,7 +183,9 @@ async function buildForest() {
     for (const b in K.list) {
       const L = K.list[b], im = new THREE.InstancedMesh(K.geo, TREEMAT, L.length);
       L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
+      // (Nov 12, perf) the 200 m bucket no longer casts its own shadow: a shadow-only copy holds the trees near you (shnAdd)
+      im.castShadow = false; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
+      shnAdd('tree' + kinds.indexOf(K), K.geo, TREEMAT, 'v' + kinds.indexOf(K) + ':' + b, L.map(e => e[0]));
     }
     await nextFrame();
   }
@@ -208,7 +212,7 @@ async function buildForest() {
       if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25) || SCOUTS.some(q => Math.hypot(x - q.x, z - q.z) < 40)) continue;
       const s = rr(10, 26), c = modelCopy('cliff', s);
       c.position.set(x, heightAt(x, z) - s * .25, z); c.rotation.y = rnd() * 6; world.add(c);
-      c.traverse(m => { if (m.isMesh) { m.material = m.material.clone(); m.material.color = new THREE.Color(0x8c8a84); } });
+      c.traverse(m => { if (m.isMesh) m.material = cliffTint(m.material); });   // (Nov 12) one shared tinted copy, not one per cliff
       if (xClear(x, z)) c.visible = false; else addCol(x, z, s * .38); placed++;
     }
   }
@@ -228,7 +232,7 @@ async function buildForest() {
 /* ================= the outlands forest: 200m cells grown as you approach, from a seed per cell, so they're the same every visit ================= */
 const FAR_HIDE = [];                          // valley tree buckets: hidden once you're far from them
 const CELL_T = 200, NCT = Math.ceil(HALF * 2 / CELL_T), OCELLS = new Map(), OCOLS = new Set();
-let OGEO = null, rockMatO = null, fernGeoO = null;
+let OGEO = null, rockMatO = null, fernGeoO = null; const ROCKGEO_O = new THREE.DodecahedronGeometry(1, 0);
 function cellRng(ci, cj) { let a = (ci * 73856093) ^ (cj * 19349663) ^ 0x5bd1e995; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function growCell(ci, cj) {
   if (!OGEO) { OGEO = [firGeo(), alderGeo(), snagGeo()]; rockMatO = new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x9a968e, flatShading: true });
@@ -252,7 +256,8 @@ function growCell(ci, cj) {
     if (!L.length) return;
     const im = new THREE.InstancedMesh(OGEO[ki], TREEMAT, L.length);
     L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+    im.castShadow = false; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+    shnAdd('otree' + ki, OGEO[ki], TREEMAT, 'c' + key + ':' + ki, L.map(e => e[0]));   // (Nov 12) shadows via the near proxy
   });
   const rocks = [], ferns = [];
   for (let t = 0; t < 20; t++) {
@@ -267,7 +272,7 @@ function growCell(ci, cj) {
   }
   for (const [L, geo, mat, sh] of [[rocks, null, null, true], [ferns, fernGeoO, VCOL, false]]) {
     if (!L.length) continue;
-    const im = new THREE.InstancedMesh(geo || new THREE.DodecahedronGeometry(1, 0), mat || rockMatO, L.length);
+    const im = new THREE.InstancedMesh(geo || ROCKGEO_O, mat || rockMatO, L.length);   // (Nov 12) one shared rock mesh: a new one per cell leaked when the cell was dropped
     L.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = sh; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
   }
   if (MODELS.cliff && R() < .5) {
@@ -283,10 +288,10 @@ let FOR_SHOW = 430, FOR_DROP = 900;
 let farT = 0;
 function updForest(px, pz, dt) {
   farT -= dt; if (farT > 0) return; farT = .25;
-  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
+  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = !IN_POCKET && Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
   for (const [k, g] of OCELLS) {
     const ci = Math.floor(k / 1000), cj = k % 1000, d = Math.hypot(-HALF + (ci + .5) * CELL_T - px, -HALF + (cj + .5) * CELL_T - pz);
-    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); } else g.visible = d < FOR_SHOW;
+    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); for (let ki = 0; ki < 3; ki++) shnDel('c' + k + ':' + ki); } else g.visible = !IN_POCKET && d < FOR_SHOW;
   }
   if (Math.hypot(px, pz) < VALLEY - 120) return;
   // grow the nearest missing cell (one per tick)
@@ -324,7 +329,7 @@ const _gm = new THREE.Matrix4(), _gq = new THREE.Quaternion(), _gs = new THREE.V
 function updGrass(px, pz) {
   if (Math.hypot(px - grassAt.x, pz - grassAt.z) < 5) return;
   grassAt.x = Math.round(px / 2) * 2; grassAt.z = Math.round(pz / 2) * 2;
-  const R = LOW ? 24 : 34, step = LOW ? .5 : .45, max = grassMesh.instanceMatrix.count;
+  const R = LOW ? 24 : 34, step = (LOW ? .5 : .45) / Math.sqrt(PQ.grass), max = grassMesh.instanceMatrix.count;   // (Nov 12) preset density: wider spacing, same patch size
   let n = 0;
   for (let gx = grassAt.x - R; gx <= grassAt.x + R && n < max; gx += step) for (let gz = grassAt.z - R; gz <= grassAt.z + R && n < max; gz += step) {
     const hx = hash(Math.round(gx / step), Math.round(gz / step)), hz = hash(Math.round(gz / step) + 7, Math.round(gx / step));

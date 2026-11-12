@@ -4,6 +4,7 @@ Open-world first-person survival / holdout game (Three.js, plain static files �
 
 - `game.js` is generated: edit the parts in `src/` and run `./build.sh`
   - `1-world.js` map layout, terrain heightmap, river/lake, renderer + ELYRA finishing pass (bloom + grade), sky, textures, helpers
+  - `1a-perf.js` (Nov 12) performance systems: graphics presets, instanced LOD + per-instance culling, shadow proxies, underground occlusion, graphics-memory residency, shader warm-up, the stats overlay (F3)
   - `1b-build.js` terrain chunks, water, forest, grass, mist
   - `1c-camp.js` Kestrel: the Arc (walk-in main hull: blast doors, catwalk + firing slit, the core), the streets (`STREET_LINES`: each a run of short kinked legs, flattened into `STREETS`) and eleven buildings (Nov 11 layout, below), the wall (hull plating between ribs and I-beams, in straight uneven runs along `WALL_PTS`), gate, towers, nearby sites
   - `1f-houses.js` (Nov 10 rebuild; Nov 11: everything cut from the Arc — `shipKit` turns every board into salvaged plate and every tin sheet into hull panelling; walls of riveted hull panels with stencils (`texStencil`), patches and portholes; frames of I-beams; gable roofs are a curved length of hull with its ribs still on (`archY`); bulkhead doors with handwheels; the gatehouse and watchtowers in plate and steel too) Kestrel's buildings, made the way settlers would: a frame, cladding a board or a tin sheet at a time (each its own colour, a little out of true, patched), windows with frames, glass, curtains, shutters or boards, doors left ajar, overlapping roof sheets with a tarp and tyres over the leak, gutters into rain barrels, stovepipes, aerials, upstairs rooms with balconies, laundry and stairs up the back, lean-tos of firewood; inside, lined walls, a board ceiling, shelves of stock and each trade's tools (Bryce's prop models). Also the yard (power yard with the substation, a pole line wired to every building, string lights, the notice board, planters, a cart, blast walls outside the gate), the gatehouse and the watchtowers. Each building's parts merge into one mesh per material (`hkit`); interiors use materials that add the light bounced round the room (`hmIn`); windows and string lights warm up after dark (`updHouseLights`). Its own random stream, so editing a house never moves anything else.
@@ -74,6 +75,61 @@ node tools/mobile.mjs assets/models assets/models-p --color 4096 --detail 512 --
 
 Performance: hand-placed props are distance-culled by size (`buildCull`/`updCull` in `3-game.js`, hidden ones go to layer 1 so neither the camera nor the shadow pass draws them); tiny props don't cast shadows; resolution adapts to hold frame rate (`adaptRes`).
 More performance: `bakeWorld` (3-game.js) merges static props that share a look into one mesh per group (~1,900 fewer draw calls; anything that moves, hides or flickers is skipped, and the wall bakes itself in `buildWall`). The point lights stay in the scene but invisible, and a pool of 4 real lights copies whichever ones reach the camera (`buildLightPool`/`updLightPool`) — the light count is fixed, so no shader recompiles. People swap to `*-lo.glb` (~1.5k triangles) past ~25 m, and enemies carry the low-poly guns. Deer/boar parts are fused per moving piece. Tone mapping happens in the grade pass (no OutputPass), and `adaptRes` drops bloom if the floor resolution still isn't enough.
+
+## Performance (Nov 12) — `src/1a-perf.js`
+
+Measured before touching anything (`tools/perf/bench.py`: headless Chrome, a new game, eight fixed camera spots + an explosion; draw calls and triangles are counted across every pass of a frame — shadow map, scene, bloom, grade — and averaged over two frames because the shadow map redraws every other frame). Where it went: 7–10 million triangles a frame around Kestrel, about half of them in the shadow pass, almost all from a handful of imported models drawn at full detail at any distance — the conifers (5.1k triangles each, ~600 of them), the hero conifers (30k), Davia's rock outcrops (~44k each), the wrecked cars (20k) — and whole 200–300 m forest bins redrawn into a 120 m shadow map.
+
+What changed (nothing about the art, the models, the textures or the gameplay):
+- **Instanced LOD** (`ilodParts`, used automatically by `instParts` for anything ≥1.5k triangles): each instance is drawn at full / medium / far detail by distance (full detail to ~22–35 m, medium to ~80–150 m, scaled by model size and the preset), with a few metres of hysteresis so nothing flickers on a boundary. The medium/far meshes are made at load by meshoptimizer's simplifier (`lodGeo`, `vendor/jsm/libs/meshopt_simplifier.module.js`, v1.3) weighing normals and UVs, so they keep the shape within ~1% and the texture in place — same vertices, same materials, nothing new to download.
+- **Per-instance frustum culling**: instances off screen aren't drawn (checked when the camera moves 1.5 m or turns ~2°, with a margin); nothing past the view distance exists.
+- **Shadow proxies**: shadows come from shadow-only copies (layer 3, `SHADOW_ONLY`, which only the sun's shadow camera sees) holding just the instances close enough to land a shadow in the 120 m shadow map, drawn with the medium mesh. The drawn fir/alder/snag forest (valley buckets and outland cells) gets the same (`shnAdd`): the buckets no longer cast shadows themselves.
+- **Underground occlusion** (`updUnder`): the pockets sit 150 m under the map's corners, so while you're in one the ground, forests, grass and far scenery aren't drawn.
+- **Pools**: particles are one instanced mesh (one draw for all of them; they were a new mesh + material each — 34 per explosion), tracers are a fixed set of 24 lines, arrows/bolts/spears/grenades and the clans' thrown spears are reused (each one used to leave its geometry on the GPU).
+- **Effects + sound**: puffs more than 120 m away spawn a third as many (slightly bigger) bits and none past 300 m; at most 32 sounds (20 on phones) play at once, so a firefight can't pile up hundreds of overlapping voices.
+- **Shared materials**: tinted model copies share one material per (material, tint) and the valley cliffs one tinted copy, so the bake can merge them.
+- **Lights**: a siege fire's light joins the light pool (a new live light recompiled every lit material mid-raid); a light taken out of the world no longer lights from where it was.
+- **Graphics memory** (`updResidency`): textures/meshes nothing visible has used for 30 s are released from the GPU when the estimate is over budget (phones ~320 MB, computers ~1.4 GB), or after 10 minutes unused; they re-upload by themselves if you come back. Outland forest cells share one rock mesh (each cell leaked one).
+- **Shader warm-up** (`warmShaders`): every material is compiled behind the loading screen ("WARMING UP") instead of the first time it comes into view — the hitch the first time you walked into each building or saw each prop.
+- **Culling**: `updCull` has 6 m of hysteresis; anything flagged `userData.landmark` (or over 30 m across) draws to the view distance.
+
+**Graphics presets** (title → Settings, or the bag's Settings tab): **Performance / Balanced / Quality**, tuned separately for computers and phones (`PRESETS` in 1-world.js). A preset sets Textures + View distance (still adjustable on their own — the preset then reads "Custom") plus shadow-map size and redraw rate, bloom, the resolution ceiling/floor `adaptRes` works between, grass density, LOD distances and shadow reach. Defaults keep today's look exactly: computers **Quality** (High textures, Far view, 2048 shadows, bloom, up to 1.75x pixels), phones **Balanced** (Low = KTX2 textures, Medium view, 1024 shadows, up to 1.5x). Performance: computers Medium textures / Medium view / 1024 shadows every 3rd frame / no bloom / 1.25x; phones Near view / 1024 shadows every 3rd frame / 1.2x / 60% grass. `?preset=perf|bal|qual` in the URL overrides. Saved with the rest in localStorage `arc-gfx`.
+
+**Stats overlay**: F3, or Settings → Performance stats (`?stats` in the URL): FPS + 1% low, frame time, draw calls and triangles (all passes), estimated graphics memory (uploaded textures + mesh buffers), texture/geometry/shader counts, live particles / people + animals / sounds, shader warm-up time, resolution, preset, load time + bytes, and what the memory manager has released. `window.__perf.snap()` returns the same numbers.
+
+**Measuring** (needs `pip install playwright` and Chrome): `python3 tools/perf/bench.py <folder> <port> <label> pc|phone` writes `<label>-<mode>.json` + screenshots; `python3 tools/perf/diag.py <folder> <port> x z lookX lookZ` lists the meshes costing the most triangles from a spot. `?bench` holds the resolution still (no `adaptRes`) so runs compare. SwiftShader renders on the CPU, so frame times only compare run-to-run on one machine; draw calls, triangles and memory are exact.
+
+Results (same spots, before → after; computers on their default Quality preset, phones on Balanced — the same settings as before):
+
+**Computer (High textures, Far view)** | draw calls | triangles / frame | frame time* | GPU textures
+---|---|---|---|---
+dropsite | 800 → 404 | 8.6M → 1.26M | 3.65 s → 2.01 s | 1530 → 1510 MB
+kestrel-gate | 735 → 523 | 8.1M → 1.15M | 3.87 s → 1.79 s | 1532 → 1512 MB
+kestrel-in | 857 → 290 | 9.7M → 0.86M | 3.64 s → 1.65 s | 1532 → 1512 MB
+kestrel-east | 1041 → 596 | 9.7M → 1.23M | 3.69 s → 1.78 s | 1542 → 1457 MB
+arc-inside | 834 → 465 | 9.9M → 1.34M | 3.97 s → 2.09 s | 1544 → 1524 MB
+forest | 467 → 264 | 7.3M → 0.75M | 2.80 s → 1.33 s | 1558 → 1164 MB
+halvard | 552 → 200 | 4.7M → 0.48M | 2.03 s → 1.15 s | 1572 → 1152 MB
+high-view | 679 → 475 | 7.0M → 1.13M | 4.28 s → 2.37 s | 1573 → 1165 MB
+explosion | 881 → 487 | 9.6M → 1.12M | — | 1573 → 1220 MB
+load (to title) | | | 103.7 s → 86.7 s | 61.0 → 61.1 MB downloaded
+
+**Phone (KTX2 textures, Medium view)** | draw calls | triangles / frame | frame time* | GPU textures
+---|---|---|---|---
+dropsite | 726 → 343 | 4.2M → 0.75M | 1.86 s → 1.11 s | 286 → 280 MB
+kestrel-gate | 978 → 508 | 4.5M → 0.76M | 1.77 s → 1.06 s | 287 → 281 MB
+kestrel-in | 876 → 499 | 4.5M → 0.79M | 1.81 s → 1.02 s | 287 → 281 MB
+kestrel-east | 916 → 517 | 4.5M → 0.83M | 1.77 s → 1.00 s | 294 → 263 MB
+arc-inside | 819 → 284 | 5.1M → 0.71M | 2.07 s → 1.33 s | 297 → 273 MB
+forest | 431 → 221 | 3.5M → 0.50M | 1.26 s → 0.67 s | 298 → 246 MB
+halvard | 512 → 207 | 2.5M → 0.35M | 1.04 s → 0.70 s | 299 → 192 MB
+high-view | 842 → 378 | 4.2M → 0.57M | 1.74 s → 1.00 s | 300 → 192 MB
+explosion | 907 → 497 | 4.5M → 0.80M | — | 300 → 207 MB
+load (to title) | | | 81.9 s → 78.8 s | 78.5 → 78.6 MB downloaded
+
+\* SwiftShader (software rendering) at 640x360 — slow in absolute terms; the ratio is what carries over. "explosion" is measured right after a grenade + 12 tracers at Kestrel.
+
+Textures (item 5): phones already load GPU-compressed KTX2 (`assets/models-m`), and `KTX2Loader` is the fallback — it transcodes to whatever the device supports (ASTC, ETC2, BC7, ETC1, PVRTC) and to plain RGBA only if none. The computer set stays WebP: a UASTC copy of it was tested (wood stove: 0.96 MB → 4.5 MB, ~2 min to encode one file) — about 4x the download for the whole set, so it isn't worth it; the memory manager handles graphics memory instead. Geometry was already meshopt-compressed in all three sets (139 of 142 files).
 
 People (Nov 10): Bryce's **Keeper foot soldier** (`assets/models/keeper.glb`, from ELYRA) is really rigged — his own skeleton and Walking/Running clips, played off the stride phase (`rigCopy` / `poseWalk` in 2-actors.js; standing, the walk is held where the feet pass), with `keeper-lo.glb` (3k, arms down) past ~25 m. Kestrel's watch is five of them: two on the gate, three walking the streets, each with a rifle in his right hand; he's also in the yard extras. Bryce's **settler** (ELYRA's Keeper civilian, baked standing with her arms down: `settler.glb` 8k / `settler-lo.glb`) joins the civilians: shopkeepers, settlers and extras pick from both. Barracks guards are Keepers too.
 

@@ -1243,22 +1243,29 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1, shadowTick = 0;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
-const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+/* (Nov 12) the ceiling and floor come from the graphics preset (PQ.pr / PQ.prMin); ?bench holds the resolution still so
+   before/after measurements compare like with like. */
+let PR_MAX = Math.min(devicePixelRatio || 1, PQ.pr), PR_MIN = Math.min(PR_MAX, PQ.prMin);
 let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
+const BENCH = /[?&]bench\b/.test(location.search);
+function setPR() {
+  PR_MAX = Math.min(devicePixelRatio || 1, PQ.pr); PR_MIN = Math.min(PR_MAX, PQ.prMin);
+  const n = clamp(prNow, PR_MIN, PR_MAX); prNow = n; renderer.setPixelRatio(n); resize(); prHold = 3;
+}
 function adaptRes(raw) {
-  if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
+  if (BENCH || G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
   prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
   // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
   if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW && PQ.bloom) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {
   requestAnimationFrame(frame);
-  adaptRes((now - last) / 1000);
+  adaptRes((now - last) / 1000); perfFrame((now - last) / 1000);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (paused) { composer.render(0); return; }
+  if (paused) { perfRender(0); return; }
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
   updHouseLights();
@@ -1306,9 +1313,12 @@ function frame(now) {
   }
   updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
-  shadowTick++; renderer.shadowMap.needsUpdate = (shadowTick & 1) === 0 || shadowTick < 4;
-  composer.render(dt);
+  updUnder(dt); updILOD(); updShadowProxies();  // (Nov 12) instanced LOD + per-instance culling + shadow proxies (1a-perf.js)
+  shadowTick++; renderer.shadowMap.needsUpdate = shadowTick % PQ.shEvery === 0 || shadowTick < 4 || shadowForce > 0; if (shadowForce > 0) shadowForce--;
+  perfRender(dt);
+  updResidency();
 }
+let shadowForce = 0;
 
 /* light pool: the world has a dozen point lights (camp fire, hull lamp, village fires, placed lamps, muzzle flash…) and
    three.js makes every lit pixel loop over all of them, near or not — the biggest per-pixel cost on phones. They stay in
@@ -1324,6 +1334,7 @@ function updLightPool() {
   const cx = camera.position.x, cz = camera.position.z, pick3 = [];
   for (const l of LSRC) {
     if (!(l.intensity > 0)) continue;
+    { let o = l.parent; while (o && o !== scene) o = o.parent; if (!o) continue; }     // (Nov 12) taken out of the world (a doused fire): dark
     // what matters is how close the lit patch (the light's reach) comes to the camera, not the light itself:
     // a fire 40 m off still visibly lights the ground around it
     l.getWorldPosition(_lv); const reach = l.distance || 300, d = Math.hypot(_lv.x - cx, _lv.z - cz) - reach;
@@ -1414,7 +1425,7 @@ function buildCull() {
   const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
-    if (skip.has(o) || o.isSprite) continue;
+    if (skip.has(o) || o.isSprite || o.userData.ilod || o.userData.noCull) continue;   // (Nov 12) LOD sets and pools cull themselves
     // (Nov 11, perf) groups holding instanced props (lockers, bottles, racks…) used to be skipped, so they drew from anywhere
     const meshes = [];
     o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
@@ -1422,7 +1433,7 @@ function buildCull() {
     box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
     if (sph.radius > 90) continue;
     if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
-    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true });
+    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true, mark: !!o.userData.landmark || sph.radius > 30 });
   }
 }
 function updCull(dt) {
@@ -1430,8 +1441,11 @@ function updCull(dt) {
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
   // (Nov 11, perf) was 70 m + 40× the radius (a 6 m building drew to ~310 m); now ~130 m for a building, ~70 m for a crate
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
-    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+    // (Nov 12) 6 m of hysteresis: standing on the line no longer flickers a prop in and out; landmarks (userData.landmark)
+    // are never culled — they draw out to the view distance like the terrain
+    const lim = c.mark ? (VIEW_M ? VIEW_M + c.r : 1e9) : Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < lim + (c.on ? 6 : 0);
+    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? (m.userData.lm || 1) : 2; }
   }
   // building insides: only once you're near enough to look in (inside the Bunkhouse, the others are hidden too)
   const near = LOW ? 22 : 30;
@@ -1624,9 +1638,12 @@ let gfxOpen = false;
 function renderGfx() {
   const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
     `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
-  $('gfxb').innerHTML = '<h3>Settings</h3>'
+  const pre = `<h4>Graphics</h4><div class="opts">${Object.entries(PRESETS).map(([k, L]) => `<button data-preset="${k}" class="${GFX.preset === k && presetMatches() ? 'on' : ''}">${L.label}</button>`).join('')}</div>`
+    + `<p class="dim">${presetMatches() ? PRESETS[GFX.preset].note : `Custom — ${PRESETS[GFX.preset].label} with your own textures / view distance.`} Resolution adjusts itself to keep the frame rate steady.</p>`;
+  $('gfxb').innerHTML = '<h3>Settings</h3>' + pre
     + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones — if it does, the next load drops back a level on its own.' : ''}`)
     + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
+    + `<h4>Performance stats</h4><div class="opts"><button data-stats="0" class="${PERF.shown ? '' : 'on'}">Off</button><button data-stats="1" class="${PERF.shown ? 'on' : ''}">On</button></div><p class="dim">Frame rate, draw calls, triangles and graphics memory in the corner${isTouch ? '' : ' (F3 toggles it)'}.</p>`
     + '<button class="xb" data-close="1">Done</button>';
 }
 function openGfx() { gfxOpen = true; renderGfx(); $('gfx').classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
@@ -1636,6 +1653,8 @@ $('gfx').addEventListener('click', e => {
   if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
   if (b.dataset.close) { closeGfx(); return; }
   if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
+  if (b.dataset.stats) { perfShow(b.dataset.stats === '1'); renderGfx(); return; }
+  if (b.dataset.preset) { if (applyPreset(b.dataset.preset)) { if (G.mode === 'play') save(); bootDone(); location.reload(); return; } renderGfx(); return; }
   if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); bootDone(); location.reload(); }
 });
 
@@ -1668,7 +1687,9 @@ async function boot() {
   ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } try { startLate(); } catch (err) { console.error('startLate', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
-  menu(); bootDone();
+  updILOD(true); setLoad('WARMING UP'); await nextFrame(); await warmShaders();
+  PERF.menuMs = performance.now() - PERF.boot0;
+  menu(); bootDone(); if (GFX.stats) perfShow(true);
   if (GFX.dropped) $('menu').insertAdjacentHTML('afterbegin', `<div class="load">THE LAST LOAD CRASHED ON ${TEX_LEVELS[GFX.dropped].label.toUpperCase()} TEXTURES — NOW ${TEXQ.label.toUpperCase()}</div>`);
   requestAnimationFrame(frame);
   // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here

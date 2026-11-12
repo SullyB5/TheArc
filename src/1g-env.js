@@ -41,8 +41,11 @@ function whole(name) {
   return WHOLE[name] = { parts, size: b.getSize(new THREE.Vector3()) };
 }
 /* instance parts at a list of matrices */
-function instParts(parent, parts, mats, shadow = true) {
+function instParts(parent, parts, mats, shadow = true, opt) {
   const out = []; if (!mats.length) return out;
+  // (Nov 12, perf) heavy models (conifers, Davia's rocks, cars, the bus…) get distance LOD, per-instance culling and
+  // shadow proxies instead of one fixed-detail mesh (ilodParts in 1a-perf.js)
+  if (parts.reduce((t, p) => t + geoTris(p.geo), 0) >= ILOD_MIN_TRIS) return ilodParts(parent, parts, mats, shadow, opt);
   for (const p of parts) { const im = new THREE.InstancedMesh(p.geo, p.mat, mats.length); mats.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); parent.add(im); out.push(im); }
   return out;
 }
@@ -101,8 +104,11 @@ async function buildEnvForest() {
     if (big) hero.push(mm); else { const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB; (bins[b] ||= []).push(mm); }
     if (!hid) { addCol(x, z, .4 * s); addRes('fir', x, z, s); } k++;
   }
-  for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
-  if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
+  // (Nov 12, perf) one LOD set per kind instead of 300 m bins: drawn per tree by distance (full / medium / far detail),
+  // only what's on screen, nothing past the forest's draw distance; shadows from medium-detail copies near you
+  const forestFar = { far: () => FOR_SHOW };
+  instParts(world, W.parts, Object.values(bins).flat(), true, forestFar);
+  if (WH && hero.length) instParts(world, WH.parts, hero, true, forestFar);
   for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.transparent = false; m.depthWrite = true; m.needsUpdate = true; }   // (Nov 11, perf) cut-out, not blended: drawn in the opaque pass with depth, no sorting or overdraw
   await nextFrame();
 }

@@ -51,7 +51,7 @@ function siegeFire() {
   const lit = new Set(SIEGE.fires.filter(F => !F.out).map(F => F.id)), pool = SHOP_DEFS.filter(D => !lit.has(D.id) && !((G.flags.burnt || []).includes(D.id))); if (!pool.length) return;
   const D = pick(pool), g = new THREE.Group(), y = heightAt(D.cx, D.cz); g.position.set(D.cx, y, D.cz); world.add(g);
   const flames = []; for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.6, 1.1), rr(1.6, 2.8), 7), new THREE.MeshBasicMaterial({ color: pick([0xff7a2a, 0xff9a3a, 0xffb040]), transparent: true, opacity: .9 })); f.position.set(rr(-D.bw / 3, D.bw / 3), rr(4, 5.6), rr(-D.bd / 3, D.bd / 3)); g.add(f); flames.push(f); }
-  const l = new THREE.PointLight(0xff7a2a, 0, 26, 0); l.position.y = 5; g.add(l);
+  const l = new THREE.PointLight(0xff7a2a, 0, 26, 0); l.position.y = 5; g.add(l); adoptLight(l);   // (Nov 12) through the light pool: a new live light recompiled every lit material mid-raid
   const F = { id: D.id, D, g, flames, l, t: 0, out: false, sm: { x: D.cx, z: D.cz, y: y + 6, k: rnd() } }; SMOKES.push(F.sm); SIEGE.fires.push(F);
   toast(`The ${D.sign.toLowerCase()} is on fire!`, 3); sfx('boom', .5);
 }

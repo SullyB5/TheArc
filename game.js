@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/jsm/libs/meshopt_decoder.module.js';
+import { MeshoptSimplifier } from './vendor/jsm/libs/meshopt_simplifier.module.js';
 import { KTX2Loader } from './vendor/jsm/loaders/KTX2Loader.js';
 import { EffectComposer } from './vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
@@ -51,10 +52,28 @@ const LOW = isTouch;                       // phones: fewer trees/grass, smaller
    assets/models/ holds the originals both sets are made from. */
 const TEX_LEVELS = { low: { label: 'Low', cap: 0, capD: 0, aniso: 4, file: 'pc', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models-p' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models-p' } };
 const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
+/* (Nov 12, perf) graphics presets: Performance / Balanced / Quality, each tuned separately for computers (pc) and phones (ph).
+   A preset sets Textures + View distance (the two finer controls below it, which can still be changed on their own — then
+   the preset reads "Custom") and the rest: shadow map size and how often it's redrawn, bloom, the pixel-density ceiling and
+   floor adaptRes works between, grass density, how far models keep full detail (lod) and how far shadows reach (shR).
+   Defaults keep today's look exactly: computers Quality, phones Balanced. Performance is the opt-in for weak hardware. */
+const PRESETS = {
+  perf: { label: 'Performance', note: 'Smoothest. Shorter view, lighter shadows, lower resolution ceiling.',
+    pc: { tex: 'med', view: 'med', shadow: 1024, shEvery: 3, bloom: false, pr: 1.25, prMin: .75, grass: .55, lod: .75, shR: 75 },
+    ph: { tex: 'low', view: 'near', shadow: 1024, shEvery: 3, bloom: false, pr: 1.2, prMin: .65, grass: .6, lod: .75, shR: 65 } },
+  bal: { label: 'Balanced', note: 'Full textures and view, a little less resolution headroom.',
+    pc: { tex: 'high', view: 'far', shadow: 2048, shEvery: 2, bloom: true, pr: 1.5, prMin: .85, grass: .85, lod: 1, shR: 95 },
+    ph: { tex: 'low', view: 'med', shadow: 1024, shEvery: 2, bloom: false, pr: 1.5, prMin: .75, grass: 1, lod: 1, shR: 85 } },
+  qual: { label: 'Quality', note: 'Everything at full: sharpest image, furthest detail.',
+    pc: { tex: 'high', view: 'far', shadow: 2048, shEvery: 2, bloom: true, pr: 1.75, prMin: .9, grass: 1, lod: 1.35, shR: 110 },
+    ph: { tex: 'low', view: 'far', shadow: 2048, shEvery: 2, bloom: false, pr: 1.75, prMin: .8, grass: 1, lod: 1.25, shR: 100 } },
+};
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
   const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
-  const g = { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  let pr = q.get('preset') || o.preset; if (!PRESETS[pr]) pr = LOW ? 'bal' : 'qual';
+  const D = PRESETS[pr][LOW ? 'ph' : 'pc'], qp = q.get('preset');          // a preset picked in the URL brings its own textures + view
+  const g = { tex: TEX_LEVELS[t] && !(qp && !q.get('tex')) ? t : D.tex, view: VIEW_LEVELS[v] && !(qp && !q.get('view')) ? v : D.view, preset: pr, stats: !!(o.stats || q.has('stats')) };
   /* (Nov 11) crash guard: boot() marks 'arc-boot' when it starts and clears it once the world has loaded. If the mark is still
      there, the last load died (a phone running out of graphics memory on High kills the page mid-load, and with High saved it
      would die every time) — so step textures down a level, save it, and say so on the title screen. */
@@ -73,7 +92,8 @@ function playStart() { try { localStorage.setItem('arc-play', GFX.tex); } catch 
 function playDone() { try { localStorage.removeItem('arc-play'); } catch (e) {} }
 /* a phone out of graphics memory usually loses the WebGL context (a black screen) rather than killing the page: drop textures
    a level and reload (the save is kept). Already on Low, there's nothing lower: say so instead of looping. */
-function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view, preset: GFX.preset, stats: GFX.stats ? 1 : 0 })); } catch (e) {} }
+let PQ = PRESETS[GFX.preset][LOW ? 'ph' : 'pc'];      // the live preset's knobs for this device
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
 /* (Nov 11, perf) every building's inside (its `inner` group: lining, props, gun racks, stoves) — drawn only when you're
@@ -368,7 +388,7 @@ canvas.addEventListener('webglcontextlost', ev => {
   if (next) { GFX.tex = next; saveGfx(); bootDone(); playDone(); setTimeout(() => location.reload(), 1200); }
   else { bootDone(); playDone(); }
 }, false);
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, PQ.pr));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.autoUpdate = false;                       // (Nov 11, perf) redrawn every other frame in frame(): the shadow pass was ~500 draws
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
@@ -407,7 +427,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
 /* (Nov 11) phones: no bloom. On iPhone its half-float blur smeared the bright haze into purple/green blotches (the "colour fog"),
    and it's a dozen extra full-screen passes. PC keeps it. */
-if (!LOW) composer.addPass(bloom); else bloom.enabled = false;
+if (!LOW) { composer.addPass(bloom); bloom.enabled = PQ.bloom; } else bloom.enabled = false;
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 
@@ -483,7 +503,7 @@ const hemi = new THREE.HemisphereLight(0xcfdce6, 0x5a5444, 1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(LOW ? 1024 : 2048, LOW ? 1024 : 2048);
+sun.shadow.mapSize.set(PQ.shadow, PQ.shadow);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 420 });
 sun.shadow.bias = -.0005; sun.shadow.normalBias = .5;
 scene.add(sun, sun.target);
@@ -745,15 +765,363 @@ async function loadModels(names, quiet) {
   }).catch(e => console.warn('model', n, e && e.message))));
 }
 /* a copy of a model, scaled so its height (or length along an axis) is `size`, standing on y=0 and centred */
+const TINTED = new Map();
 function modelCopy(name, size, axis = 'y', tint) {
   const src = MODELS[name]; if (!src) return null;
   const o = src.clone(true);
-  if (tint) o.traverse(m => { if (m.isMesh) { m.material = [].concat(m.material).map(x => { const c = x.clone(); c.color = (c.color || new THREE.Color(1, 1, 1)).clone().multiply(new THREE.Color(tint)); return c; }); if (m.material.length === 1) m.material = m.material[0]; } });
+  // (Nov 12, perf) tinted copies share one material per (source material, tint): identical looks, but the bake can merge them
+  // and the renderer doesn't switch materials between them
+  if (tint) o.traverse(m => { if (m.isMesh) { m.material = [].concat(m.material).map(x => { const k = x.uuid + ':' + new THREE.Color(tint).getHexString(); let c = TINTED.get(k); if (!c) { c = x.clone(); c.color = (c.color || new THREE.Color(1, 1, 1)).clone().multiply(new THREE.Color(tint)); TINTED.set(k, c); } return c; }); if (m.material.length === 1) m.material = m.material[0]; } });
   const b = new THREE.Box3().setFromObject(o), sz = b.getSize(new THREE.Vector3()), ctr = b.getCenter(new THREE.Vector3());
   const k = size / sz[axis];
   const wrap = new THREE.Group(); o.scale.setScalar(k); o.position.set(-ctr.x * k, -b.min.y * k, -ctr.z * k); wrap.add(o);
   return wrap;
 }
+/* ================= performance systems (Nov 12) =================
+   Measured first (tools/bench, see README "Performance (Nov 12)"): around Kestrel a frame drew 6-13 million triangles, about
+   half of them in the sun's shadow pass. Almost all of it was a few imported models drawn at full detail at any distance —
+   the conifers (5.1k triangles each, ~600 of them), the hero conifers (30k), Davia's rock outcrops (~44k), the wrecked cars
+   (20k) — and whole 200-300 m forest bins drawn into a shadow map that only covers 120 m. This file removes that waste
+   without touching how anything looks up close:
+
+   · lodGeo: lower-detail copies of a mesh made at load with meshoptimizer's simplifier (the same library the asset tools use).
+     Same vertices, same UVs and materials, fewer triangles, seams kept.
+   · instanced LOD (ILOD): every instanced model heavy enough to matter (instParts in 1g-env.js) is drawn as full / medium /
+     far detail by distance from the camera, per instance, with hysteresis so nothing flickers at a boundary; instances off
+     screen aren't drawn at all (per-instance frustum culling); past the view distance they don't exist.
+   · shadow proxies: shadows come from a separate, shadow-only copy (shadowOnly: the camera's frustum check drops it, the
+     sun's keeps it) holding just the instances near enough to land a shadow in the shadow map, drawn with the medium-detail mesh —
+     a shadow can't show the difference. The drawn fir forest gets the same treatment (shnAdd).
+   · residency: textures and geometry that nothing visible has used for a while give their graphics memory back
+     (they're re-uploaded on their own if you come back), so long sessions don't climb until a phone kills the tab.
+   · shader warm-up: every material is compiled behind the title screen, not the first time it comes into view (that was a
+     visible hitch the first time you walked into each building or fired each gun).
+   · the stats overlay (F3, or Settings → Performance stats): FPS, frame time, draw calls, triangles, graphics memory, load. */
+
+/* shadow-only meshes: three.js tests the shadow pass against the main camera's layers, so a layer can't hide something from
+   the camera but not the sun. Instead a proxy's bounding sphere is parked each frame at a point inside the sun's shadow box
+   but behind the camera: the camera's frustum check drops it, the shadow camera's keeps it (frustumCulled stays on). */
+const SHADOW_PROXIES = [];
+function shadowOnly(im) { im.frustumCulled = true; im.boundingSphere = new THREE.Sphere(new THREE.Vector3(), .01); im.userData.shadowOnly = 1; SHADOW_PROXIES.push(im); return im; }
+const _spP = new THREE.Vector3(), _spF = new THREE.Vector3(), _spI = new THREE.Matrix4();
+function updShadowProxies() {
+  camera.getWorldDirection(_spF); _spF.y = 0; if (_spF.lengthSq() < 1e-6) _spF.set(0, 0, -1); _spF.normalize();
+  const t = sun.target.position, cp = camera.position;
+  // behind the player's feet in first person; behind the camera itself if the camera is away from the player
+  if (Math.hypot(cp.x - t.x, cp.z - t.z) < 12) _spP.set(t.x - _spF.x * 4, Math.min(t.y, cp.y - 2.5), t.z - _spF.z * 4);
+  else _spP.copy(cp).addScaledVector(_spF, -3);
+  for (let i = SHADOW_PROXIES.length - 1; i >= 0; i--) {
+    const im = SHADOW_PROXIES[i], par = im.parent; if (!par) { if (im.userData.gone) SHADOW_PROXIES.splice(i, 1); continue; }
+    const c = im.boundingSphere.center.copy(_spP);
+    if (par !== scene && par !== world) c.applyMatrix4(_spI.copy(im.matrixWorld).invert());
+    else if (!im.matrixWorld.equals(_spI.identity())) c.applyMatrix4(_spI.copy(im.matrixWorld).invert());
+  }
+}
+let LOD_K = PQ.lod;                                      // preset scale on every LOD distance
+
+/* ---------- simplified copies of a geometry ---------- */
+const LODGEO = new WeakMap();
+const geoTris = g => (g.index ? g.index.count : g.attributes.position ? g.attributes.position.count : 0) / 3;
+let LOD_READY = false;
+MeshoptSimplifier.ready.then(() => { LOD_READY = true; }).catch(() => {});
+function lodGeo(geo, ratio, err) {
+  let c = LODGEO.get(geo); if (!c) LODGEO.set(geo, c = new Map());
+  const key = ratio + ':' + err; if (c.has(key)) return c.get(key);
+  let out = geo;
+  try {
+    const pos = geo.attributes.position;
+    if (LOD_READY && geo.index && pos && !pos.isInterleavedBufferAttribute && pos.itemSize === 3 && geoTris(geo) >= 240) {
+      const P = pos.array instanceof Float32Array && !pos.normalized ? pos.array : (() => { const a = new Float32Array(pos.count * 3); for (let i = 0; i < pos.count; i++) { a[i * 3] = pos.getX(i); a[i * 3 + 1] = pos.getY(i); a[i * 3 + 2] = pos.getZ(i); } return a; })();
+      // normals + UVs weigh in, so a collapse that would smear the texture or the shading costs as much as one that bends the
+      // shape (Permissive: seams may move, but only where that stays within the error)
+      const nA = geo.attributes.normal, uA = geo.attributes.uv, AT = new Float32Array(pos.count * 5);
+      for (let i = 0; i < pos.count; i++) { const o = i * 5; if (nA) { AT[o] = nA.getX(i); AT[o + 1] = nA.getY(i); AT[o + 2] = nA.getZ(i); } if (uA) { AT[o + 3] = uA.getX(i); AT[o + 4] = uA.getY(i); } }
+      const W = [nA ? .25 : 0, nA ? .25 : 0, nA ? .25 : 0, uA ? .5 : 0, uA ? .5 : 0], flags = ratio < .2 ? ['Permissive', 'Prune'] : ['Permissive'];
+      const src = geo.index.array, groups = geo.groups.length ? geo.groups : [{ start: 0, count: src.length, materialIndex: 0 }];
+      const parts = [], ng = []; let total = 0;
+      for (const gr of groups) {
+        const idx = Uint32Array.from(src.subarray(gr.start, gr.start + Math.min(gr.count, src.length - gr.start)));
+        let res = idx;
+        if (idx.length >= 720) { const target = Math.max(36, Math.floor(idx.length * ratio / 3) * 3); res = MeshoptSimplifier.simplifyWithAttributes(idx, P, 3, AT, 5, W, null, target, err, flags)[0]; }
+        ng.push({ start: total, count: res.length, materialIndex: gr.materialIndex || 0 }); parts.push(res); total += res.length;
+      }
+      if (total > 0 && total < src.length * .85) {
+        const all = new Uint32Array(total); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+        const g = new THREE.BufferGeometry();
+        for (const k in geo.attributes) g.setAttribute(k, geo.attributes[k]);    // shared: one copy of the vertices on the GPU
+        g.setIndex(new THREE.BufferAttribute(pos.count < 65536 ? Uint16Array.from(all) : all, 1));
+        if (geo.groups.length) for (const q of ng) g.addGroup(q.start, q.count, q.materialIndex);
+        if (!geo.boundingSphere) geo.computeBoundingSphere(); if (!geo.boundingBox) geo.computeBoundingBox();
+        g.boundingSphere = geo.boundingSphere.clone(); g.boundingBox = geo.boundingBox.clone();
+        out = g; g.userData.lodShared = 1; geo.userData.lodShared = 1;
+      }
+    }
+  } catch (e) { console.warn('lod', e && e.message); }
+  c.set(key, out); return out;
+}
+const LOD1 = g => lodGeo(g, .3, .02), LOD2 = g => lodGeo(g, .1, .06);
+
+/* ---------- instanced LOD ---------- */
+const ILODS = [], ILOD_MIN_TRIS = 1500;
+const _ilFr = new THREE.Frustum(), _ilPM = new THREE.Matrix4(), _ilS = new THREE.Sphere(), _ilV = new THREE.Vector3(), _ilM = new THREE.Matrix4(), _ilQ = new THREE.Quaternion();
+const ilodLast = { p: new THREE.Vector3(1e9, 0, 0), q: new THREE.Quaternion(), fov: 0, t: 0, view: -1, k: 0 };
+/* parts: [{ geo, mat }] standing on y=0; mats: Matrix4 per instance (parent space). opt.far(): draw limit in m (default: the
+   view distance). Returns the meshes it made (like instParts). */
+function ilodParts(parent, parts, mats, shadow, opt = {}) {
+  const box = new THREE.Box3(); for (const p of parts) { if (!p.geo.boundingBox) p.geo.computeBoundingBox(); box.union(p.geo.boundingBox); }
+  const ms = box.getBoundingSphere(new THREE.Sphere()), n = mats.length;
+  const L = { parent, n, M: new Float32Array(n * 16), C: new Float32Array(n * 3), R: new Float32Array(n), hid: new Uint8Array(n), lev: new Uint8Array(n).fill(255), sh: new Uint8Array(n),
+    shadow, far: opt.far, size: ms.radius, ms, buckets: [], placed: false, frames: 0 };
+  mats.forEach((m, i) => { m.toArray(L.M, i * 16); });
+  const levels = [parts.map(p => p.geo), parts.map(p => LOD1(p.geo)), parts.map(p => LOD2(p.geo))];
+  for (let b = 0; b < 4; b++) {
+    if (b === 3 && !shadow) break;
+    const attr = new THREE.InstancedBufferAttribute(new Float32Array(n * 16), 16); attr.setUsage(THREE.DynamicDrawUsage);
+    const ims = parts.map((p, k) => {
+      const im = new THREE.InstancedMesh(b === 3 ? levels[1][k] : levels[b][k], p.mat, n);
+      im.instanceMatrix = attr; im.count = 0; im.visible = false; im.frustumCulled = false;   // culled per instance below
+      im.castShadow = b === 3; im.receiveShadow = b < 3; im.userData.ilod = 1;
+      if (b === 3) shadowOnly(im);
+      parent.add(im); return im;
+    });
+    L.buckets.push({ attr, ims });
+  }
+  ILODS.push(L);
+  return L.buckets.flatMap(B => B.ims);
+}
+/* where each instance is in the world: done once, the first frame its parent has a world matrix (all of these are static) */
+function ilodPlace(L) {
+  L.parent.updateWorldMatrix(true, false); const W = L.parent.matrixWorld, ws = W.getMaxScaleOnAxis();
+  for (let i = 0; i < L.n; i++) {
+    _ilM.fromArray(L.M, i * 16); const s = _ilM.getMaxScaleOnAxis();
+    if (s < .01) { L.hid[i] = 1; continue; }                                  // X_HIDE: a tree kept off a new place
+    _ilV.copy(L.ms.center).applyMatrix4(_ilM).applyMatrix4(W);
+    L.C[i * 3] = _ilV.x; L.C[i * 3 + 1] = _ilV.y; L.C[i * 3 + 2] = _ilV.z; L.R[i] = L.ms.radius * s * ws;
+  }
+  L.placed = true;
+}
+function ilodOne(L, cp) {
+  if (!L.placed) ilodPlace(L);
+  const K = LOD_K, d0 = Math.max(22, L.size * 3.5) * K, d1 = Math.max(80, L.size * 13) * K, h = 3.5, shR = PQ.shR;
+  const far = L.far ? L.far() : (VIEW_M ? VIEW_M + 30 : 2400);
+  const B = L.buckets, nb = B.length, cnt = [0, 0, 0, 0], A = B.map(b => b.attr.array), M = L.M;
+  for (let i = 0; i < L.n; i++) {
+    if (L.hid[i]) continue;
+    const x = L.C[i * 3], y = L.C[i * 3 + 1], z = L.C[i * 3 + 2], r = L.R[i];
+    const d = Math.hypot(x - cp.x, y - cp.y, z - cp.z) - r;
+    if (nb > 3) { const on = d < shR + (L.sh[i] ? 6 : 0); L.sh[i] = on ? 1 : 0; if (on) A[3].set(M.subarray(i * 16, i * 16 + 16), cnt[3]++ * 16); }
+    if (d > far) { L.lev[i] = 255; continue; }
+    const pl = L.lev[i]; let lv = d < d0 ? 0 : d < d1 ? 1 : 2;
+    if (pl !== 255 && lv !== pl) {          // hysteresis: hold the old level a few metres past the line, both ways
+      if (lv > pl && d < (pl === 0 ? d0 : d1) + h) lv = pl;
+      else if (lv < pl && d > (pl === 2 ? d1 : d0) - h) lv = pl;
+    }
+    L.lev[i] = lv;
+    _ilS.center.set(x, y, z); _ilS.radius = r * 1.1 + 1 + Math.max(0, d) * .07;   // margin: the check runs every few degrees of turn
+    if (!_ilFr.intersectsSphere(_ilS)) continue;
+    A[lv].set(M.subarray(i * 16, i * 16 + 16), cnt[lv]++ * 16);
+  }
+  for (let b = 0; b < nb; b++) {
+    const c = cnt[b], at = B[b].attr; at.clearUpdateRanges(); if (c) at.addUpdateRange(0, c * 16); at.needsUpdate = c > 0;
+    for (const im of B[b].ims) { im.count = c; im.visible = c > 0; }
+  }
+}
+function updILOD(force) {
+  const cam = camera, now = performance.now();
+  const moved = cam.position.distanceToSquared(ilodLast.p) > 2.25, turned = 1 - Math.abs(cam.quaternion.dot(ilodLast.q)) > 2.5e-4;
+  if (!force && !moved && !turned && cam.fov === ilodLast.fov && now - ilodLast.t < 600 && VIEW_M === ilodLast.view && LOD_K === ilodLast.k) return;
+  ilodLast.p.copy(cam.position); ilodLast.q.copy(cam.quaternion); ilodLast.fov = cam.fov; ilodLast.t = now; ilodLast.view = VIEW_M; ilodLast.k = LOD_K;
+  cam.updateMatrixWorld(); _ilPM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); _ilFr.setFromProjectionMatrix(_ilPM);
+  const cp = cam.getWorldPosition(_ilV.set(0, 0, 0)).clone();
+  if (IN_POCKET) { for (const L of ILODS) for (const B of L.buckets) for (const im of B.ims) { im.count = 0; im.visible = false; } for (const S of SHN.values()) if (S.im) { S.im.count = 0; S.im.visible = false; S.dirty = true; } return; }
+  for (const L of ILODS) ilodOne(L, cp);
+  updSHN(cp, force);
+}
+
+/* ---------- shadow proxies for the drawn forest ----------
+   The fir/alder/snag buckets are 200 m across; drawn into a 120 m shadow map, every tree in every bucket the map touched
+   was drawn again. They no longer cast shadows themselves: one shadow-only mesh per tree kind holds the trees within reach. */
+const SHN = new Map();
+function shnAdd(id, geo, mat, key, mats) {
+  let S = SHN.get(id);
+  if (!S) {
+    S = { srcs: new Map(), cap: 0, im: null, last: new THREE.Vector3(1e9, 0, 0), dirty: true }; SHN.set(id, S);
+    S.mk = cap => { const im = new THREE.InstancedMesh(geo, mat, cap); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.count = 0; im.visible = false; im.castShadow = true; im.receiveShadow = false;
+      shadowOnly(im); scene.add(im); return im; };
+  }
+  const n = mats.length, M = new Float32Array(n * 16), C = new Float32Array(n * 2), R = new Float32Array(n);
+  mats.forEach((m, i) => { m.toArray(M, i * 16); C[i * 2] = m.elements[12]; C[i * 2 + 1] = m.elements[14]; R[i] = m.getMaxScaleOnAxis() * 8; });
+  S.srcs.set(key, { n, M, C, R }); S.dirty = true;
+}
+function shnDel(key) { for (const S of SHN.values()) if (S.srcs.delete(key)) S.dirty = true; }
+function updSHN(cp, force) {
+  for (const S of SHN.values()) {
+    if (!force && !S.dirty && Math.hypot(cp.x - S.last.x, cp.z - S.last.z) < 6) continue;
+    S.last.copy(cp); S.dirty = false;
+    const R2 = PQ.shR + 12; let c = 0;
+    const sel = [];
+    for (const src of S.srcs.values()) for (let i = 0; i < src.n; i++) { const dx = src.C[i * 2] - cp.x, dz = src.C[i * 2 + 1] - cp.z, rr2 = R2 + src.R[i]; if (dx * dx + dz * dz < rr2 * rr2 && src.R[i] > .1) sel.push(src.M, i); }
+    const need = sel.length / 2;
+    if (!S.im || S.cap < need) { const cap = Math.max(256, Math.ceil(need * 1.5)); if (S.im) { S.im.removeFromParent(); S.im.userData.gone = 1; S.im.dispose(); } S.im = S.mk(cap); S.cap = cap; }
+    const A = S.im.instanceMatrix.array;
+    for (let k = 0; k < sel.length; k += 2) { const M = sel[k], i = sel[k + 1]; A.set(M.subarray(i * 16, i * 16 + 16), c++ * 16); }
+    const at = S.im.instanceMatrix; at.clearUpdateRanges(); if (c) at.addUpdateRange(0, c * 16); at.needsUpdate = c > 0;
+    S.im.count = c; S.im.visible = c > 0;
+  }
+}
+
+/* ---------- occlusion: underground ----------
+   The pockets (cellars, caves, the lab, the Mountain…) sit 150 m under the far corners of the map, sealed in rock: from
+   inside one, nothing on the surface can be seen. While you're down there the ground, the forests, the grass and the far
+   scenery aren't drawn at all (they were drawn — fogged out, behind the rock — every frame). */
+let IN_POCKET = false, underT = 0;
+function updUnder(dt) {
+  const u = typeof UG !== 'undefined' && !!UG.at;
+  underT -= dt; if (u === IN_POCKET && underT > 0) return; underT = .5;
+  const changed = u !== IN_POCKET; IN_POCKET = u;
+  if (typeof CHUNKS !== 'undefined') for (const m of CHUNKS.values()) m.visible = !u;
+  if (typeof grassMesh !== 'undefined' && grassMesh) grassMesh.visible = !u;
+  if (changed) { if (typeof farT !== 'undefined') farT = 0; ilodLast.t = 0; }
+}
+
+/* ---------- live lights: a point light added after boot would change the light count and recompile every lit material
+   (a long freeze, e.g. when a raid sets a shop on fire). They join the light pool instead. ---------- */
+function adoptLight(l) { if (!l || !l.isPointLight) return l; l.visible = false; if (typeof LSRC !== 'undefined' && !LSRC.includes(l)) LSRC.push(l); return l; }
+
+/* ---------- graphics memory: give back what nothing has drawn for a while ----------
+   three.js keeps every texture and mesh it ever uploaded. A slice of the world's meshes is checked every frame, and
+   whatever could be drawn right now (visible, on a drawn layer — on screen or not) stamps its textures/geometry as used. When the graphics-memory estimate is over budget (phones ~320 MB, computers
+   ~1.4 GB), or something has gone unused for 10 minutes, the least recently used things are released from the GPU
+   (dispose(): the data stays in memory, so it's simply uploaded again if it comes back into view). Under budget, nothing
+   recently seen is ever released — so walking back into town doesn't re-upload anything. */
+const RES = { tex: new Map(), geo: new Map(), n: 0, t: 0, freedT: 0, freedG: 0, freedMB: 0, mb: 0 };
+const RES_BUDGET = (LOW ? 320 : 1400) * 1e6, RES_IDLE = 30e3, RES_STALE = 600e3;
+const PINNED = new WeakSet();       // never released: LOD meshes share vertex buffers with their full-detail mesh
+const MAT_TEX = new WeakMap();
+function texBytes(t) {
+  if (!t) return 0;
+  if (t.isCompressedTexture && t.mipmaps && t.mipmaps.length) { let b = 0; for (const m of t.mipmaps) b += m.data ? m.data.byteLength : 0; return b; }
+  const im = t.image || {}; const w = im.width || 0, h = im.height || 0; if (!w || !h) return 0;
+  return w * h * 4 * (t.generateMipmaps === false ? 1 : 1.33);
+}
+function geoBytes(g) {
+  let b = 0; for (const k in g.attributes) { const a = g.attributes[k]; b += (a.array || (a.data && a.data.array) || { byteLength: 0 }).byteLength; }
+  if (g.index) b += g.index.array.byteLength; return b;
+}
+function matTex(m) {
+  let c = MAT_TEX.get(m); if (c && c.v === m.version) return c.l;
+  const l = []; for (const k in m) { const v = m[k]; if (v && v.isTexture && !v.isRenderTargetTexture) l.push(v); }
+  MAT_TEX.set(m, { v: m.version, l }); return l;
+}
+/* stamp what could be drawn right now — visible, on a drawn layer — whether or not it's on screen, so turning round never
+   finds its textures gone. The world's meshes are listed once a minute and checked a slice per frame. */
+function resStamp(now) {
+  if (!RES.list || now - RES.listT > 60e3) { RES.list = []; scene.traverse(o => { if (o.isMesh || o.isLine || o.isPoints) RES.list.push(o); }); RES.listT = now; RES.i = 0; }
+  const L = RES.list, n = Math.min(L.length, 600);
+  for (let k = 0; k < n; k++) {
+    if (RES.i >= L.length) RES.i = 0; const o = L[RES.i++];
+    if (!(o.layers.mask & 1)) continue;
+    let v = o, ok = true, top = o; while (v) { if (!v.visible) { ok = false; break; } top = v; v = v.parent; } if (!ok || top !== scene) continue;
+    RES.geo.set(o.geometry, now);
+    for (const m of [].concat(o.material || [])) if (m) for (const t of matTex(m)) RES.tex.set(t, now);
+  }
+  if (scene.environment) RES.tex.set(scene.environment, now);
+}
+function resSweep(now) {
+  const props = renderer.properties, cand = []; let total = 0;
+  for (const [t, last] of RES.tex) { const p = props.get(t); if (!p || !p.__webglInit) { RES.tex.delete(t); continue; } const b = texBytes(t); total += b; if (now - last > RES_IDLE && !PINNED.has(t)) cand.push([last, t, b, 0]); }
+  for (const [g, last] of RES.geo) { const b = geoBytes(g); total += b; if (now - last > RES_IDLE && !PINNED.has(g) && !g.userData.lodShared) cand.push([last, g, b, 1]); }
+  RES.mb = total / 1e6;
+  cand.sort((a, b) => a[0] - b[0]);
+  for (const [last, o, b, isG] of cand) {
+    if (total < RES_BUDGET * .85 && now - last < RES_STALE) break;
+    if (!isG) { if (o.isCanvasTexture || o.isDataTexture || !o.image && !o.mipmaps) continue; RES.tex.delete(o); RES.freedT++; }
+    else { RES.geo.delete(o); RES.freedG++; }
+    o.dispose(); total -= b; RES.freedMB += b / 1e6;
+  }
+}
+function updResidency() {
+  if (typeof G === 'undefined' || G.mode !== 'play') return;
+  const now = performance.now();
+  resStamp(now);
+  if (now - RES.t > 5000) { RES.t = now; resSweep(now); }
+}
+
+/* ---------- shader warm-up: compile every material in the world while the title screen is up ---------- */
+async function warmShaders() {
+  const t0 = performance.now();
+  try {
+    // hidden-by-distance groups (layer 2) and invisible things still get their programs: compile looks at every material
+    if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera);
+  } catch (e) { console.warn('warm', e && e.message); }
+  PERF.warmMs = Math.round(performance.now() - t0);
+}
+
+/* ---------- the stats overlay + load timing ---------- */
+try { performance.setResourceTimingBufferSize(4000); } catch (e) {}   // the default 250 entries undercounts the ~800 files
+const PERF = { boot0: performance.now(), menuMs: 0, warmMs: 0, playMs: 0, frames: [], calls: 0, tris: 0, shown: false, el: null, t: 0, memT: 0, texMB: 0, geoMB: 0, nTex: 0 };
+function perfLoadInfo() {
+  let b = 0, n = 0; try { for (const e of performance.getEntriesByType('resource')) { b += e.encodedBodySize || e.transferSize || 0; n++; } } catch (e) {}
+  return { mb: b / 1e6, n };
+}
+function perfMem() {
+  const props = renderer.properties, seenT = new Set(), seenG = new Set(); let tb = 0, gb = 0;
+  const seenA = new Set(), aBytes = a => { if (!a || seenA.has(a)) return 0; seenA.add(a); return (a.array || (a.data && a.data.array) || { byteLength: 0 }).byteLength; };
+  scene.traverse(o => {
+    if (o.geometry && !seenG.has(o.geometry)) { seenG.add(o.geometry); const g = o.geometry; for (const k in g.attributes) gb += aBytes(g.attributes[k]); gb += aBytes(g.index); }   // LOD copies share vertices: count each buffer once
+    if (o.isInstancedMesh && !seenG.has(o.instanceMatrix)) { seenG.add(o.instanceMatrix); gb += o.instanceMatrix.array.byteLength; }
+    for (const m of [].concat(o.material || [])) if (m) for (const k in m) { const t = m[k]; if (t && t.isTexture && !seenT.has(t)) { seenT.add(t); const p = props.get(t); if (p && p.__webglInit) tb += texBytes(t); } }
+  });
+  PERF.texMB = tb / 1e6; PERF.geoMB = gb / 1e6; PERF.nTex = seenT.size;
+}
+function perfShow(on) {
+  PERF.shown = on; GFX.stats = on; saveGfx();
+  if (on && !PERF.el) { PERF.el = document.createElement('div'); PERF.el.id = 'perfhud'; PERF.el.style.cssText = 'position:fixed;left:calc(var(--l) + 52px);top:var(--t);z-index:3;pointer-events:none;font:600 11px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#dfe;background:#000a;padding:5px 8px;border-radius:7px;white-space:pre;letter-spacing:.02em'; document.body.appendChild(PERF.el); }
+  if (PERF.el) PERF.el.style.display = on ? 'block' : 'none';
+}
+/* draw calls and triangles of the whole frame — every pass (shadow map, scene, bloom, grade) — not just the last one */
+function perfRender(dt) {
+  const inf = renderer.info; inf.autoReset = false; inf.reset();
+  composer.render(dt);
+  PERF.calls = inf.render.calls; PERF.tris = inf.render.triangles; inf.autoReset = true;
+}
+function perfFrame(rawDt) {
+  if (rawDt > 0 && rawDt < 10) { PERF.frames.push(rawDt * 1000); if (PERF.frames.length > 240) PERF.frames.shift(); }
+  if (!PERF.shown) return;
+  PERF.t -= rawDt; if (PERF.t > 0) return; PERF.t = .5;
+  PERF.memT -= .5; if (PERF.memT <= 0) { PERF.memT = 3; perfMem(); }
+  if (!PERF.frames.length) return;
+  const F = PERF.frames.slice(-120), avg = F.reduce((a, b) => a + b, 0) / Math.max(1, F.length), S = [...F].sort((a, b) => b - a), low = S[Math.floor(S.length * .01)] || avg;
+  const L = perfLoadInfo(), inf = renderer.info, pr = renderer.getPixelRatio();
+  PERF.el.textContent = `${(1000 / avg).toFixed(0)} fps  ${avg.toFixed(1)} ms  (1% low ${(1000 / low).toFixed(0)})\n`
+    + `draws ${PERF.calls}  tris ${(PERF.tris / 1e6).toFixed(2)}M\n`
+    + `gpu ~${Math.round(PERF.texMB)} MB tex + ${Math.round(PERF.geoMB)} MB mesh  (${inf.memory.textures} tex, ${inf.memory.geometries} geo, ${(inf.programs || []).length} shaders)\n`
+    + `particles ${typeof parts !== 'undefined' ? parts.length : 0}  people/animals ${typeof ents !== 'undefined' ? ents.length : 0}  sounds ${typeof VOICES !== 'undefined' ? VOICES : 0}\n`
+    + `res ${pr.toFixed(2)}x  ${PRESETS[GFX.preset].label}${presetMatches() ? '' : ' (custom)'} · ${TEXQ.label} tex · view ${VIEW_M || 'max'}${bloom.enabled ? ' · bloom' : ''}\n`
+    + `load ${(PERF.menuMs / 1000).toFixed(1)} s · ${L.mb.toFixed(0)} MB / ${L.n} files · warm ${PERF.warmMs} ms${RES.freedT + RES.freedG ? `\nfreed ${RES.freedT} tex + ${RES.freedG} geo (${Math.round(RES.freedMB)} MB)` : ''}`;
+}
+addEventListener('keydown', e => { if (e.code === 'F3') { e.preventDefault(); perfShow(!PERF.shown); } });
+
+/* ---------- presets ---------- */
+function presetMatches() { const D = PRESETS[GFX.preset][LOW ? 'ph' : 'pc']; return D.tex === GFX.tex && D.view === GFX.view; }
+function setShadowSize(n) {
+  if (sun.shadow.mapSize.x === n) return;
+  sun.shadow.mapSize.set(n, n); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  renderer.shadowMap.needsUpdate = true;
+}
+/* apply a preset's live knobs; textures only change on reload (returns true if one is needed) */
+function applyPreset(k, withTexView = true) {
+  GFX.preset = k; PQ = PRESETS[k][LOW ? 'ph' : 'pc']; LOD_K = PQ.lod;
+  setShadowSize(PQ.shadow);
+  if (!LOW) bloom.enabled = PQ.bloom;
+  if (typeof setPR === 'function') setPR();
+  if (typeof grassAt !== 'undefined') grassAt.x = 1e9;                       // regrow the grass patch at the new density
+  ilodLast.t = 0;
+  if (withTexView) { if (typeof setViewDist === 'function') setViewDist(PQ.view); if (PQ.tex !== GFX.tex) { GFX.tex = PQ.tex; saveGfx(); return true; } }
+  saveGfx(); return false;
+}
+window.__perf = { PERF, RES, ILODS, SHN, lodGeo, applyPreset, perfShow, perfMem, updILOD, get PQ() { return PQ; },
+  snap() { perfMem(); const inf = renderer.info; return { calls: PERF.calls, tris: PERF.tris, texMB: Math.round(PERF.texMB), geoMB: Math.round(PERF.geoMB), tex: inf.memory.textures, geos: inf.memory.geometries, progs: (inf.programs || []).length, menuMs: Math.round(PERF.menuMs), warmMs: PERF.warmMs, freed: RES.freedT + RES.freedG }; } };
 let H0 = 0;
 
 /* ================= terrain: chunked, coloured per vertex, detail-textured (ELYRA soil + rock) ================= */
@@ -913,6 +1281,8 @@ function treeOK(x, z) {
   if (slopeAt(x, z) > 1.5) return false;
   return true;
 }
+const CLIFF_TINT = new Map();
+function cliffTint(src) { let m = CLIFF_TINT.get(src); if (!m) { m = src.clone(); m.color = new THREE.Color(0x8c8a84); CLIFF_TINT.set(src, m); } return m; }
 async function buildForest() {
   const BT = 200, NB = Math.ceil(HALF * 2 / BT);
   const kinds = [{ geo: firGeo(), n: LOW ? 7800 : 14500, list: {} }, { geo: alderGeo(), n: LOW ? 900 : 1800, list: {} }, { geo: snagGeo(), n: 260, list: {} }];
@@ -937,7 +1307,9 @@ async function buildForest() {
     for (const b in K.list) {
       const L = K.list[b], im = new THREE.InstancedMesh(K.geo, TREEMAT, L.length);
       L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-      im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
+      // (Nov 12, perf) the 200 m bucket no longer casts its own shadow: a shadow-only copy holds the trees near you (shnAdd)
+      im.castShadow = false; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); FAR_HIDE.push(im);
+      shnAdd('tree' + kinds.indexOf(K), K.geo, TREEMAT, 'v' + kinds.indexOf(K) + ':' + b, L.map(e => e[0]));
     }
     await nextFrame();
   }
@@ -964,7 +1336,7 @@ async function buildForest() {
       if (FLATS.some(f => Math.hypot(x - f.x, z - f.z) < f.r1 + 25) || SCOUTS.some(q => Math.hypot(x - q.x, z - q.z) < 40)) continue;
       const s = rr(10, 26), c = modelCopy('cliff', s);
       c.position.set(x, heightAt(x, z) - s * .25, z); c.rotation.y = rnd() * 6; world.add(c);
-      c.traverse(m => { if (m.isMesh) { m.material = m.material.clone(); m.material.color = new THREE.Color(0x8c8a84); } });
+      c.traverse(m => { if (m.isMesh) m.material = cliffTint(m.material); });   // (Nov 12) one shared tinted copy, not one per cliff
       if (xClear(x, z)) c.visible = false; else addCol(x, z, s * .38); placed++;
     }
   }
@@ -984,7 +1356,7 @@ async function buildForest() {
 /* ================= the outlands forest: 200m cells grown as you approach, from a seed per cell, so they're the same every visit ================= */
 const FAR_HIDE = [];                          // valley tree buckets: hidden once you're far from them
 const CELL_T = 200, NCT = Math.ceil(HALF * 2 / CELL_T), OCELLS = new Map(), OCOLS = new Set();
-let OGEO = null, rockMatO = null, fernGeoO = null;
+let OGEO = null, rockMatO = null, fernGeoO = null; const ROCKGEO_O = new THREE.DodecahedronGeometry(1, 0);
 function cellRng(ci, cj) { let a = (ci * 73856093) ^ (cj * 19349663) ^ 0x5bd1e995; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function growCell(ci, cj) {
   if (!OGEO) { OGEO = [firGeo(), alderGeo(), snagGeo()]; rockMatO = new THREE.MeshLambertMaterial({ map: TX.rock, color: 0x9a968e, flatShading: true });
@@ -1008,7 +1380,8 @@ function growCell(ci, cj) {
     if (!L.length) return;
     const im = new THREE.InstancedMesh(OGEO[ki], TREEMAT, L.length);
     L.forEach(([m, c], i) => { im.setMatrixAt(i, m); im.setColorAt(i, c); });
-    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+    im.castShadow = false; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
+    shnAdd('otree' + ki, OGEO[ki], TREEMAT, 'c' + key + ':' + ki, L.map(e => e[0]));   // (Nov 12) shadows via the near proxy
   });
   const rocks = [], ferns = [];
   for (let t = 0; t < 20; t++) {
@@ -1023,7 +1396,7 @@ function growCell(ci, cj) {
   }
   for (const [L, geo, mat, sh] of [[rocks, null, null, true], [ferns, fernGeoO, VCOL, false]]) {
     if (!L.length) continue;
-    const im = new THREE.InstancedMesh(geo || new THREE.DodecahedronGeometry(1, 0), mat || rockMatO, L.length);
+    const im = new THREE.InstancedMesh(geo || ROCKGEO_O, mat || rockMatO, L.length);   // (Nov 12) one shared rock mesh: a new one per cell leaked when the cell was dropped
     L.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = sh; im.receiveShadow = true; im.computeBoundingSphere(); g.add(im);
   }
   if (MODELS.cliff && R() < .5) {
@@ -1039,10 +1412,10 @@ let FOR_SHOW = 430, FOR_DROP = 900;
 let farT = 0;
 function updForest(px, pz, dt) {
   farT -= dt; if (farT > 0) return; farT = .25;
-  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
+  for (const im of FAR_HIDE) { const c = im.boundingSphere.center; im.visible = !IN_POCKET && Math.hypot(c.x - px, c.z - pz) < FOR_SHOW + im.boundingSphere.radius * .5; }
   for (const [k, g] of OCELLS) {
     const ci = Math.floor(k / 1000), cj = k % 1000, d = Math.hypot(-HALF + (ci + .5) * CELL_T - px, -HALF + (cj + .5) * CELL_T - pz);
-    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); } else g.visible = d < FOR_SHOW;
+    if (d > FOR_DROP) { world.remove(g); g.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); OCELLS.delete(k); for (let ki = 0; ki < 3; ki++) shnDel('c' + k + ':' + ki); } else g.visible = !IN_POCKET && d < FOR_SHOW;
   }
   if (Math.hypot(px, pz) < VALLEY - 120) return;
   // grow the nearest missing cell (one per tick)
@@ -1080,7 +1453,7 @@ const _gm = new THREE.Matrix4(), _gq = new THREE.Quaternion(), _gs = new THREE.V
 function updGrass(px, pz) {
   if (Math.hypot(px - grassAt.x, pz - grassAt.z) < 5) return;
   grassAt.x = Math.round(px / 2) * 2; grassAt.z = Math.round(pz / 2) * 2;
-  const R = LOW ? 24 : 34, step = LOW ? .5 : .45, max = grassMesh.instanceMatrix.count;
+  const R = LOW ? 24 : 34, step = (LOW ? .5 : .45) / Math.sqrt(PQ.grass), max = grassMesh.instanceMatrix.count;   // (Nov 12) preset density: wider spacing, same patch size
   let n = 0;
   for (let gx = grassAt.x - R; gx <= grassAt.x + R && n < max; gx += step) for (let gz = grassAt.z - R; gz <= grassAt.z + R && n < max; gz += step) {
     const hx = hash(Math.round(gx / step), Math.round(gz / step)), hz = hash(Math.round(gz / step) + 7, Math.round(gx / step));
@@ -3252,8 +3625,9 @@ function buildBirds() {
 }
 const _bm = new THREE.Object3D(), _bq = new THREE.Quaternion(), _bf = new THREE.Vector3(0, 0, 1);
 function updFar(dt, t, px, pz) {
-  if (horizonMesh) horizonMesh.visible = !VIEW_M;                        // the 9 km ranges only exist at Max view distance
-  if (farTrees) for (const im of farTrees) { const c = im.boundingSphere.center; im.visible = !VIEW_M || (VIEW_M > FAR_TREE_NEAR && Math.hypot(c.x - px, c.z - pz) - im.boundingSphere.radius < VIEW_M); }
+  if (horizonMesh) horizonMesh.visible = !VIEW_M && !IN_POCKET;              // the 9 km ranges only exist at Max view distance
+  if (farTerrMesh) farTerrMesh.visible = !IN_POCKET;                           // (Nov 12) nothing of the surface shows from underground
+  if (farTrees) for (const im of farTrees) { const c = im.boundingSphere.center; im.visible = !IN_POCKET && (!VIEW_M || (VIEW_M > FAR_TREE_NEAR && Math.hypot(c.x - px, c.z - pz) - im.boundingSphere.radius < VIEW_M)); }
   for (const S of FAR_SMOKE) {
     S.sp.visible = !VIEW_M || Math.hypot(S.x - px, S.z - pz) < VIEW_M + 150;
     const k = (S.k + t * .012) % 1, h = k * 230;
@@ -4516,8 +4890,11 @@ function whole(name) {
   return WHOLE[name] = { parts, size: b.getSize(new THREE.Vector3()) };
 }
 /* instance parts at a list of matrices */
-function instParts(parent, parts, mats, shadow = true) {
+function instParts(parent, parts, mats, shadow = true, opt) {
   const out = []; if (!mats.length) return out;
+  // (Nov 12, perf) heavy models (conifers, Davia's rocks, cars, the bus…) get distance LOD, per-instance culling and
+  // shadow proxies instead of one fixed-detail mesh (ilodParts in 1a-perf.js)
+  if (parts.reduce((t, p) => t + geoTris(p.geo), 0) >= ILOD_MIN_TRIS) return ilodParts(parent, parts, mats, shadow, opt);
   for (const p of parts) { const im = new THREE.InstancedMesh(p.geo, p.mat, mats.length); mats.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); parent.add(im); out.push(im); }
   return out;
 }
@@ -4576,8 +4953,11 @@ async function buildEnvForest() {
     if (big) hero.push(mm); else { const b = Math.floor((x + HALF) / BT) + Math.floor((z + HALF) / BT) * NB; (bins[b] ||= []).push(mm); }
     if (!hid) { addCol(x, z, .4 * s); addRes('fir', x, z, s); } k++;
   }
-  for (const b in bins) for (const im of instParts(world, W.parts, bins[b])) FAR_HIDE.push(im);
-  if (WH) for (const im of instParts(world, WH.parts, hero)) FAR_HIDE.push(im);
+  // (Nov 12, perf) one LOD set per kind instead of 300 m bins: drawn per tree by distance (full / medium / far detail),
+  // only what's on screen, nothing past the forest's draw distance; shadows from medium-detail copies near you
+  const forestFar = { far: () => FOR_SHOW };
+  instParts(world, W.parts, Object.values(bins).flat(), true, forestFar);
+  if (WH && hero.length) instParts(world, WH.parts, hero, true, forestFar);
   for (const p of [...W.parts, ...(WH ? WH.parts : [])]) for (const m of [].concat(p.mat)) { m.alphaTest = Math.max(m.alphaTest || 0, .4); m.side = THREE.DoubleSide; m.transparent = false; m.depthWrite = true; m.needsUpdate = true; }   // (Nov 11, perf) cut-out, not blended: drawn in the opaque pass with depth, no sorting or overdraw
   await nextFrame();
 }
@@ -5962,35 +6342,75 @@ const torch = new THREE.SpotLight(0xfff0d8, 0, 60, .5, .55, 0); camera.add(torch
 const torchTarget = new THREE.Object3D(); torchTarget.position.set(0, -.1, -5); camera.add(torchTarget); torch.target = torchTarget;
 
 /* ================= particles + tracers ================= */
+/* (Nov 12, perf) pooled. Every puff used to be a new mesh with its own new material (an explosion made 34 of each), each its
+   own draw call, all thrown away a second later. Now every particle is one instance of a single instanced mesh: one draw for
+   all of them, nothing created or freed while you play. Same boxes, colours, motion and fade. */
 const parts = [];
 const pGeo = new THREE.BoxGeometry(1, 1, 1);
+const PART_MAX = LOW ? 384 : 768;
+const partGeo = pGeo.clone(); partGeo.setAttribute('aOp', new THREE.InstancedBufferAttribute(new Float32Array(PART_MAX), 1));
+const partMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+partMat.onBeforeCompile = sh => {
+  sh.vertexShader = 'attribute float aOp;\nvarying float vOp;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvOp = aOp;');
+  sh.fragmentShader = 'varying float vOp;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vOp;');
+};
+partMat.customProgramCacheKey = () => 'parts-op';
+const partIM = new THREE.InstancedMesh(partGeo, partMat, PART_MAX);
+partIM.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PART_MAX * 3), 3);
+partIM.instanceMatrix.setUsage(THREE.DynamicDrawUsage); partIM.instanceColor.setUsage(THREE.DynamicDrawUsage); partGeo.attributes.aOp.setUsage(THREE.DynamicDrawUsage);
+partIM.count = 0; partIM.frustumCulled = false; partIM.castShadow = false; partIM.renderOrder = 2; partIM.userData.noCull = 1; world.add(partIM);
+const _pc = new THREE.Color();
 function puff(x, y, z, color, n = 6, spd = 3, size = .12, life = .6, grav = -4) {
+  // (Nov 12) distance-based: past 120 m a puff is a few pixels, so fewer, slightly bigger bits; past 300 m none
+  const dc = Math.hypot(x - camera.position.x, y - camera.position.y, z - camera.position.z);
+  if (dc > 300) return; if (dc > 120) { n = Math.max(1, Math.ceil(n / 3)); size *= 1.4; }
+  _pc.set(color);
   for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(pGeo, new THREE.MeshBasicMaterial({ color, transparent: true }));
-    m.position.set(x, y, z); m.scale.setScalar(size * rr(.6, 1.3)); world.add(m);
-    parts.push({ m, vx: rr(-1, 1) * spd, vy: rr(0, 1.2) * spd, vz: rr(-1, 1) * spd, life, t: 0, grav, s0: m.scale.x });
+    if (parts.length >= PART_MAX) parts.shift();                 // full: the oldest goes first
+    parts.push({ x, y, z, r: _pc.r, g: _pc.g, b: _pc.b, vx: rr(-1, 1) * spd, vy: rr(0, 1.2) * spd, vz: rr(-1, 1) * spd, life, t: 0, grav, s0: size * rr(.6, 1.3) });
   }
 }
 function updParts(dt) {
-  for (let i = parts.length - 1; i >= 0; i--) {
+  const M = partIM.instanceMatrix.array, C = partIM.instanceColor.array, O = partGeo.attributes.aOp.array;
+  let n = 0;
+  for (let i = 0; i < parts.length; i++) {
     const p = parts[i]; p.t += dt;
-    p.vy += p.grav * dt; p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.m.position.z += p.vz * dt;
-    const k = 1 - p.t / p.life; p.m.scale.setScalar(p.s0 * Math.max(k, .01)); p.m.material.opacity = k;
-    if (p.t >= p.life) { world.remove(p.m); p.m.material.dispose(); parts.splice(i, 1); }
+    if (p.t >= p.life) continue;
+    p.vy += p.grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    const k = 1 - p.t / p.life, s = p.s0 * Math.max(k, .01), o = n * 16;
+    M[o] = s; M[o + 1] = 0; M[o + 2] = 0; M[o + 3] = 0; M[o + 4] = 0; M[o + 5] = s; M[o + 6] = 0; M[o + 7] = 0;
+    M[o + 8] = 0; M[o + 9] = 0; M[o + 10] = s; M[o + 11] = 0; M[o + 12] = p.x; M[o + 13] = p.y; M[o + 14] = p.z; M[o + 15] = 1;
+    C[n * 3] = p.r; C[n * 3 + 1] = p.g; C[n * 3 + 2] = p.b; O[n] = k;
+    parts[n++] = p;
   }
+  parts.length = n;
+  if (n || partIM.count) {
+    partIM.count = n;
+    for (const [at, w] of [[partIM.instanceMatrix, 16], [partIM.instanceColor, 3], [partGeo.attributes.aOp, 1]]) { at.clearUpdateRanges(); if (n) at.addUpdateRange(0, n * w); at.needsUpdate = n > 0; }
+  }
+  partIM.visible = n > 0;
 }
-const tracers = [];
+/* tracers: a fixed set of lines reused shot after shot (they were a new line, geometry and material per bullet) */
+const tracers = [], TR_MAX = 24;
+for (let i = 0; i < TR_MAX; i++) {
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3).setUsage(THREE.DynamicDrawUsage));
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: .9, fog: false }));
+  l.frustumCulled = false; l.visible = false; l.userData.noCull = 1; world.add(l); tracers.push({ l, t: 1, on: false });
+}
 function tracer(a, b, color = 0xffe0a0) {
-  const g = new THREE.BufferGeometry().setFromPoints([a, b]);
-  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: .9, fog: false }));
-  world.add(l); tracers.push({ l, t: 0 });
+  let T = tracers.find(q => !q.on); if (!T) T = tracers.reduce((x, y) => y.t > x.t ? y : x);
+  const P0 = T.l.geometry.attributes.position; P0.setXYZ(0, a.x, a.y, a.z); P0.setXYZ(1, b.x, b.y, b.z); P0.needsUpdate = true;
+  T.l.material.color.set(color); T.l.material.opacity = .9; T.l.visible = true; T.on = true; T.t = 0;
 }
-function updTracers(dt) { for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.t += dt; t.l.material.opacity = 1 - t.t / .08; if (t.t > .08) { world.remove(t.l); t.l.geometry.dispose(); tracers.splice(i, 1); } } }
+function updTracers(dt) { for (const T of tracers) { if (!T.on) continue; T.t += dt; T.l.material.opacity = 1 - T.t / .08; if (T.t > .08) { T.on = false; T.l.visible = false; } } }
 
 /* thrown spears */
 const spears = [];
+const SPEAR_POOL = [], SPEAR_GEO = [new THREE.CylinderGeometry(.03, .03, 1.8, 5), new THREE.ConeGeometry(.06, .3, 4)];
 function throwSpear(e) {
-  const g = new THREE.Group(); mesh(new THREE.CylinderGeometry(.03, .03, 1.8, 5), M(0x6a4a2a), 0, 0, 0, g).rotation.x = Math.PI / 2; mesh(new THREE.ConeGeometry(.06, .3, 4), M(0x9a9a92), 0, 0, 1, g).rotation.x = Math.PI / 2;
+  // (Nov 12, perf) reused from a pool, and the two shapes are made once (each spear used to leave its geometry on the GPU)
+  let g = SPEAR_POOL.pop();
+  if (!g) { g = new THREE.Group(); mesh(SPEAR_GEO[0], M(0x6a4a2a), 0, 0, 0, g).rotation.x = Math.PI / 2; mesh(SPEAR_GEO[1], M(0x9a9a92), 0, 0, 1, g).rotation.x = Math.PI / 2; }
   const sx = e.x + Math.sin(e.yaw) * .4, sy = e.y + 1.7, sz = e.z + Math.cos(e.yaw) * .4;
   const tx = P.x + rr(-.6, .6), ty = P.y + 1.3, tz = P.z + rr(-.6, .6);
   const d = Math.hypot(tx - sx, tz - sz), spd = 22, T = d / spd;
@@ -6008,7 +6428,7 @@ function updSpears(dt) {
       if (!P.dead && Math.hypot(p.x - P.x, p.z - P.z) < .7 && p.y > P.y && p.y < P.y + 2) { hurtPlayer(16, p.x, p.z); s.hit = true; s.t = 9; }
       else if (p.y < heightAt(p.x, p.z)) { s.hit = true; s.t = 0; }
     }
-    if (s.t > 6) { world.remove(s.g); spears.splice(i, 1); }
+    if (s.t > 6) { world.remove(s.g); spears.splice(i, 1); if (SPEAR_POOL.length < 16) SPEAR_POOL.push(s.g); }
   }
 }
 
@@ -6042,10 +6462,12 @@ function initAudio() {
   music.unlock();
 }
 function setMute(m) { muted = m; if (master) master.gain.value = m ? 0 : .9; music.setMute(m); try { localStorage.setItem('the-arc-mute', m ? '1' : '0'); } catch (e) {} }
+let VOICES = 0;
 function play(name, vol = 1, rate = 1, when = 0) {
   const b = BUF[name]; if (!AC || !b || muted) return false;
+  if (VOICES >= (LOW ? 20 : 32)) return true;           // (Nov 12) a firefight can't stack up hundreds of overlapping sounds
   const s = AC.createBufferSource(), g = AC.createGain(); s.buffer = b; s.playbackRate.value = rate * rr(.95, 1.05); g.gain.value = vol;
-  s.connect(g).connect(sfxGain); s.start(AC.currentTime + when); return true;
+  s.connect(g).connect(sfxGain); VOICES++; s.onended = () => { VOICES--; s.disconnect(); g.disconnect(); }; s.start(AC.currentTime + when); return true;
 }
 /* music: two players crossfading. moods: day / night / raid / intro / dawn */
 const music = (() => {
@@ -7466,6 +7888,15 @@ function swing(w) {
 /* projectiles: arrows, bolts, flares, thrown spears, grenades, fire bottles */
 const PROJ = [];
 const PROJ_MODEL = { arrow: ['w/arrow', .75], bolt: ['w/bolt', .42], frag: ['w/frag', .12, 'y'], molotov: ['w/molotov', .26, 'y'] };
+/* (Nov 12, perf) arrows, bolts, spears and grenades are reused: a finished one goes back to its pool instead of being
+   rebuilt (with new geometry left on the GPU) for every throw */
+const PROJ_POOL = {};
+function projGet(kind) {
+  const g = (PROJ_POOL[kind] || []).pop();
+  if (!g) return projMesh(kind);
+  g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.visible = true; world.add(g); return g;
+}
+function projFree(p) { world.remove(p.g); const a = PROJ_POOL[p.kind] ||= []; if (a.length < 24) a.push(p.g); }
 function projMesh(kind) {
   const g = new THREE.Group(), pm = PROJ_MODEL[kind], mc = pm && modelCopy(pm[0], pm[1], pm[2] || 'z');
   if (mc) { mc.traverse(o => { if (o.isMesh) { o.castShadow = false; } }); { const b = new THREE.Box3().setFromObject(mc); mc.position.y -= (b.min.y + b.max.y) / 2; } g.add(mc); if (kind === 'molotov') mesh(new THREE.SphereGeometry(.035, 6, 4), VMAT.glow(0xff8a2a), 0, .27, 0, g); world.add(g); return g; }
@@ -7476,7 +7907,7 @@ function projMesh(kind) {
   world.add(g); return g;
 }
 function fireProj(R, key) {
-  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
+  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projGet(kind), d = ray.clone();
   const p = { g, kind, x: rayO.x + d.x * .6, y: rayO.y + d.y * .6 - .05, z: rayO.z + d.z * .6, vx: d.x * R.spd, vy: d.y * R.spd, vz: d.z * R.spd, grav: R.grav, dmg: R.dmg, burn: R.burn || 0, t: 0, owner: 'p' };
   PROJ.push(p);
 }
@@ -7485,7 +7916,7 @@ function throwNext() {
   const id = (P.thr && cnt(P.thr) > 0) ? P.thr : THROWS.find(k => cnt(k) > 0);
   if (!id) { toast('Nothing to throw — craft grenades or throwing spears', 2); sfx('no'); return; }
   take(id, 1); camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
-  const spd = id === 'throw_spear' ? 32 : 18, g = projMesh(id);
+  const spd = id === 'throw_spear' ? 32 : 18, g = projGet(id);
   PROJ.push({ g, kind: id, x: rayO.x + ray.x * .5, y: rayO.y + ray.y * .5, z: rayO.z + ray.z * .5, vx: ray.x * spd, vy: ray.y * spd + (id === 'throw_spear' ? 1 : 3.5), vz: ray.z * spd, grav: 12, dmg: id === 'throw_spear' ? 70 : 0, t: 0, owner: 'p', fuse: id === 'frag' ? 2.4 : id === 'smoke_gren' ? 1.6 : 0 });
   sfx('whoosh'); toast(`${nameOf(id)} · ${cnt(id)} left`, 1.2);
 }
@@ -7522,7 +7953,7 @@ function updProj(dt) {
     }
     if (p.hitE && !p.hitE.dead) p.g.position.set(p.hitE.x, p.hitE.y + 1.2, p.hitE.z);
     if (p.fuse) { p.fuse -= dt; if (p.fuse <= 0) { if (p.kind === 'frag') explode(p.x, p.y, p.z); else SMOKES_P.push({ x: p.x, z: p.z, y: p.y, t: 14 }); p.t = 99; p.fuse = 0; } }
-    if (p.t > (p.kind === 'arrow' || p.kind === 'bolt' || p.kind === 'throw_spear' ? 25 : 30) || p.t >= 99) { world.remove(p.g); PROJ.splice(i, 1); }
+    if (p.t > (p.kind === 'arrow' || p.kind === 'bolt' || p.kind === 'throw_spear' ? 25 : 30) || p.t >= 99) { projFree(p); PROJ.splice(i, 1); }
   }
   for (let i = FIRES.length - 1; i >= 0; i--) { const f = FIRES[i]; f.t -= dt; if (Math.random() < dt * (f.small ? 8 : 20)) puff(f.x + rr(-1.5, 1.5) * (f.small ? .2 : 1), f.y + .3, f.z + rr(-1.5, 1.5) * (f.small ? .2 : 1), pick([0xff8a2a, 0xffb04a, 0xe0502a]), 2, 1.5, .18, .6, 3);
     if (!f.small) { for (const e of ents) if (!e.dead && e.type !== 'npc' && Math.hypot(e.x - f.x, e.z - f.z) < 3.2) e.burn = Math.max(e.burn || 0, 3); if (Math.hypot(P.x - f.x, P.z - f.z) < 2.4) hurtPlayer(14 * dt, f.x + .01, f.z); }
@@ -9957,7 +10388,7 @@ function siegeFire() {
   const lit = new Set(SIEGE.fires.filter(F => !F.out).map(F => F.id)), pool = SHOP_DEFS.filter(D => !lit.has(D.id) && !((G.flags.burnt || []).includes(D.id))); if (!pool.length) return;
   const D = pick(pool), g = new THREE.Group(), y = heightAt(D.cx, D.cz); g.position.set(D.cx, y, D.cz); world.add(g);
   const flames = []; for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(rr(.6, 1.1), rr(1.6, 2.8), 7), new THREE.MeshBasicMaterial({ color: pick([0xff7a2a, 0xff9a3a, 0xffb040]), transparent: true, opacity: .9 })); f.position.set(rr(-D.bw / 3, D.bw / 3), rr(4, 5.6), rr(-D.bd / 3, D.bd / 3)); g.add(f); flames.push(f); }
-  const l = new THREE.PointLight(0xff7a2a, 0, 26, 0); l.position.y = 5; g.add(l);
+  const l = new THREE.PointLight(0xff7a2a, 0, 26, 0); l.position.y = 5; g.add(l); adoptLight(l);   // (Nov 12) through the light pool: a new live light recompiled every lit material mid-raid
   const F = { id: D.id, D, g, flames, l, t: 0, out: false, sm: { x: D.cx, z: D.cz, y: y + 6, k: rnd() } }; SMOKES.push(F.sm); SIEGE.fires.push(F);
   toast(`The ${D.sign.toLowerCase()} is on fire!`, 3); sfx('boom', .5);
 }
@@ -13326,22 +13757,29 @@ function load() { try { return JSON.parse(localStorage.getItem(SAVE) || 'null');
 let last = performance.now(), saveT = 0, titleT = 0, regionT = 1, shadowTick = 0;
 /* adaptive resolution: if the frame rate sags, render fewer pixels (down to a floor) until it holds; creep back up when
    there's headroom. Fill rate (bloom, grade, shadows, PBR people) is what lags first on most screens. */
-const PR_MAX = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75), PR_MIN = Math.min(PR_MAX, LOW ? .75 : .9);
+/* (Nov 12) the ceiling and floor come from the graphics preset (PQ.pr / PQ.prMin); ?bench holds the resolution still so
+   before/after measurements compare like with like. */
+let PR_MAX = Math.min(devicePixelRatio || 1, PQ.pr), PR_MIN = Math.min(PR_MAX, PQ.prMin);
 let prNow = PR_MAX, prT = 0, prN = 0, prHold = 0;
+const BENCH = /[?&]bench\b/.test(location.search);
+function setPR() {
+  PR_MAX = Math.min(devicePixelRatio || 1, PQ.pr); PR_MIN = Math.min(PR_MAX, PQ.prMin);
+  const n = clamp(prNow, PR_MIN, PR_MAX); prNow = n; renderer.setPixelRatio(n); resize(); prHold = 3;
+}
 function adaptRes(raw) {
-  if (G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
+  if (BENCH || G.mode !== 'play' || document.hidden || raw <= 0 || raw > .5) return;
   prT += raw; prN++; prHold -= raw; if (prT < 1.5) return;
   const fps = prN / prT; prT = 0; prN = 0; let n = prNow;
   // quality ladder: resolution first; at the floor and still slow, drop bloom (a dozen small passes); bloom comes back first
   if (fps < 48) { if (prNow <= PR_MIN + .01 && fps < 42 && bloom.enabled) { bloom.enabled = false; prHold = 20; } n = Math.max(PR_MIN, prNow - .15); prHold = 20; }
-  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
+  else if (fps > 58 && prHold <= 0) { if (!bloom.enabled && !LOW && PQ.bloom) { bloom.enabled = true; prHold = 8; return; } n = Math.min(PR_MAX, prNow + .1); }
   if (Math.abs(n - prNow) > .01) { prNow = n; renderer.setPixelRatio(n); resize(); }
 }
 function frame(now) {
   requestAnimationFrame(frame);
-  adaptRes((now - last) / 1000);
+  adaptRes((now - last) / 1000); perfFrame((now - last) / 1000);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (paused) { composer.render(0); return; }
+  if (paused) { perfRender(0); return; }
   G.t += dt;
   for (const f of DECOR_ANIM) f(G.t);
   updHouseLights();
@@ -13389,9 +13827,12 @@ function frame(now) {
   }
   updParts(dt); updTracers(dt); updLightPool();
   grade.uniforms.t.value = G.t;
-  shadowTick++; renderer.shadowMap.needsUpdate = (shadowTick & 1) === 0 || shadowTick < 4;
-  composer.render(dt);
+  updUnder(dt); updILOD(); updShadowProxies();  // (Nov 12) instanced LOD + per-instance culling + shadow proxies (1a-perf.js)
+  shadowTick++; renderer.shadowMap.needsUpdate = shadowTick % PQ.shEvery === 0 || shadowTick < 4 || shadowForce > 0; if (shadowForce > 0) shadowForce--;
+  perfRender(dt);
+  updResidency();
 }
+let shadowForce = 0;
 
 /* light pool: the world has a dozen point lights (camp fire, hull lamp, village fires, placed lamps, muzzle flash…) and
    three.js makes every lit pixel loop over all of them, near or not — the biggest per-pixel cost on phones. They stay in
@@ -13407,6 +13848,7 @@ function updLightPool() {
   const cx = camera.position.x, cz = camera.position.z, pick3 = [];
   for (const l of LSRC) {
     if (!(l.intensity > 0)) continue;
+    { let o = l.parent; while (o && o !== scene) o = o.parent; if (!o) continue; }     // (Nov 12) taken out of the world (a doused fire): dark
     // what matters is how close the lit patch (the light's reach) comes to the camera, not the light itself:
     // a fire 40 m off still visibly lights the ground around it
     l.getWorldPosition(_lv); const reach = l.distance || 300, d = Math.hypot(_lv.x - cx, _lv.z - cz) - reach;
@@ -13497,7 +13939,7 @@ function buildCull() {
   const skip = new Set([...CHUNKS.values(), ...OCELLS.values(), ...ents.map(e => e.g), ...PETS.map(e => e.g), ...DUCKS.map(D => D.g)]);
   const box = new THREE.Box3(), sph = new THREE.Sphere();
   for (const o of world.children) {
-    if (skip.has(o) || o.isSprite) continue;
+    if (skip.has(o) || o.isSprite || o.userData.ilod || o.userData.noCull) continue;   // (Nov 12) LOD sets and pools cull themselves
     // (Nov 11, perf) groups holding instanced props (lockers, bottles, racks…) used to be skipped, so they drew from anywhere
     const meshes = [];
     o.traverse(c => { if (c.isMesh || c.isLine || c.isPoints) meshes.push(c); });
@@ -13505,7 +13947,7 @@ function buildCull() {
     box.setFromObject(o); if (box.isEmpty()) continue; box.getBoundingSphere(sph);
     if (sph.radius > 90) continue;
     if (sph.radius < 1.5) for (const m of meshes) m.castShadow = false;   // pebbles, scrap and crates: their shadows cost a draw each and read as nothing
-    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true });
+    CULL.push({ x: sph.center.x, z: sph.center.z, r: sph.radius, meshes, on: true, mark: !!o.userData.landmark || sph.radius > 30 });
   }
 }
 function updCull(dt) {
@@ -13513,8 +13955,11 @@ function updCull(dt) {
   const cx = camera.position.x, cz = camera.position.z, hz = scene.fog.far * 1.25;
   // (Nov 11, perf) was 70 m + 40× the radius (a 6 m building drew to ~310 m); now ~130 m for a building, ~70 m for a crate
   for (const c of CULL) {
-    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
-    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? 1 : 2; }
+    // (Nov 12) 6 m of hysteresis: standing on the line no longer flickers a prop in and out; landmarks (userData.landmark)
+    // are never culled — they draw out to the view distance like the terrain
+    const lim = c.mark ? (VIEW_M ? VIEW_M + c.r : 1e9) : Math.min(60 + c.r * 12, hz + c.r * 2, VIEW_M ? VIEW_M + c.r : 750);
+    const on = Math.hypot(c.x - cx, c.z - cz) - c.r < lim + (c.on ? 6 : 0);
+    if (on !== c.on) { c.on = on; for (const m of c.meshes) m.layers.mask = on ? (m.userData.lm || 1) : 2; }
   }
   // building insides: only once you're near enough to look in (inside the Bunkhouse, the others are hidden too)
   const near = LOW ? 22 : 30;
@@ -13707,9 +14152,12 @@ let gfxOpen = false;
 function renderGfx() {
   const row = (title, key, levels, note) => `<h4>${title}</h4><div class="opts">${Object.entries(levels).map(([k, L]) =>
     `<button data-${key}="${k}" class="${GFX[key] === k ? 'on' : ''}">${L.label}${L.m ? `<small>${L.m} m</small>` : key === 'view' ? '<small>no limit</small>' : ''}</button>`).join('')}</div><p class="dim">${note}</p>`;
-  $('gfxb').innerHTML = '<h3>Settings</h3>'
+  const pre = `<h4>Graphics</h4><div class="opts">${Object.entries(PRESETS).map(([k, L]) => `<button data-preset="${k}" class="${GFX.preset === k && presetMatches() ? 'on' : ''}">${L.label}</button>`).join('')}</div>`
+    + `<p class="dim">${presetMatches() ? PRESETS[GFX.preset].note : `Custom — ${PRESETS[GFX.preset].label} with your own textures / view distance.`} Resolution adjusts itself to keep the frame rate steady.</p>`;
+  $('gfxb').innerHTML = '<h3>Settings</h3>' + pre
     + row('Textures', 'tex', TEX_LEVELS, `Sharper surfaces cost graphics memory. Changing this restarts the game (your save is kept).${isTouch ? ' High can crash phones — if it does, the next load drops back a level on its own.' : ''}`)
     + row('View distance', 'view', VIEW_LEVELS, 'How far you can see before the fog closes in. Shorter = smoother. Changes right away.')
+    + `<h4>Performance stats</h4><div class="opts"><button data-stats="0" class="${PERF.shown ? '' : 'on'}">Off</button><button data-stats="1" class="${PERF.shown ? 'on' : ''}">On</button></div><p class="dim">Frame rate, draw calls, triangles and graphics memory in the corner${isTouch ? '' : ' (F3 toggles it)'}.</p>`
     + '<button class="xb" data-close="1">Done</button>';
 }
 function openGfx() { gfxOpen = true; renderGfx(); $('gfx').classList.add('on'); if (document.pointerLockElement) document.exitPointerLock(); }
@@ -13719,6 +14167,8 @@ $('gfx').addEventListener('click', e => {
   if (!b) { if (e.target.id === 'gfx') closeGfx(); return; }
   if (b.dataset.close) { closeGfx(); return; }
   if (b.dataset.view) { setViewDist(b.dataset.view); saveGfx(); renderGfx(); return; }
+  if (b.dataset.stats) { perfShow(b.dataset.stats === '1'); renderGfx(); return; }
+  if (b.dataset.preset) { if (applyPreset(b.dataset.preset)) { if (G.mode === 'play') save(); bootDone(); location.reload(); return; } renderGfx(); return; }
   if (b.dataset.tex && b.dataset.tex !== GFX.tex) { GFX.tex = b.dataset.tex; saveGfx(); if (G.mode === 'play') save(); bootDone(); location.reload(); }
 });
 
@@ -13751,7 +14201,9 @@ async function boot() {
   ensureWildlife(); villageGuards(); buildExplore(); buildFactions(); buildSettlement(); buildStory(); buildEvents(); buildCombat(); buildSeason2(); buildS2Story(); buildFinish(); buildEveryday(); try { dressPockets(); } catch (err) { console.error('dressPockets', err); } try { startLate(); } catch (err) { console.error('startLate', err); } bakeWorld(); bakeExplore(); buildCull(); buildLightPool();
   await buildMapCanvas(); resetExplore('');
   updTime(0); refreshEnv(G.tod, 0);
-  menu(); bootDone();
+  updILOD(true); setLoad('WARMING UP'); await nextFrame(); await warmShaders();
+  PERF.menuMs = performance.now() - PERF.boot0;
+  menu(); bootDone(); if (GFX.stats) perfShow(true);
   if (GFX.dropped) $('menu').insertAdjacentHTML('afterbegin', `<div class="load">THE LAST LOAD CRASHED ON ${TEX_LEVELS[GFX.dropped].label.toUpperCase()} TEXTURES — NOW ${TEXQ.label.toUpperCase()}</div>`);
   requestAnimationFrame(frame);
   // Bryce's weapon models stream in behind the menu; each gun swaps from its drawn stand-in once its model is here

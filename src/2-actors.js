@@ -376,35 +376,75 @@ const torch = new THREE.SpotLight(0xfff0d8, 0, 60, .5, .55, 0); camera.add(torch
 const torchTarget = new THREE.Object3D(); torchTarget.position.set(0, -.1, -5); camera.add(torchTarget); torch.target = torchTarget;
 
 /* ================= particles + tracers ================= */
+/* (Nov 12, perf) pooled. Every puff used to be a new mesh with its own new material (an explosion made 34 of each), each its
+   own draw call, all thrown away a second later. Now every particle is one instance of a single instanced mesh: one draw for
+   all of them, nothing created or freed while you play. Same boxes, colours, motion and fade. */
 const parts = [];
 const pGeo = new THREE.BoxGeometry(1, 1, 1);
+const PART_MAX = LOW ? 384 : 768;
+const partGeo = pGeo.clone(); partGeo.setAttribute('aOp', new THREE.InstancedBufferAttribute(new Float32Array(PART_MAX), 1));
+const partMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+partMat.onBeforeCompile = sh => {
+  sh.vertexShader = 'attribute float aOp;\nvarying float vOp;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvOp = aOp;');
+  sh.fragmentShader = 'varying float vOp;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vOp;');
+};
+partMat.customProgramCacheKey = () => 'parts-op';
+const partIM = new THREE.InstancedMesh(partGeo, partMat, PART_MAX);
+partIM.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(PART_MAX * 3), 3);
+partIM.instanceMatrix.setUsage(THREE.DynamicDrawUsage); partIM.instanceColor.setUsage(THREE.DynamicDrawUsage); partGeo.attributes.aOp.setUsage(THREE.DynamicDrawUsage);
+partIM.count = 0; partIM.frustumCulled = false; partIM.castShadow = false; partIM.renderOrder = 2; partIM.userData.noCull = 1; world.add(partIM);
+const _pc = new THREE.Color();
 function puff(x, y, z, color, n = 6, spd = 3, size = .12, life = .6, grav = -4) {
+  // (Nov 12) distance-based: past 120 m a puff is a few pixels, so fewer, slightly bigger bits; past 300 m none
+  const dc = Math.hypot(x - camera.position.x, y - camera.position.y, z - camera.position.z);
+  if (dc > 300) return; if (dc > 120) { n = Math.max(1, Math.ceil(n / 3)); size *= 1.4; }
+  _pc.set(color);
   for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(pGeo, new THREE.MeshBasicMaterial({ color, transparent: true }));
-    m.position.set(x, y, z); m.scale.setScalar(size * rr(.6, 1.3)); world.add(m);
-    parts.push({ m, vx: rr(-1, 1) * spd, vy: rr(0, 1.2) * spd, vz: rr(-1, 1) * spd, life, t: 0, grav, s0: m.scale.x });
+    if (parts.length >= PART_MAX) parts.shift();                 // full: the oldest goes first
+    parts.push({ x, y, z, r: _pc.r, g: _pc.g, b: _pc.b, vx: rr(-1, 1) * spd, vy: rr(0, 1.2) * spd, vz: rr(-1, 1) * spd, life, t: 0, grav, s0: size * rr(.6, 1.3) });
   }
 }
 function updParts(dt) {
-  for (let i = parts.length - 1; i >= 0; i--) {
+  const M = partIM.instanceMatrix.array, C = partIM.instanceColor.array, O = partGeo.attributes.aOp.array;
+  let n = 0;
+  for (let i = 0; i < parts.length; i++) {
     const p = parts[i]; p.t += dt;
-    p.vy += p.grav * dt; p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.m.position.z += p.vz * dt;
-    const k = 1 - p.t / p.life; p.m.scale.setScalar(p.s0 * Math.max(k, .01)); p.m.material.opacity = k;
-    if (p.t >= p.life) { world.remove(p.m); p.m.material.dispose(); parts.splice(i, 1); }
+    if (p.t >= p.life) continue;
+    p.vy += p.grav * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    const k = 1 - p.t / p.life, s = p.s0 * Math.max(k, .01), o = n * 16;
+    M[o] = s; M[o + 1] = 0; M[o + 2] = 0; M[o + 3] = 0; M[o + 4] = 0; M[o + 5] = s; M[o + 6] = 0; M[o + 7] = 0;
+    M[o + 8] = 0; M[o + 9] = 0; M[o + 10] = s; M[o + 11] = 0; M[o + 12] = p.x; M[o + 13] = p.y; M[o + 14] = p.z; M[o + 15] = 1;
+    C[n * 3] = p.r; C[n * 3 + 1] = p.g; C[n * 3 + 2] = p.b; O[n] = k;
+    parts[n++] = p;
   }
+  parts.length = n;
+  if (n || partIM.count) {
+    partIM.count = n;
+    for (const [at, w] of [[partIM.instanceMatrix, 16], [partIM.instanceColor, 3], [partGeo.attributes.aOp, 1]]) { at.clearUpdateRanges(); if (n) at.addUpdateRange(0, n * w); at.needsUpdate = n > 0; }
+  }
+  partIM.visible = n > 0;
 }
-const tracers = [];
+/* tracers: a fixed set of lines reused shot after shot (they were a new line, geometry and material per bullet) */
+const tracers = [], TR_MAX = 24;
+for (let i = 0; i < TR_MAX; i++) {
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3).setUsage(THREE.DynamicDrawUsage));
+  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: .9, fog: false }));
+  l.frustumCulled = false; l.visible = false; l.userData.noCull = 1; world.add(l); tracers.push({ l, t: 1, on: false });
+}
 function tracer(a, b, color = 0xffe0a0) {
-  const g = new THREE.BufferGeometry().setFromPoints([a, b]);
-  const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: .9, fog: false }));
-  world.add(l); tracers.push({ l, t: 0 });
+  let T = tracers.find(q => !q.on); if (!T) T = tracers.reduce((x, y) => y.t > x.t ? y : x);
+  const P0 = T.l.geometry.attributes.position; P0.setXYZ(0, a.x, a.y, a.z); P0.setXYZ(1, b.x, b.y, b.z); P0.needsUpdate = true;
+  T.l.material.color.set(color); T.l.material.opacity = .9; T.l.visible = true; T.on = true; T.t = 0;
 }
-function updTracers(dt) { for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.t += dt; t.l.material.opacity = 1 - t.t / .08; if (t.t > .08) { world.remove(t.l); t.l.geometry.dispose(); tracers.splice(i, 1); } } }
+function updTracers(dt) { for (const T of tracers) { if (!T.on) continue; T.t += dt; T.l.material.opacity = 1 - T.t / .08; if (T.t > .08) { T.on = false; T.l.visible = false; } } }
 
 /* thrown spears */
 const spears = [];
+const SPEAR_POOL = [], SPEAR_GEO = [new THREE.CylinderGeometry(.03, .03, 1.8, 5), new THREE.ConeGeometry(.06, .3, 4)];
 function throwSpear(e) {
-  const g = new THREE.Group(); mesh(new THREE.CylinderGeometry(.03, .03, 1.8, 5), M(0x6a4a2a), 0, 0, 0, g).rotation.x = Math.PI / 2; mesh(new THREE.ConeGeometry(.06, .3, 4), M(0x9a9a92), 0, 0, 1, g).rotation.x = Math.PI / 2;
+  // (Nov 12, perf) reused from a pool, and the two shapes are made once (each spear used to leave its geometry on the GPU)
+  let g = SPEAR_POOL.pop();
+  if (!g) { g = new THREE.Group(); mesh(SPEAR_GEO[0], M(0x6a4a2a), 0, 0, 0, g).rotation.x = Math.PI / 2; mesh(SPEAR_GEO[1], M(0x9a9a92), 0, 0, 1, g).rotation.x = Math.PI / 2; }
   const sx = e.x + Math.sin(e.yaw) * .4, sy = e.y + 1.7, sz = e.z + Math.cos(e.yaw) * .4;
   const tx = P.x + rr(-.6, .6), ty = P.y + 1.3, tz = P.z + rr(-.6, .6);
   const d = Math.hypot(tx - sx, tz - sz), spd = 22, T = d / spd;
@@ -422,7 +462,7 @@ function updSpears(dt) {
       if (!P.dead && Math.hypot(p.x - P.x, p.z - P.z) < .7 && p.y > P.y && p.y < P.y + 2) { hurtPlayer(16, p.x, p.z); s.hit = true; s.t = 9; }
       else if (p.y < heightAt(p.x, p.z)) { s.hit = true; s.t = 0; }
     }
-    if (s.t > 6) { world.remove(s.g); spears.splice(i, 1); }
+    if (s.t > 6) { world.remove(s.g); spears.splice(i, 1); if (SPEAR_POOL.length < 16) SPEAR_POOL.push(s.g); }
   }
 }
 
@@ -456,10 +496,12 @@ function initAudio() {
   music.unlock();
 }
 function setMute(m) { muted = m; if (master) master.gain.value = m ? 0 : .9; music.setMute(m); try { localStorage.setItem('the-arc-mute', m ? '1' : '0'); } catch (e) {} }
+let VOICES = 0;
 function play(name, vol = 1, rate = 1, when = 0) {
   const b = BUF[name]; if (!AC || !b || muted) return false;
+  if (VOICES >= (LOW ? 20 : 32)) return true;           // (Nov 12) a firefight can't stack up hundreds of overlapping sounds
   const s = AC.createBufferSource(), g = AC.createGain(); s.buffer = b; s.playbackRate.value = rate * rr(.95, 1.05); g.gain.value = vol;
-  s.connect(g).connect(sfxGain); s.start(AC.currentTime + when); return true;
+  s.connect(g).connect(sfxGain); VOICES++; s.onended = () => { VOICES--; s.disconnect(); g.disconnect(); }; s.start(AC.currentTime + when); return true;
 }
 /* music: two players crossfading. moods: day / night / raid / intro / dawn */
 const music = (() => {

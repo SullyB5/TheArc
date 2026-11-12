@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/jsm/libs/meshopt_decoder.module.js';
+import { MeshoptSimplifier } from './vendor/jsm/libs/meshopt_simplifier.module.js';
 import { KTX2Loader } from './vendor/jsm/loaders/KTX2Loader.js';
 import { EffectComposer } from './vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './vendor/jsm/postprocessing/RenderPass.js';
@@ -51,10 +52,28 @@ const LOW = isTouch;                       // phones: fewer trees/grass, smaller
    assets/models/ holds the originals both sets are made from. */
 const TEX_LEVELS = { low: { label: 'Low', cap: 0, capD: 0, aniso: 4, file: 'pc', dir: 'models-m' }, med: { label: 'Medium', cap: 1024, capD: 512, aniso: 4, file: 'pc', dir: 'models-p' }, high: { label: 'High', cap: 0, capD: 0, aniso: 8, file: 'pc', dir: 'models-p' } };
 const VIEW_LEVELS = { near: { label: 'Near', m: 300, haze: 1 }, med: { label: 'Medium', m: 450, haze: .7 }, far: { label: 'Far', m: 700, haze: .4 }, max: { label: 'Max', m: 0, haze: 0 } };
+/* (Nov 12, perf) graphics presets: Performance / Balanced / Quality, each tuned separately for computers (pc) and phones (ph).
+   A preset sets Textures + View distance (the two finer controls below it, which can still be changed on their own — then
+   the preset reads "Custom") and the rest: shadow map size and how often it's redrawn, bloom, the pixel-density ceiling and
+   floor adaptRes works between, grass density, how far models keep full detail (lod) and how far shadows reach (shR).
+   Defaults keep today's look exactly: computers Quality, phones Balanced. Performance is the opt-in for weak hardware. */
+const PRESETS = {
+  perf: { label: 'Performance', note: 'Smoothest. Shorter view, lighter shadows, lower resolution ceiling.',
+    pc: { tex: 'med', view: 'med', shadow: 1024, shEvery: 3, bloom: false, pr: 1.25, prMin: .75, grass: .55, lod: .75, shR: 75 },
+    ph: { tex: 'low', view: 'near', shadow: 1024, shEvery: 3, bloom: false, pr: 1.2, prMin: .65, grass: .6, lod: .75, shR: 65 } },
+  bal: { label: 'Balanced', note: 'Full textures and view, a little less resolution headroom.',
+    pc: { tex: 'high', view: 'far', shadow: 2048, shEvery: 2, bloom: true, pr: 1.5, prMin: .85, grass: .85, lod: 1, shR: 95 },
+    ph: { tex: 'low', view: 'med', shadow: 1024, shEvery: 2, bloom: false, pr: 1.5, prMin: .75, grass: 1, lod: 1, shR: 85 } },
+  qual: { label: 'Quality', note: 'Everything at full: sharpest image, furthest detail.',
+    pc: { tex: 'high', view: 'far', shadow: 2048, shEvery: 2, bloom: true, pr: 1.75, prMin: .9, grass: 1, lod: 1.35, shR: 110 },
+    ph: { tex: 'low', view: 'far', shadow: 2048, shEvery: 2, bloom: false, pr: 1.75, prMin: .8, grass: 1, lod: 1.25, shR: 100 } },
+};
 const GFX = (() => {
   let o = {}; try { o = JSON.parse(localStorage.getItem('arc-gfx')) || {}; } catch (e) {}
   const q = new URLSearchParams(location.search), t = q.get('tex') || o.tex, v = q.get('view') || o.view;
-  const g = { tex: TEX_LEVELS[t] ? t : (LOW ? 'low' : 'high'), view: VIEW_LEVELS[v] ? v : (LOW ? 'med' : 'far') };
+  let pr = q.get('preset') || o.preset; if (!PRESETS[pr]) pr = LOW ? 'bal' : 'qual';
+  const D = PRESETS[pr][LOW ? 'ph' : 'pc'], qp = q.get('preset');          // a preset picked in the URL brings its own textures + view
+  const g = { tex: TEX_LEVELS[t] && !(qp && !q.get('tex')) ? t : D.tex, view: VIEW_LEVELS[v] && !(qp && !q.get('view')) ? v : D.view, preset: pr, stats: !!(o.stats || q.has('stats')) };
   /* (Nov 11) crash guard: boot() marks 'arc-boot' when it starts and clears it once the world has loaded. If the mark is still
      there, the last load died (a phone running out of graphics memory on High kills the page mid-load, and with High saved it
      would die every time) — so step textures down a level, save it, and say so on the title screen. */
@@ -73,7 +92,8 @@ function playStart() { try { localStorage.setItem('arc-play', GFX.tex); } catch 
 function playDone() { try { localStorage.removeItem('arc-play'); } catch (e) {} }
 /* a phone out of graphics memory usually loses the WebGL context (a black screen) rather than killing the page: drop textures
    a level and reload (the save is kept). Already on Low, there's nothing lower: say so instead of looping. */
-function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view })); } catch (e) {} }
+function saveGfx() { try { localStorage.setItem('arc-gfx', JSON.stringify({ tex: GFX.tex, view: GFX.view, preset: GFX.preset, stats: GFX.stats ? 1 : 0 })); } catch (e) {} }
+let PQ = PRESETS[GFX.preset][LOW ? 'ph' : 'pc'];      // the live preset's knobs for this device
 const TEXQ = TEX_LEVELS[GFX.tex];
 let VIEW_M = VIEW_LEVELS[GFX.view].m;            // 0 = no limit
 /* (Nov 11, perf) every building's inside (its `inner` group: lining, props, gun racks, stoves) — drawn only when you're
@@ -368,7 +388,7 @@ canvas.addEventListener('webglcontextlost', ev => {
   if (next) { GFX.tex = next; saveGfx(); bootDone(); playDone(); setTimeout(() => location.reload(), 1200); }
   else { bootDone(); playDone(); }
 }, false);
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW ? 1.5 : 1.75));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, PQ.pr));   // (Nov 11: phones 1.35 -> 1.5; adaptRes still drops it if the frame rate sags)
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.autoUpdate = false;                       // (Nov 11, perf) redrawn every other frame in frame(): the shadow pass was ~500 draws
 renderer.shadowMap.type = THREE.PCFShadowMap;            // PCF (not PCF-soft): about half the shadow cost per pixel, edges still filtered
@@ -407,7 +427,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), LOW ? .4 : .55, .5, .88);
 /* (Nov 11) phones: no bloom. On iPhone its half-float blur smeared the bright haze into purple/green blotches (the "colour fog"),
    and it's a dozen extra full-screen passes. PC keeps it. */
-if (!LOW) composer.addPass(bloom); else bloom.enabled = false;
+if (!LOW) { composer.addPass(bloom); bloom.enabled = PQ.bloom; } else bloom.enabled = false;
 const grade = new ShaderPass(GRADE_SHADER);
 composer.addPass(grade);
 
@@ -483,7 +503,7 @@ const hemi = new THREE.HemisphereLight(0xcfdce6, 0x5a5444, 1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(LOW ? 1024 : 2048, LOW ? 1024 : 2048);
+sun.shadow.mapSize.set(PQ.shadow, PQ.shadow);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 420 });
 sun.shadow.bias = -.0005; sun.shadow.normalBias = .5;
 scene.add(sun, sun.target);
@@ -745,10 +765,13 @@ async function loadModels(names, quiet) {
   }).catch(e => console.warn('model', n, e && e.message))));
 }
 /* a copy of a model, scaled so its height (or length along an axis) is `size`, standing on y=0 and centred */
+const TINTED = new Map();
 function modelCopy(name, size, axis = 'y', tint) {
   const src = MODELS[name]; if (!src) return null;
   const o = src.clone(true);
-  if (tint) o.traverse(m => { if (m.isMesh) { m.material = [].concat(m.material).map(x => { const c = x.clone(); c.color = (c.color || new THREE.Color(1, 1, 1)).clone().multiply(new THREE.Color(tint)); return c; }); if (m.material.length === 1) m.material = m.material[0]; } });
+  // (Nov 12, perf) tinted copies share one material per (source material, tint): identical looks, but the bake can merge them
+  // and the renderer doesn't switch materials between them
+  if (tint) o.traverse(m => { if (m.isMesh) { m.material = [].concat(m.material).map(x => { const k = x.uuid + ':' + new THREE.Color(tint).getHexString(); let c = TINTED.get(k); if (!c) { c = x.clone(); c.color = (c.color || new THREE.Color(1, 1, 1)).clone().multiply(new THREE.Color(tint)); TINTED.set(k, c); } return c; }); if (m.material.length === 1) m.material = m.material[0]; } });
   const b = new THREE.Box3().setFromObject(o), sz = b.getSize(new THREE.Vector3()), ctr = b.getCenter(new THREE.Vector3());
   const k = size / sz[axis];
   const wrap = new THREE.Group(); o.scale.setScalar(k); o.position.set(-ctr.x * k, -b.min.y * k, -ctr.z * k); wrap.add(o);

@@ -238,6 +238,15 @@ function swing(w) {
 /* projectiles: arrows, bolts, flares, thrown spears, grenades, fire bottles */
 const PROJ = [];
 const PROJ_MODEL = { arrow: ['w/arrow', .75], bolt: ['w/bolt', .42], frag: ['w/frag', .12, 'y'], molotov: ['w/molotov', .26, 'y'] };
+/* (Nov 12, perf) arrows, bolts, spears and grenades are reused: a finished one goes back to its pool instead of being
+   rebuilt (with new geometry left on the GPU) for every throw */
+const PROJ_POOL = {};
+function projGet(kind) {
+  const g = (PROJ_POOL[kind] || []).pop();
+  if (!g) return projMesh(kind);
+  g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.visible = true; world.add(g); return g;
+}
+function projFree(p) { world.remove(p.g); const a = PROJ_POOL[p.kind] ||= []; if (a.length < 24) a.push(p.g); }
 function projMesh(kind) {
   const g = new THREE.Group(), pm = PROJ_MODEL[kind], mc = pm && modelCopy(pm[0], pm[1], pm[2] || 'z');
   if (mc) { mc.traverse(o => { if (o.isMesh) { o.castShadow = false; } }); { const b = new THREE.Box3().setFromObject(mc); mc.position.y -= (b.min.y + b.max.y) / 2; } g.add(mc); if (kind === 'molotov') mesh(new THREE.SphereGeometry(.035, 6, 4), VMAT.glow(0xff8a2a), 0, .27, 0, g); world.add(g); return g; }
@@ -248,7 +257,7 @@ function projMesh(kind) {
   world.add(g); return g;
 }
 function fireProj(R, key) {
-  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projMesh(kind), d = ray.clone();
+  const kind = R.flare ? 'flare' : /crossbow|xbow/.test(key) ? 'bolt' : 'arrow', g = projGet(kind), d = ray.clone();
   const p = { g, kind, x: rayO.x + d.x * .6, y: rayO.y + d.y * .6 - .05, z: rayO.z + d.z * .6, vx: d.x * R.spd, vy: d.y * R.spd, vz: d.z * R.spd, grav: R.grav, dmg: R.dmg, burn: R.burn || 0, t: 0, owner: 'p' };
   PROJ.push(p);
 }
@@ -257,7 +266,7 @@ function throwNext() {
   const id = (P.thr && cnt(P.thr) > 0) ? P.thr : THROWS.find(k => cnt(k) > 0);
   if (!id) { toast('Nothing to throw — craft grenades or throwing spears', 2); sfx('no'); return; }
   take(id, 1); camera.getWorldPosition(rayO); camera.getWorldDirection(ray);
-  const spd = id === 'throw_spear' ? 32 : 18, g = projMesh(id);
+  const spd = id === 'throw_spear' ? 32 : 18, g = projGet(id);
   PROJ.push({ g, kind: id, x: rayO.x + ray.x * .5, y: rayO.y + ray.y * .5, z: rayO.z + ray.z * .5, vx: ray.x * spd, vy: ray.y * spd + (id === 'throw_spear' ? 1 : 3.5), vz: ray.z * spd, grav: 12, dmg: id === 'throw_spear' ? 70 : 0, t: 0, owner: 'p', fuse: id === 'frag' ? 2.4 : id === 'smoke_gren' ? 1.6 : 0 });
   sfx('whoosh'); toast(`${nameOf(id)} · ${cnt(id)} left`, 1.2);
 }
@@ -294,7 +303,7 @@ function updProj(dt) {
     }
     if (p.hitE && !p.hitE.dead) p.g.position.set(p.hitE.x, p.hitE.y + 1.2, p.hitE.z);
     if (p.fuse) { p.fuse -= dt; if (p.fuse <= 0) { if (p.kind === 'frag') explode(p.x, p.y, p.z); else SMOKES_P.push({ x: p.x, z: p.z, y: p.y, t: 14 }); p.t = 99; p.fuse = 0; } }
-    if (p.t > (p.kind === 'arrow' || p.kind === 'bolt' || p.kind === 'throw_spear' ? 25 : 30) || p.t >= 99) { world.remove(p.g); PROJ.splice(i, 1); }
+    if (p.t > (p.kind === 'arrow' || p.kind === 'bolt' || p.kind === 'throw_spear' ? 25 : 30) || p.t >= 99) { projFree(p); PROJ.splice(i, 1); }
   }
   for (let i = FIRES.length - 1; i >= 0; i--) { const f = FIRES[i]; f.t -= dt; if (Math.random() < dt * (f.small ? 8 : 20)) puff(f.x + rr(-1.5, 1.5) * (f.small ? .2 : 1), f.y + .3, f.z + rr(-1.5, 1.5) * (f.small ? .2 : 1), pick([0xff8a2a, 0xffb04a, 0xe0502a]), 2, 1.5, .18, .6, 3);
     if (!f.small) { for (const e of ents) if (!e.dead && e.type !== 'npc' && Math.hypot(e.x - f.x, e.z - f.z) < 3.2) e.burn = Math.max(e.burn || 0, 3); if (Math.hypot(P.x - f.x, P.z - f.z) < 2.4) hurtPlayer(14 * dt, f.x + .01, f.z); }
